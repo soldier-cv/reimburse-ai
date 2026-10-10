@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  expense-app:
+    build: .
+    container_name: expense-system
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - PORT=8090
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=Admin@2026!
+      # 可选：自定义 JWT 密钥
+      # - JWT_SECRET_KEY=your_custom_jwt_secret_here
+    volumes:
+      # 持久化数据库
+      - ./data:/app/data
+      # 持久化上传的发票文件
+      - ./uploads:/app/uploads
