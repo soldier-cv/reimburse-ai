@@ -13,6 +13,23 @@
 
 ---
 
+## [2.3.0] - 2026-10-10
+
+### 新增 (Added)
+- **首次部署超级管理员初始化向导与多用户管理中心**：
+  - 移除默认硬编码账密提示，新增 `GET /api/system/init-status` 与 `POST /api/system/init-admin`，首次启动部署时自动引导设置超级管理员账号与密码；
+  - 新增管理员用户管理接口（`GET /api/admin/users`、`POST /api/admin/users`、`POST /api/admin/users/{user_id}/reset-password`、`DELETE /api/admin/users/{user_id}`）及前端【多用户系统管理中心】，支持创建新用户、分配角色、重置密码与注销成员。
+- **Woodpecker CI (`v3.19.0`) 与 Docker Compose 部署编排**：
+  - 新增 `.woodpecker.yaml`，严格仅支持 `tag` (`refs/tags/v*`) 与 `manual` 手动触发，通过 `resolve-tag` 与 `build-and-deploy` 直接在宿主机本地完成 `reimburse-ai` 镜像构建与 `docker compose` 部署；
+  - 更新 `docker-compose.yml`，统一按 Git 仓库名 `reimburse-ai` 命名服务与容器。
+
+### 修复与优化 (Fixed & Improved)
+- **通行费汇总单互斥防重与千分位金额解析修复**：
+  - 新增 `parse_clean_amount` 金额清洗函数与 `([\d,]+\.?\d*)` 正则规则，彻底修复大于等于 `1,000.00` 元票据因千分位逗号被截断为 `1.00` 元的问题；
+  - 精确识别通行费汇总单 `(票据).pdf` 与 `(行程).pdf`，以 `(票据).pdf` 作为唯一主发票入账，将 `(行程).pdf` 与 `通行费电子发票.zip` 自动作为凭证附件（`InvoiceVoucher`）挂载至主汇总单名下，杜绝通行费双倍重复计费。
+
+---
+
 ## [2.2.0] - 2026-10-10
 
 ### 变更与优化 (Changed & Improved)

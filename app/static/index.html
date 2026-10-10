@@ -109,6 +109,7 @@
             <i class="fa-solid fa-user text-slate-500"></i>
           </div>
           <span class="text-xs font-medium text-slate-700 hidden sm:inline">{{ username }}</span>
+          <span v-if="userRole === 'admin'" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-white font-mono">管理员</span>
         </div>
         <div class="h-4 w-px bg-slate-200"></div>
         <button @click="showPwdModal = true" class="text-xs text-slate-500 hover:text-slate-800 p-1.5 rounded-lg hover:bg-slate-100 transition" title="修改密码">
@@ -801,11 +802,70 @@
         </div>
       </div>
 
+      <!-- 4. 多用户管理中心 (仅管理员可见) -->
+      <div v-if="userRole === 'admin'" class="bg-white rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-6 space-y-5">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4 gap-3">
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 class="text-sm font-bold text-slate-900">多用户系统管理中心</h3>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-slate-900 text-white font-semibold border border-slate-800">管理员专属</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">管理系统内的所有成员账号，支持创建新用户、分配管理员权限、重置密码与移除账号，用户间数据物理强隔离</p>
+          </div>
+          <div class="flex items-center space-x-2 shrink-0">
+            <button @click="openCreateUserModal" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center cursor-pointer">
+              <i class="fa-solid fa-user-plus mr-1.5 text-xs"></i>创建新用户
+            </button>
+            <button @click="openUserManageModal" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center cursor-pointer">
+              <i class="fa-solid fa-users-gear mr-1.5 text-xs text-slate-300"></i>管理系统用户 ({{ usersList.length }})
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </main>
 
+  <!-- 首次部署系统管理员初始化弹窗 -->
+  <div v-if="showInitAdminModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-7 space-y-5">
+      <div class="text-center space-y-1.5">
+        <div class="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto text-base shadow-sm">
+          <i class="fa-solid fa-user-shield"></i>
+        </div>
+        <div class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 mb-1">
+          系统首次部署初始化向导
+        </div>
+        <h3 class="text-base font-bold text-slate-900">设置系统超级管理员账号</h3>
+        <p class="text-xs text-slate-500 leading-relaxed">检测到系统为首次启动部署，请先设置超级管理员用户名与登录密码。初始化完成后将直接登录并初始化默认分类规则。</p>
+      </div>
+
+      <form @submit.prevent="handleInitAdminSubmit" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">管理员用户名</label>
+          <input type="text" v-model="initAdminForm.username" required placeholder="例如 admin" class="custom-input w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">设置管理员密码 (至少 6 位)</label>
+          <input type="password" v-model="initAdminForm.password" required placeholder="请输入高强度管理员密码" class="custom-input w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">确认管理员密码</label>
+          <input type="password" v-model="initAdminForm.confirmPassword" required placeholder="请再次输入密码确认" class="custom-input w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
+        </div>
+        <div v-if="initAdminError" class="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+          {{ initAdminError }}
+        </div>
+        <button type="submit" :disabled="initializingAdmin" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition cursor-pointer">
+          <i v-if="initializingAdmin" class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+          {{ initializingAdmin ? '正在初始化系统...' : '完成初始化并进入系统' }}
+        </button>
+      </form>
+    </div>
+  </div>
+
   <!-- 登录与注册弹窗 (支持多用户自主注册) -->
-  <div v-if="!isLoggedIn" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div v-if="!isLoggedIn && !showInitAdminModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl shadow-xl border border-slate-200 max-w-sm w-full p-7 space-y-5">
       <div class="text-center space-y-1.5">
         <div class="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center mx-auto text-base shadow-sm">
@@ -818,26 +878,25 @@
       <form @submit.prevent="handleAuthSubmit" class="space-y-4">
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">用户名</label>
-          <input type="text" v-model="authForm.username" required placeholder="请输入您的账号" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
+          <input type="text" v-model="authForm.username" required placeholder="请输入您的账号" class="custom-input w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">密码</label>
-          <input type="password" v-model="authForm.password" required placeholder="请输入密码" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
-          <p v-if="authMode === 'login'" class="text-[10px] text-slate-400 mt-1">初始默认账号: admin / 密码: Admin@2026!</p>
+          <input type="password" v-model="authForm.password" required placeholder="请输入密码" class="custom-input w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
         </div>
         <div v-if="authError" class="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
           {{ authError }}
         </div>
-        <button type="submit" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition">
+        <button type="submit" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition cursor-pointer">
           {{ authMode === 'login' ? '登录个人助手' : '立即注册并进入' }}
         </button>
       </form>
 
       <div class="text-center pt-2 border-t border-slate-100">
-        <button v-if="authMode === 'login'" @click="authMode = 'register'; authError = '';" class="text-xs text-blue-600 hover:underline">
+        <button v-if="authMode === 'login'" @click="authMode = 'register'; authError = '';" class="text-xs text-blue-600 hover:underline cursor-pointer">
           没有账号？点击注册新用户空间
         </button>
-        <button v-else @click="authMode = 'login'; authError = '';" class="text-xs text-slate-500 hover:underline">
+        <button v-else @click="authMode = 'login'; authError = '';" class="text-xs text-slate-500 hover:underline cursor-pointer">
           已有账号？返回直接登录
         </button>
       </div>
@@ -1320,6 +1379,163 @@
     </div>
   </div>
 
+  <!-- 系统用户管理中心弹窗 (管理员专属) -->
+  <div v-if="showUserManageModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-3xl w-full p-6 space-y-4 border border-slate-200">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-base shadow-xs">
+            <i class="fa-solid fa-users-gear"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h4 class="text-base font-bold text-slate-900">系统用户管理中心</h4>
+              <span class="text-xs px-2.5 py-0.5 rounded-full font-mono bg-slate-100 text-slate-700 border border-slate-200 font-semibold">
+                共 {{ usersList.length }} 个账号
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">支持新增用户、重置成员密码、分配权限及账号注销</p>
+          </div>
+        </div>
+        <button @click="showUserManageModal = false" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-between py-1">
+        <span class="text-xs text-slate-500">所有用户均享有独立的发票、台账与系统配置空间</span>
+        <div class="flex items-center space-x-2">
+          <button @click="loadUsersList" class="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition flex items-center shadow-2xs cursor-pointer">
+            <i class="fa-solid fa-arrows-rotate mr-1 text-slate-400"></i>刷新
+          </button>
+          <button @click="openCreateUserModal" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition flex items-center shadow-xs cursor-pointer">
+            <i class="fa-solid fa-user-plus mr-1 text-xs"></i>新建用户
+          </button>
+        </div>
+      </div>
+
+      <div class="border border-slate-200/80 rounded-2xl overflow-hidden max-h-80 overflow-y-auto">
+        <table class="min-w-full divide-y divide-slate-100 text-xs text-left">
+          <thead class="bg-slate-50/85 text-slate-500 font-semibold uppercase sticky top-0 z-10 backdrop-blur-xs">
+            <tr>
+              <th class="py-3 px-3.5 w-12 text-center">#</th>
+              <th class="py-3 px-3.5">用户名</th>
+              <th class="py-3 px-3.5 w-28 text-center">角色身份</th>
+              <th class="py-3 px-3.5 w-40 text-center">注册时间</th>
+              <th class="py-3 px-3.5 w-32 text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 bg-white">
+            <tr v-for="(u, idx) in usersList" :key="u.id" class="hover:bg-slate-50/60 transition">
+              <td class="py-2.5 px-3.5 text-center text-slate-400 font-mono text-[11px]">{{ idx + 1 }}</td>
+              <td class="py-2.5 px-3.5 font-medium text-slate-800 font-mono">
+                {{ u.username }}
+                <span v-if="u.username === username" class="ml-1.5 text-[10px] px-1.5 py-0.2 bg-blue-50 text-blue-600 rounded border border-blue-200 font-sans">当前账号</span>
+              </td>
+              <td class="py-2.5 px-3.5 text-center">
+                <span :class="u.role === 'admin' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 border border-slate-200'" class="px-2 py-0.5 rounded text-[11px] font-semibold">
+                  {{ u.role === 'admin' ? '系统管理员' : '普通用户' }}
+                </span>
+              </td>
+              <td class="py-2.5 px-3.5 text-center font-mono text-slate-500 text-[11px] whitespace-nowrap">{{ u.created_at || '-' }}</td>
+              <td class="py-2.5 px-3.5 text-center">
+                <div class="flex items-center justify-center space-x-1">
+                  <button @click="openResetUserPwdModal(u)" class="p-1.5 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer" title="重置用户密码">
+                    <i class="fa-solid fa-key"></i>
+                  </button>
+                  <button v-if="u.username !== username" @click="handleDeleteUser(u)" class="p-1.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer" title="删除该用户">
+                    <i class="fa-regular fa-trash-can"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-end pt-2 border-t border-slate-100">
+        <button @click="showUserManageModal = false" class="px-4 py-1.5 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition cursor-pointer">
+          关闭
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 创建新用户弹窗 -->
+  <div v-if="showCreateUserModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-xl max-w-sm w-full p-6 space-y-4 border border-slate-200">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm">
+            <i class="fa-solid fa-user-plus"></i>
+          </div>
+          <h4 class="text-base font-bold text-slate-900">创建新用户</h4>
+        </div>
+        <button @click="showCreateUserModal = false" class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <form @submit.prevent="handleCreateUserSubmit" class="space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold mb-1 text-slate-700">用户名</label>
+          <input type="text" v-model="newUserForm.username" required placeholder="例如 zhangsan" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl">
+        </div>
+        <div>
+          <label class="block font-semibold mb-1 text-slate-700">初始密码 (至少 6 位)</label>
+          <input type="password" v-model="newUserForm.password" required placeholder="请输入初始密码" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl">
+        </div>
+        <div>
+          <label class="block font-semibold mb-1 text-slate-700">角色身份</label>
+          <select v-model="newUserForm.role" class="custom-select w-full p-2.5 border border-slate-200 rounded-xl bg-white font-medium">
+            <option value="user">普通用户 (独立数据空间)</option>
+            <option value="admin">系统管理员 (含多用户管理权限)</option>
+          </select>
+        </div>
+        <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+          <button type="button" @click="showCreateUserModal = false" class="px-3.5 py-2 border border-slate-200 rounded-xl text-xs text-slate-600 hover:bg-slate-50 cursor-pointer">取消</button>
+          <button type="submit" :disabled="creatingUser" class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 disabled:opacity-50 cursor-pointer">
+            {{ creatingUser ? '创建中...' : '确认创建' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 管理员重置用户密码弹窗 -->
+  <div v-if="showResetUserPwdModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-xl max-w-sm w-full p-6 space-y-4 border border-slate-200">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm">
+            <i class="fa-solid fa-key"></i>
+          </div>
+          <h4 class="text-base font-bold text-slate-900">重置用户密码</h4>
+        </div>
+        <button @click="showResetUserPwdModal = false" class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="text-xs text-slate-600">
+        正在为用户 <strong class="font-mono text-slate-900">「{{ resetUserTarget?.username }}」</strong> 重设登录密码：
+      </div>
+
+      <form @submit.prevent="handleAdminResetPasswordSubmit" class="space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold mb-1 text-slate-700">新密码 (至少 6 位)</label>
+          <input type="password" v-model="resetUserPwd" required placeholder="请输入新密码" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl">
+        </div>
+        <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+          <button type="button" @click="showResetUserPwdModal = false" class="px-3.5 py-2 border border-slate-200 rounded-xl text-xs text-slate-600 hover:bg-slate-50 cursor-pointer">取消</button>
+          <button type="submit" :disabled="resettingUserPwd" class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 disabled:opacity-50 cursor-pointer">
+            {{ resettingUserPwd ? '重置中...' : '确认重置' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -1335,10 +1551,28 @@ createApp({
     const currentTab = ref('reports');
     const isLoggedIn = ref(false);
     const username = ref('admin');
+    const userRole = ref('user'); // 'admin' | 'user'
     const token = ref(localStorage.getItem('expense_token') || '');
 
+    // 系统首次初始化向导状态
+    const showInitAdminModal = ref(false);
+    const initAdminForm = ref({ username: 'admin', password: '', confirmPassword: '' });
+    const initAdminError = ref('');
+    const initializingAdmin = ref(false);
+
+    // 多用户管理状态 (管理员专属)
+    const usersList = ref([]);
+    const showUserManageModal = ref(false);
+    const showCreateUserModal = ref(false);
+    const newUserForm = ref({ username: '', password: '', role: 'user' });
+    const creatingUser = ref(false);
+    const showResetUserPwdModal = ref(false);
+    const resetUserTarget = ref(null);
+    const resetUserPwd = ref('');
+    const resettingUserPwd = ref(false);
+
     const authMode = ref('login'); // 'login' | 'register'
-    const authForm = ref({ username: 'admin', password: '' });
+    const authForm = ref({ username: '', password: '' });
     const authError = ref('');
     const showPwdModal = ref(false);
     const pwdForm = ref({ old_password: '', new_password: '' });
@@ -1461,12 +1695,190 @@ createApp({
       return base + 'bg-sky-50 text-sky-700 border-sky-200';
     };
 
+    const checkInitStatus = async () => {
+      try {
+        const resp = await fetch('/api/system/init-status');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (!data.initialized) {
+            showInitAdminModal.value = true;
+          }
+        }
+      } catch (e) {
+        console.error('检查系统初始化状态异常:', e);
+      }
+    };
+
+    const handleInitAdminSubmit = async () => {
+      initAdminError.value = '';
+      if (!initAdminForm.value.username.trim()) {
+        initAdminError.value = '请输入管理员用户名';
+        return;
+      }
+      if (!initAdminForm.value.password || initAdminForm.value.password.length < 6) {
+        initAdminError.value = '密码长度至少需 6 位';
+        return;
+      }
+      if (initAdminForm.value.password !== initAdminForm.value.confirmPassword) {
+        initAdminError.value = '两次输入的密码不一致';
+        return;
+      }
+      initializingAdmin.value = true;
+      try {
+        const resp = await fetch('/api/system/init-admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: initAdminForm.value.username.trim(),
+            password: initAdminForm.value.password
+          })
+        });
+        const data = await resp.json();
+        initializingAdmin.value = false;
+        if (resp.ok && data.success) {
+          token.value = data.token;
+          localStorage.setItem('expense_token', data.token);
+          isLoggedIn.value = true;
+          username.value = data.username;
+          userRole.value = data.role || 'admin';
+          showInitAdminModal.value = false;
+          exportUrl.value = `/api/reports/export/excel?token=${data.token}`;
+          loadReports();
+          loadRules();
+          loadAISettings();
+          loadBuyers();
+          loadAuditRetention();
+          loadAuditLogs();
+          if (userRole.value === 'admin') loadUsersList();
+          alert('系统超级管理员初始化成功！欢迎使用。');
+        } else {
+          initAdminError.value = data.detail || '初始化管理员失败';
+        }
+      } catch (e) {
+        initializingAdmin.value = false;
+        initAdminError.value = '请求异常: ' + e.message;
+      }
+    };
+
+    const loadUsersList = async () => {
+      if (userRole.value !== 'admin') return;
+      try {
+        const resp = await fetch('/api/admin/users', { headers: authHeaders() });
+        if (resp.ok) {
+          usersList.value = await resp.json();
+        }
+      } catch (e) {
+        console.error('获取系统用户列表失败:', e);
+      }
+    };
+
+    const openUserManageModal = () => {
+      showUserManageModal.value = true;
+      loadUsersList();
+    };
+
+    const openCreateUserModal = () => {
+      newUserForm.value = { username: '', password: '', role: 'user' };
+      showCreateUserModal.value = true;
+    };
+
+    const handleCreateUserSubmit = async () => {
+      if (!newUserForm.value.username.trim()) {
+        alert('请输入用户名');
+        return;
+      }
+      if (!newUserForm.value.password || newUserForm.value.password.length < 6) {
+        alert('初始密码至少需 6 位');
+        return;
+      }
+      creatingUser.value = true;
+      try {
+        const resp = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: newUserForm.value.username.trim(),
+            password: newUserForm.value.password,
+            role: newUserForm.value.role
+          })
+        });
+        const data = await resp.json();
+        creatingUser.value = false;
+        if (resp.ok && data.success) {
+          alert(`用户「${newUserForm.value.username}」创建成功！`);
+          showCreateUserModal.value = false;
+          loadUsersList();
+          loadAuditLogs();
+        } else {
+          alert(data.detail || '创建用户失败');
+        }
+      } catch (e) {
+        creatingUser.value = false;
+        alert('创建请求异常: ' + e.message);
+      }
+    };
+
+    const openResetUserPwdModal = (u) => {
+      resetUserTarget.value = u;
+      resetUserPwd.value = '';
+      showResetUserPwdModal.value = true;
+    };
+
+    const handleAdminResetPasswordSubmit = async () => {
+      if (!resetUserTarget.value) return;
+      if (!resetUserPwd.value || resetUserPwd.value.length < 6) {
+        alert('重置密码长度至少需 6 位');
+        return;
+      }
+      resettingUserPwd.value = true;
+      try {
+        const resp = await fetch(`/api/admin/users/${resetUserTarget.value.id}/reset-password`, {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ new_password: resetUserPwd.value })
+        });
+        const data = await resp.json();
+        resettingUserPwd.value = false;
+        if (resp.ok && data.success) {
+          alert(`用户「${resetUserTarget.value.username}」的密码已重置成功`);
+          showResetUserPwdModal.value = false;
+          loadAuditLogs();
+        } else {
+          alert(data.detail || '重置密码失败');
+        }
+      } catch (e) {
+        resettingUserPwd.value = false;
+        alert('重置请求异常: ' + e.message);
+      }
+    };
+
+    const handleDeleteUser = async (u) => {
+      if (!confirm(`确定要注销并删除用户「${u.username}」吗？此操作将级联删除该用户的全部发票与配置数据，不可恢复！`)) return;
+      try {
+        const resp = await fetch(`/api/admin/users/${u.id}`, {
+          method: 'DELETE',
+          headers: authHeaders()
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          alert(`用户「${u.username}」已成功移除`);
+          loadUsersList();
+          loadAuditLogs();
+        } else {
+          alert(data.detail || '删除用户失败');
+        }
+      } catch (e) {
+        alert('删除操作异常: ' + e.message);
+      }
+    };
+
     const checkAuth = async () => {
       try {
         const resp = await fetch('/api/auth/me', { headers: authHeaders() });
         if (resp.ok) {
           const data = await resp.json();
           username.value = data.username;
+          userRole.value = data.role || 'user';
           isLoggedIn.value = true;
           exportUrl.value = `/api/reports/export/excel?token=${token.value}`;
           loadReports();
@@ -1475,6 +1887,7 @@ createApp({
           loadBuyers();
           loadAuditRetention();
           loadAuditLogs();
+          if (userRole.value === 'admin') loadUsersList();
         } else {
           isLoggedIn.value = false;
         }
@@ -1498,12 +1911,14 @@ createApp({
           localStorage.setItem('expense_token', data.token);
           isLoggedIn.value = true;
           username.value = data.username;
+          userRole.value = data.role || 'user';
           exportUrl.value = `/api/reports/export/excel?token=${data.token}`;
           loadReports();
           loadRules();
           loadAISettings();
           loadBuyers();
           loadAuditLogs();
+          if (userRole.value === 'admin') loadUsersList();
         } else {
           authError.value = data.detail || (authMode.value === 'login' ? '登录失败' : '注册失败');
         }
@@ -2209,11 +2624,17 @@ createApp({
     };
 
     onMounted(() => {
+      checkInitStatus();
       checkAuth();
     });
 
     return {
-      currentTab, isLoggedIn, username, authMode, authForm, authError, showPwdModal, pwdForm,
+      currentTab, isLoggedIn, username, userRole, authMode, authForm, authError, showPwdModal, pwdForm,
+      showInitAdminModal, initAdminForm, initAdminError, initializingAdmin, handleInitAdminSubmit,
+      usersList, showUserManageModal, showCreateUserModal, newUserForm, creatingUser,
+      showResetUserPwdModal, resetUserTarget, resetUserPwd, resettingUserPwd,
+      loadUsersList, openUserManageModal, openCreateUserModal, handleCreateUserSubmit,
+      openResetUserPwdModal, handleAdminResetPasswordSubmit, handleDeleteUser,
       reports, invoices, filterCategory, filterBuyer, buyersList, loadBuyers, rules,
       showNewRuleModal, newRule, kwInput, patInput, addKeyword, addPattern, openNewRuleModal,
       aiForm, aiModelsList, fetchingModels, defaultSystemPrompt, fetchAIModels, resetSystemPrompt, testingAI,

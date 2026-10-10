@@ -103,18 +103,34 @@ def get_current_user(
     return user
 
 def init_default_admin(db: Session):
-    """系统初始化默认超级管理员账号"""
-    admin_user = db.query(User).first()
-    if not admin_user:
-        init_username = os.environ.get("ADMIN_USERNAME", "admin")
-        init_password = os.environ.get("ADMIN_PASSWORD", "Admin@2026!")
+    """
+    系统管理员账号初始化策略：
+    1. 若已有 role='admin' 的管理员，直接跳过；
+    2. 若已有账号名为 'admin'，升级其 role 为 'admin'；
+    3. 若显式配置了环境变量 ADMIN_USERNAME 与 ADMIN_PASSWORD，自动初始化；
+    4. 否则保持未初始化状态，由 Web 端首次启动界面向导引导用户自主设置管理员账密。
+    """
+    admin_user = db.query(User).filter(User.role == "admin").first()
+    if admin_user:
+        return
+
+    existing_named_admin = db.query(User).filter(User.username == "admin").first()
+    if existing_named_admin:
+        existing_named_admin.role = "admin"
+        db.commit()
+        return
+
+    init_username = os.environ.get("ADMIN_USERNAME", "").strip()
+    init_password = os.environ.get("ADMIN_PASSWORD", "").strip()
+    if init_username and init_password:
         hashed, salt = hash_password(init_password)
         new_user = User(
             username=init_username,
             password_hash=hashed,
             salt=salt,
+            role="admin",
             created_at=datetime.now()
         )
         db.add(new_user)
         db.commit()
-        print(f"[AUTH INIT] 已初始化管理员账号: {init_username} / 初始密码: {init_password}")
+        print(f"[AUTH INIT] 已根据环境变量自动初始化超级管理员: {init_username}")

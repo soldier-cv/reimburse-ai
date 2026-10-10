@@ -14,7 +14,7 @@ from .models import User, CategoryRule, Batch, ExpenseReport, Invoice, InvoiceVo
 from .schemas import (
     LoginRequest, RegisterRequest, PasswordChangeRequest, CategoryRuleCreate, CategoryRuleUpdate,
     StatusUpdateRequest, AISettingRequest, ExpenseReportUpdate, InvoiceUpdate,
-    AIModelFetchRequest
+    AIModelFetchRequest, InitAdminRequest, AdminCreateUserRequest, AdminResetPasswordRequest
 )
 from .services.auth import (
     get_current_user, create_access_token, verify_password, hash_password, init_default_admin
@@ -102,11 +102,77 @@ def startup_event():
     db = next(get_db())
     try:
         init_default_admin(db)
-        admin = db.query(User).filter(User.username == "admin").first()
+        admin = db.query(User).filter(User.role == "admin").first()
         if admin:
             init_user_default_rules(db, admin.id)
     finally:
         db.close()
+
+# -------------------------------------------------------------
+# 0. 系统首次部署与初始化向导 (System Initialization)
+# -------------------------------------------------------------
+@app.get("/api/system/init-status")
+def get_init_status(db: Session = Depends(get_db)):
+    """获取系统首次初始化状态（是否已配置超级管理员）"""
+    has_admin = db.query(User).filter(User.role == "admin").count() > 0
+    total_users = db.query(User).count()
+    return {
+        "initialized": has_admin,
+        "has_admin": has_admin,
+        "total_users": total_users
+    }
+
+@app.post("/api/system/init-admin")
+def init_admin_user(req: InitAdminRequest, response: Response, db: Session = Depends(get_db)):
+    """系统首次部署向导：设置超级管理员用户名与密码"""
+    has_admin = db.query(User).filter(User.role == "admin").count() > 0
+    if has_admin:
+        raise HTTPException(status_code=400, detail="系统管理员已初始化，禁止重复设置")
+
+    username = req.username.strip()
+    if not username or len(username) < 3:
+        raise HTTPException(status_code=400, detail="管理员用户名长度不能少于 3 位")
+    if not req.password or len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="管理员密码长度不能少于 6 位")
+
+    existing = db.query(User).filter(User.username == username).first()
+    pwd_hash, salt = hash_password(req.password)
+    if existing:
+        existing.password_hash = pwd_hash
+        existing.salt = salt
+        existing.role = "admin"
+        db.commit()
+        user = existing
+    else:
+        user = User(
+            username=username,
+            password_hash=pwd_hash,
+            salt=salt,
+            role="admin",
+            created_at=datetime.now()
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    init_user_default_rules(db, user.id)
+    record_audit(db, user.id, "系统初始化", "system", user.id, f"首次部署初始化成功，设置超级管理员 [{username}]")
+
+    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role})
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        max_age=86400 * 7,
+        samesite="lax"
+    )
+    return {
+        "success": True,
+        "message": f"管理员 [{username}] 初始化设置成功，已直接进入系统",
+        "token": token,
+        "username": user.username,
+        "role": "admin"
+    }
 
 # -------------------------------------------------------------
 # 1. 认证与用户管理 (Auth & Multi-user)
@@ -140,12 +206,13 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     init_user_default_rules(db, user.id)
     record_audit(db, user.id, "注册账号", "user", user.id, f"新用户 [{username}] 成功注册")
 
-    token = create_access_token({"sub": user.username, "uid": user.id})
+    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role})
     return {
         "success": True,
         "message": "注册成功，已为您初始化专属报销规则空间",
         "token": token,
-        "username": user.username
+        "username": user.username,
+        "role": user.role
     }
 
 @app.post("/api/auth/login")
@@ -163,7 +230,7 @@ def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     # 兜底确保该用户拥有默认规则
     init_user_default_rules(db, user.id)
 
-    token = create_access_token({"sub": user.username, "uid": user.id})
+    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role})
     response.set_cookie(
         key="access_token",
         value=token,
@@ -178,8 +245,107 @@ def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
         "success": True,
         "message": "登录成功",
         "token": token,
-        "username": user.username
+        "username": user.username,
+        "role": user.role
     }
+
+# -------------------------------------------------------------
+# 管理员专享：用户列表、创建用户、重置密码与删除用户
+# -------------------------------------------------------------
+@app.get("/api/admin/users")
+def list_admin_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """管理员获取所有用户列表"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足，仅管理员可查看用户列表")
+    users = db.query(User).order_by(User.id.asc()).all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "role": u.role,
+            "created_at": u.created_at.strftime("%Y-%m-%d %H:%M:%S") if u.created_at else "-",
+            "last_login": u.last_login.strftime("%Y-%m-%d %H:%M:%S") if u.last_login else "-",
+            "invoice_count": len(u.invoices) if u.invoices else 0,
+            "report_count": len(u.reports) if u.reports else 0
+        }
+        for u in users
+    ]
+
+@app.post("/api/admin/users")
+def admin_create_user(req: AdminCreateUserRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """管理员创建新用户"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足，仅管理员可创建用户")
+    username = req.username.strip()
+    if not username or len(username) < 3:
+        raise HTTPException(status_code=400, detail="用户名长度不能少于 3 位")
+    if not req.password or len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="初始密码长度不能少于 6 位")
+
+    role = req.role if req.role in ["admin", "user"] else "user"
+    existing = db.query(User).filter(User.username == username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="该用户名已存在，请更换")
+
+    pwd_hash, salt = hash_password(req.password)
+    new_user = User(
+        username=username,
+        password_hash=pwd_hash,
+        salt=salt,
+        role=role,
+        created_at=datetime.now()
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    init_user_default_rules(db, new_user.id)
+    record_audit(db, current_user.id, "创建用户", "user", new_user.id, f"管理员 [{current_user.username}] 创建了用户 [{username}] (角色: {role})")
+    return {
+        "success": True,
+        "message": f"用户 [{username}] 创建成功",
+        "user": {
+            "id": new_user.id,
+            "username": new_user.username,
+            "role": new_user.role
+        }
+    }
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def admin_reset_user_password(user_id: int, req: AdminResetPasswordRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """管理员重置用户密码"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足，仅管理员可重置密码")
+    if not req.new_password or len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码长度不能少于 6 位")
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+
+    pwd_hash, salt = hash_password(req.new_password)
+    target_user.password_hash = pwd_hash
+    target_user.salt = salt
+    db.commit()
+
+    record_audit(db, current_user.id, "重置密码", "user", target_user.id, f"管理员 [{current_user.username}] 重置了用户 [{target_user.username}] 的密码")
+    return {"success": True, "message": f"用户 [{target_user.username}] 的密码已成功重置"}
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """管理员删除用户"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足，仅管理员可删除用户")
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="无法删除当前正在登录的管理员账户")
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+
+    uname = target_user.username
+    db.delete(target_user)
+    db.commit()
+    record_audit(db, current_user.id, "删除用户", "user", user_id, f"管理员 [{current_user.username}] 删除了用户 [{uname}] 及全部关联数据")
+    return {"success": True, "message": f"用户 [{uname}] 已成功删除"}
 
 @app.post("/api/auth/logout")
 def logout(response: Response):

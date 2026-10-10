@@ -70,3 +70,16 @@ class AuditLogItem(BaseModel):
     summary: str
     details: Optional[str]
     created_at: str
+
+class InitAdminRequest(BaseModel):
+    username: str
+    password: str
+
+class AdminCreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: Optional[str] = "user"
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+

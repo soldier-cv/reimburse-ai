@@ -5,7 +5,7 @@ import zipfile
 import shutil
 from datetime import datetime
 from sqlalchemy.orm import Session
-from ..models import Batch, ExpenseReport, Invoice, CategoryRule, UserSetting, SystemSetting, AuditLog
+from ..models import Batch, ExpenseReport, Invoice, InvoiceVoucher, CategoryRule, UserSetting, SystemSetting, AuditLog
 from .extractor import extract_toll_summary, extract_standard_invoice, is_valid_file_by_pattern
 from .ai_service import extract_invoice_with_ai
 
@@ -173,13 +173,57 @@ async def process_zip_package(
 
         affected_months.add(current_month)
 
-        for f in files:
+        # 对文件按业务优先级排序：通行费主票据优先，行程明细次之，原始压缩包最后
+        def file_sort_key(filename):
+            fn = filename.lower()
+            if "(票据)" in fn or "按票据索引" in fn:
+                return 0
+            if fn.endswith(".pdf"):
+                return 1
+            if "(行程)" in fn or "按行程索引" in fn:
+                return 2
+            if fn.endswith(".zip"):
+                return 3
+            return 4
+
+        sorted_files = sorted(files, key=file_sort_key)
+        toll_master_invoice = None
+
+        for f in sorted_files:
             file_path = os.path.join(root, f)
+            ext = os.path.splitext(f)[1].lower()
+
+            # 特殊处理：通行费分类下的原始发票压缩包 (*.zip) 自动作为凭证附件关联
+            if matched_rule.extractor_type == "toll_summary" and ext == ".zip":
+                target_toll_inv = toll_master_invoice or db.query(Invoice).filter(
+                    Invoice.user_id == user_id,
+                    Invoice.category_code == "toll",
+                    Invoice.month == current_month
+                ).order_by(Invoice.id.desc()).first()
+
+                if target_toll_inv:
+                    voucher = InvoiceVoucher(
+                        invoice_id=target_toll_inv.id,
+                        user_id=user_id,
+                        filename=f,
+                        stored_path=file_path,
+                        file_size=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                        content_type="application/zip",
+                        memo="通行费原始电子发票包 (自动关联)",
+                        created_at=datetime.now()
+                    )
+                    db.add(voucher)
+                    db.commit()
+                    logs.append(f"  [凭证归档] 原始发票包 [{f}] 已自动关联挂载为通行费汇总单的证明凭据，无需重复计费")
+                    continue
+                else:
+                    logs.append(f"  [跳过] 原始发票包 [{f}] (未检测到对应主汇总单)")
+                    continue
+
             if not is_valid_file_by_pattern(f, matched_rule.file_patterns):
                 logs.append(f"  [跳过] 文件不符合分类过滤模式: {f}")
                 continue
 
-            ext = os.path.splitext(f)[1].lower()
             if ext not in [".pdf", ".jpg", ".jpeg", ".png"]:
                 continue
 
@@ -209,6 +253,33 @@ async def process_zip_package(
             final_buyer = specified_buyer.strip() if specified_buyer else extracted_data.get("buyer", "")
             final_memo = specified_memo.strip() if specified_memo else ""
 
+            # 特殊处理：通行费行程单明细 (按行程索引 / (行程).pdf)
+            # 行程单是按笔行程展开的明细流水，与主汇总单属于同一笔交易，应作为明细凭证挂载，避免金额重复计算
+            if matched_rule.extractor_type == "toll_summary" and extracted_data.get("is_trip_detail"):
+                target_toll_inv = toll_master_invoice or (
+                    db.query(Invoice).filter(Invoice.user_id == user_id, Invoice.invoice_no == inv_no).first() if inv_no else None
+                ) or db.query(Invoice).filter(
+                    Invoice.user_id == user_id,
+                    Invoice.category_code == "toll",
+                    Invoice.month == current_month
+                ).order_by(Invoice.id.desc()).first()
+
+                if target_toll_inv:
+                    voucher = InvoiceVoucher(
+                        invoice_id=target_toll_inv.id,
+                        user_id=user_id,
+                        filename=f,
+                        stored_path=file_path,
+                        file_size=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                        content_type="application/pdf",
+                        memo="通行费行程单明细 (自动关联)",
+                        created_at=datetime.now()
+                    )
+                    db.add(voucher)
+                    db.commit()
+                    logs.append(f"    [凭证归档] 行程单明细 [{f}] 已自动关联挂载为通行费汇总单的明细凭证附件，避免重复核算金额")
+                    continue
+
             # 防重处理
             existing_inv = None
             if inv_no:
@@ -217,6 +288,8 @@ async def process_zip_package(
             if existing_inv:
                 if dup_strategy == "skip":
                     logs.append(f"    [跳过重复] 发票号 {inv_no} 已存在，策略为跳过重复")
+                    if matched_rule.extractor_type == "toll_summary":
+                        toll_master_invoice = existing_inv
                     continue
                 elif dup_strategy == "overwrite":
                     existing_inv.amount = amt
@@ -235,6 +308,8 @@ async def process_zip_package(
                     logs.append(f"    [覆盖已有] 发票号 {inv_no} 已存在，已覆盖更新最新金额与信息: ¥{amt:.2f}")
                     parsed_files_count += 1
                     total_batch_amount += amt
+                    if matched_rule.extractor_type == "toll_summary":
+                        toll_master_invoice = existing_inv
                     continue
 
             is_dup = bool(existing_inv)
@@ -261,9 +336,12 @@ async def process_zip_package(
                 memo=final_memo
             )
             db.add(invoice_record)
+            db.flush()
             parsed_files_count += 1
             total_batch_amount += amt
             logs.append(f"    -> 录入成功: 金额 ¥{amt:.2f}")
+            if matched_rule.extractor_type == "toll_summary":
+                toll_master_invoice = invoice_record
 
     db.commit()
 
@@ -383,6 +461,51 @@ async def process_single_invoice_file(
     existing_inv = None
     if final_no:
         existing_inv = db.query(Invoice).filter(Invoice.user_id == user_id, Invoice.invoice_no == final_no).first()
+
+    # 特殊处理：单文件上传通行费行程单明细 (按行程索引)
+    if extractor_type == "toll_summary" and extracted_data.get("is_trip_detail"):
+        target_inv = existing_inv or db.query(Invoice).filter(
+            Invoice.user_id == user_id,
+            Invoice.category_code == "toll",
+            Invoice.month == month
+        ).order_by(Invoice.id.desc()).first()
+
+        if target_inv:
+            voucher = InvoiceVoucher(
+                invoice_id=target_inv.id,
+                user_id=user_id,
+                filename=original_filename,
+                stored_path=file_path,
+                file_size=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                content_type="application/pdf",
+                memo="通行费行程单明细 (自动关联)",
+                created_at=datetime.now()
+            )
+            db.add(voucher)
+            db.commit()
+            record_audit(db, user_id, "上传凭证", "voucher", voucher.id, f"单文件录入检测到行程单 [{original_filename}]，已自动关联至发票 [{target_inv.invoice_no}]")
+            return {
+                "success": True,
+                "invoice_id": target_inv.id,
+                "amount": target_inv.amount,
+                "month": target_inv.month,
+                "category_name": target_inv.category_name,
+                "invoice_no": target_inv.invoice_no,
+                "buyer": target_inv.buyer,
+                "message": f"检测到 [{original_filename}] 为通行费行程单明细，已自动作为凭证附件关联至现有通行费汇总单，避免重复核算金额"
+            }
+
+    if existing_inv and dup_strategy == "skip":
+        return {
+            "success": True,
+            "invoice_id": existing_inv.id,
+            "amount": existing_inv.amount,
+            "month": existing_inv.month,
+            "category_name": existing_inv.category_name,
+            "invoice_no": existing_inv.invoice_no,
+            "buyer": existing_inv.buyer,
+            "message": f"发票号 {final_no} 已存在，策略为跳过重复"
+        }
 
     if existing_inv and dup_strategy == "overwrite":
         existing_inv.amount = final_amount
