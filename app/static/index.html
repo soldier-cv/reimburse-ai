@@ -58,7 +58,7 @@
             <span class="text-sm font-semibold tracking-tight text-slate-900">费用报销管理系统</span>
             <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono border border-slate-200">v1.0</span>
           </div>
-          <p class="text-xs text-slate-400">上海饭范范科技有限公司 · 苏U88M32</p>
+          <p class="text-xs text-slate-400">智能发票识别与多维度费用台账系统</p>
         </div>
       </div>
 
@@ -202,7 +202,7 @@
                 <td class="py-4 px-4 text-right font-semibold text-sky-700 bg-sky-50/30 font-mono">¥{{ rep.fuel_amount.toFixed(2) }}</td>
                 <td class="py-4 px-4 text-right font-bold text-slate-900 bg-amber-50/30 text-base font-mono">¥{{ rep.total_amount.toFixed(2) }}</td>
                 <td class="py-4 px-4 text-center">
-                  <input type="text" v-model="rep.submit_date" @blur="updateStatus(rep)" placeholder="未记录" class="w-24 text-center text-xs py-1 px-2 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white transition font-mono">
+                  <input type="date" v-model="rep.submit_date" @change="updateStatus(rep)" class="w-32 text-center text-xs py-1 px-1.5 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white transition font-mono" title="点击修改提交报销时间">
                 </td>
                 <td class="py-4 px-4 text-center">
                   <select v-model="rep.status" @change="updateStatus(rep)" :class="statusBadgeClass(rep.status)">
@@ -381,6 +381,10 @@
               <label class="block font-semibold mb-1 text-slate-700">销售方单位 (可选)</label>
               <input type="text" v-model="singleForm.seller" placeholder="留空则自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
             </div>
+            <div>
+              <label class="block font-semibold mb-1 text-slate-700">发票抬头 (购买方, 可选)</label>
+              <input type="text" v-model="singleForm.buyer" placeholder="留空则自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
+            </div>
 
             <div class="sm:col-span-2">
               <label class="block font-semibold mb-1 text-slate-700">服务劳务 / 货物明细 (可选)</label>
@@ -417,6 +421,7 @@
             <div>归属月份：{{ singleUploadResult.month }}</div>
             <div>费用分类：{{ singleUploadResult.category_name }}</div>
             <div>发票号码：{{ singleUploadResult.invoice_no || '未识别/空' }}</div>
+            <div>发票抬头：{{ singleUploadResult.buyer || '默认通用抬头' }}</div>
             <div>识别引擎：{{ singleUploadResult.recognition_method }}</div>
           </div>
           <div class="pt-2 flex justify-end space-x-2">
@@ -446,6 +451,10 @@
             <option value="catering">餐饮接待</option>
             <option value="hotel">差旅住宿</option>
           </select>
+          <select v-model="filterBuyer" @change="loadInvoices" class="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-none max-w-[200px]" title="按发票抬头筛选">
+            <option value="">全部发票抬头</option>
+            <option v-for="b in buyersList" :key="b" :value="b">{{ b }}</option>
+          </select>
           <button @click="loadInvoices" class="px-3.5 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 shadow-sm transition">
             刷新
           </button>
@@ -460,10 +469,11 @@
                 <th class="py-3.5 px-4 w-12 text-center">#</th>
                 <th class="py-3.5 px-4 w-28 text-center">所属月份</th>
                 <th class="py-3.5 px-4 w-28 text-center">类别</th>
-                <th class="py-3.5 px-4 w-52">发票号码</th>
+                <th class="py-3.5 px-4 min-w-[160px]">发票抬头 (购买方)</th>
+                <th class="py-3.5 px-4 w-44">发票号码</th>
                 <th class="py-3.5 px-4 w-28 text-center">开票日期</th>
                 <th class="py-3.5 px-4 w-32 text-right">金额 (含税)</th>
-                <th class="py-3.5 px-4 min-w-[200px]">服务劳务 / 货物</th>
+                <th class="py-3.5 px-4 min-w-[180px]">服务劳务 / 货物</th>
                 <th class="py-3.5 px-4 w-24 text-center">识别引擎</th>
                 <th class="py-3.5 px-4 w-24 text-center">操作</th>
               </tr>
@@ -477,6 +487,7 @@
                     {{ inv.category_name || inv.category_code }}
                   </span>
                 </td>
+                <td class="py-3 px-4 text-xs text-slate-700 truncate max-w-[180px]" :title="inv.buyer">{{ inv.buyer || '-' }}</td>
                 <td class="py-3 px-4 font-mono text-xs text-slate-700">
                   {{ inv.invoice_no }}
                   <span v-if="inv.is_duplicate" class="ml-1 px-1.5 py-0.2 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[10px]">重复</span>
@@ -497,7 +508,7 @@
                 </td>
               </tr>
               <tr v-if="invoices.length === 0">
-                <td colspan="9" class="py-16 text-center text-slate-400">暂无发票归档记录</td>
+                <td colspan="10" class="py-16 text-center text-slate-400">暂无发票归档记录</td>
               </tr>
             </tbody>
           </table>
@@ -552,31 +563,98 @@
 
       <!-- 外部 AI 视觉 / OCR 识别接口配置 -->
       <div class="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-slate-200/80 p-6 space-y-5">
-        <div>
-          <h3 class="text-base font-bold text-slate-900">AI 视觉多模态 OCR 接口配置</h3>
-          <p class="text-xs text-slate-500 mt-0.5">当上传手机拍摄小票或纯图片导致本地提取无文本时，自动调用该大模型视觉接口兜底提取</p>
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 class="text-base font-bold text-slate-900">AI 视觉多模态 OCR 接口配置</h3>
+              <span class="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full font-medium border border-rose-200">核心必备配置</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">用于解析照片、截图及无文字层 PDF 发票；先填地址与密钥，再动态拉取可用模型与调优提示词</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" id="aiEnabled" v-model="aiForm.enabled" class="rounded text-slate-900 h-4 w-4 focus:ring-0 cursor-pointer">
+            <label for="aiEnabled" class="text-xs font-semibold text-slate-700 cursor-pointer">启用视觉识别</label>
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-          <div class="sm:col-span-2 flex items-center space-x-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/60">
-            <input type="checkbox" id="aiEnabled" v-model="aiForm.enabled" class="rounded text-slate-900 h-4 w-4 focus:ring-0 cursor-pointer">
-            <label for="aiEnabled" class="text-xs font-semibold text-slate-700 cursor-pointer">启用 AI 视觉模型多模态兜底识别</label>
-          </div>
-
+        <div class="space-y-4 pt-1">
+          <!-- 1. 接口地址 -->
           <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1.5">接口地址 (Base URL)</label>
+            <label class="block text-xs font-semibold text-slate-700 mb-1.5">
+              1. 接口地址 (Base URL) <span class="text-rose-500">*</span>
+            </label>
             <input type="text" v-model="aiForm.base_url" placeholder="https://api.openai.com/v1" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
-            <span class="text-[11px] text-slate-400 mt-1 block">兼容 OpenAI 规范接口（如 Qwen, DeepSeek, Gemini 等）</span>
+            <span class="text-[11px] text-slate-400 mt-1 block">兼容 OpenAI 规范的 API 接口，例如通义千问 (DashScope)、DeepSeek、SiliconFlow、OpenAI 等</span>
           </div>
 
+          <!-- 2. API 密钥 -->
           <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1.5">模型名称 (Model Name)</label>
-            <input type="text" v-model="aiForm.model_name" placeholder="gpt-4o-mini 或 qwen-vl-plus" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
+            <label class="block text-xs font-semibold text-slate-700 mb-1.5">
+              2. API 密钥 (API Key) <span class="text-rose-500">*</span>
+            </label>
+            <input type="password" v-model="aiForm.api_key" placeholder="sk-..." class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
+            <span class="text-[11px] text-slate-400 mt-1 block">密钥安全保存在后端 SQLite 数据库中，不会明文泄露</span>
           </div>
 
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-semibold text-slate-700 mb-1.5">API 密钥 (API Key)</label>
-            <input type="password" v-model="aiForm.api_key" placeholder="sk-..." class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
+          <!-- 3. 模型名称 (下拉选择 + 动态获取) -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-xs font-semibold text-slate-700">
+                3. 模型名称 (Model Name) <span class="text-rose-500">*</span>
+              </label>
+              <button 
+                type="button" 
+                @click="fetchAIModels" 
+                :disabled="fetchingModels || !aiForm.base_url || !aiForm.api_key"
+                class="px-2.5 py-1 text-xs font-medium bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-lg transition flex items-center"
+                title="连接接口地址获取支持的模型列表"
+              >
+                <i :class="['mr-1 text-xs', fetchingModels ? 'fa-solid fa-circle-notch fa-spin text-blue-600' : 'fa-solid fa-list-check text-slate-500']"></i>
+                {{ fetchingModels ? '正在拉取模型...' : '获取可用模型列表' }}
+              </button>
+            </div>
+
+            <!-- 如果已拉取模型列表，优先展示下拉菜单 -->
+            <div v-if="aiModelsList.length > 0" class="space-y-2">
+              <select v-model="aiForm.model_name" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono bg-white">
+                <option disabled value="">请选择可用模型（已按视觉模型智能优先排序）</option>
+                <option v-for="m in aiModelsList" :key="m" :value="m">{{ m }}</option>
+              </select>
+              <div class="flex items-center justify-between text-[11px] text-slate-400">
+                <span>已拉取到 {{ aiModelsList.length }} 个可用模型</span>
+                <button type="button" @click="aiModelsList = []" class="text-slate-500 hover:underline">切换为手动输入</button>
+              </div>
+            </div>
+
+            <!-- 若未拉取或手动输入模式 -->
+            <div v-else>
+              <input type="text" v-model="aiForm.model_name" placeholder="例如 gpt-4o-mini 或 qwen-vl-plus" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
+              <span class="text-[11px] text-slate-400 mt-1 block">可直接输入，或点击右上角【获取可用模型列表】自动拉取并下拉选择</span>
+            </div>
+          </div>
+
+          <!-- 4. 系统提示词 (System Prompt) 自定义展示与配置 -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-xs font-semibold text-slate-700">
+                4. 系统提示词 (System Prompt)
+              </label>
+              <button 
+                type="button" 
+                @click="resetSystemPrompt" 
+                class="text-[11px] text-slate-500 hover:text-blue-600 transition flex items-center"
+                title="一键恢复为官方内置默认提示词"
+              >
+                <i class="fa-solid fa-arrow-rotate-left mr-1"></i>恢复默认提示词
+              </button>
+            </div>
+            <textarea 
+              v-model="aiForm.system_prompt" 
+              rows="6" 
+              placeholder="自定义发票提取提示词..." 
+              class="w-full text-xs p-3 font-mono border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none leading-relaxed text-slate-700"
+            ></textarea>
+            <span class="text-[11px] text-slate-400 mt-1 block">该提示词指导多模态大模型从发票图片中抽取发票代码、号码、金额、日期、购买方抬头等标准 JSON 结构</span>
           </div>
         </div>
 
@@ -780,6 +858,11 @@
         </div>
 
         <div class="col-span-2">
+          <label class="block font-semibold mb-1 text-slate-700">发票抬头 (购买方单位)</label>
+          <input type="text" v-model="editInvoiceForm.buyer" placeholder="购方企业或机构抬头" class="w-full p-2.5 border border-slate-200 rounded-xl">
+        </div>
+
+        <div class="col-span-2">
           <label class="block font-semibold mb-1 text-slate-700">服务劳务 / 货物明细</label>
           <input type="text" v-model="editInvoiceForm.item_name" placeholder="货物或应税劳务名称" class="w-full p-2.5 border border-slate-200 rounded-xl">
         </div>
@@ -822,12 +905,17 @@ createApp({
     const reports = ref([]);
     const invoices = ref([]);
     const filterCategory = ref('');
+    const filterBuyer = ref('');
+    const buyersList = ref([]);
     const rules = ref([]);
 
     const showNewRuleModal = ref(false);
     const newRule = ref({ category_code: '', category_name: '', folder_keywords: '', file_patterns: '', extractor_type: 'invoice' });
 
-    const aiForm = ref({ enabled: false, base_url: '', api_key: '', model_name: '' });
+    const aiForm = ref({ enabled: true, base_url: '', api_key: '', model_name: '', system_prompt: '' });
+    const aiModelsList = ref([]);
+    const fetchingModels = ref(false);
+    const defaultSystemPrompt = ref('');
     const testingAI = ref(false);
 
     const exportUrl = ref('/api/reports/export/excel');
@@ -874,6 +962,7 @@ createApp({
           loadReports();
           loadRules();
           loadAISettings();
+          loadBuyers();
         } else {
           isLoggedIn.value = false;
         }
@@ -900,6 +989,7 @@ createApp({
           loadReports();
           loadRules();
           loadAISettings();
+          loadBuyers();
         } else {
           loginError.value = data.detail || '登录失败';
         }
@@ -985,6 +1075,7 @@ createApp({
           uploadLogs.value = data.logs || ['处理成功'];
           selectedFile.value = null;
           loadReports();
+          loadBuyers();
         } else {
           uploadLogs.value = data.logs || [data.detail || '处理失败'];
         }
@@ -1007,6 +1098,7 @@ createApp({
       invoice_no: '',
       invoice_date: '',
       seller: '',
+      buyer: '',
       item_name: '',
       memo: ''
     });
@@ -1037,6 +1129,7 @@ createApp({
       if (singleForm.value.invoice_no) formData.append('invoice_no', singleForm.value.invoice_no);
       if (singleForm.value.invoice_date) formData.append('invoice_date', singleForm.value.invoice_date);
       if (singleForm.value.seller) formData.append('seller', singleForm.value.seller);
+      if (singleForm.value.buyer) formData.append('buyer', singleForm.value.buyer);
       if (singleForm.value.item_name) formData.append('item_name', singleForm.value.item_name);
       if (singleForm.value.memo) formData.append('memo', singleForm.value.memo);
 
@@ -1053,6 +1146,7 @@ createApp({
           selectedSingleFile.value = null;
           loadReports();
           loadInvoices();
+          loadBuyers();
         } else {
           alert(data.detail || '单文件上传处理失败');
         }
@@ -1062,9 +1156,21 @@ createApp({
       }
     };
 
+    const loadBuyers = async () => {
+      try {
+        const resp = await fetch('/api/invoices/buyers', { headers: authHeaders() });
+        if (resp.ok) {
+          buyersList.value = await resp.json();
+        }
+      } catch (e) {}
+    };
+
     const loadInvoices = async () => {
-      const url = filterCategory.value ? `/api/invoices?category=${filterCategory.value}` : '/api/invoices';
-      const resp = await fetch(url, { headers: authHeaders() });
+      const params = new URLSearchParams();
+      if (filterCategory.value) params.append('category', filterCategory.value);
+      if (filterBuyer.value) params.append('buyer', filterBuyer.value);
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const resp = await fetch(`/api/invoices${query}`, { headers: authHeaders() });
       if (resp.ok) {
         invoices.value = await resp.json();
       }
@@ -1080,6 +1186,7 @@ createApp({
       await fetch(`/api/invoices/${id}`, { method: 'DELETE', headers: authHeaders() });
       loadInvoices();
       loadReports();
+      loadBuyers();
     };
 
     const loadRules = async () => {
@@ -1112,9 +1219,59 @@ createApp({
     };
 
     const loadAISettings = async () => {
-      const resp = await fetch('/api/settings/ai', { headers: authHeaders() });
-      if (resp.ok) {
-        aiForm.value = await resp.json();
+      try {
+        const resp = await fetch('/api/settings/ai', { headers: authHeaders() });
+        if (resp.ok) {
+          const data = await resp.json();
+          aiForm.value = {
+            enabled: data.enabled ?? true,
+            base_url: data.base_url || '',
+            api_key: data.api_key || '',
+            model_name: data.model_name || '',
+            system_prompt: data.system_prompt || data.default_system_prompt || ''
+          };
+          defaultSystemPrompt.value = data.default_system_prompt || '';
+        }
+      } catch (e) {}
+    };
+
+    const fetchAIModels = async () => {
+      if (!aiForm.value.base_url || !aiForm.value.api_key) {
+        alert('请先输入完整的接口地址 (Base URL) 与 API 密钥 (API Key)');
+        return;
+      }
+      fetchingModels.value = true;
+      try {
+        const resp = await fetch('/api/settings/ai/models', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            base_url: aiForm.value.base_url,
+            api_key: aiForm.value.api_key
+          })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          aiModelsList.value = data.models || [];
+          if (aiModelsList.value.length > 0) {
+            if (!aiForm.value.model_name || !aiModelsList.value.includes(aiForm.value.model_name)) {
+              aiForm.value.model_name = aiModelsList.value[0];
+            }
+          }
+          alert(`成功拉取到 ${data.count} 个可用模型，已优先排序列出视觉多模态模型`);
+        } else {
+          alert('拉取模型失败: ' + (data.detail || data.error || '远端接口未返回有效模型列表'));
+        }
+      } catch (e) {
+        alert('拉取模型请求异常: ' + e.message);
+      } finally {
+        fetchingModels.value = false;
+      }
+    };
+
+    const resetSystemPrompt = () => {
+      if (confirm('确定将系统提示词重置为官方内置默认提示词吗？')) {
+        aiForm.value.system_prompt = defaultSystemPrompt.value;
       }
     };
 
@@ -1205,6 +1362,7 @@ createApp({
         if (resp.ok && data.success) {
           loadReports();
           loadInvoices();
+          loadBuyers();
         } else {
           alert(data.detail || '删除失败');
         }
@@ -1224,6 +1382,7 @@ createApp({
         if (resp.ok && data.success) {
           loadReports();
           loadInvoices();
+          loadBuyers();
           uploadLogs.value = [];
         } else {
           alert(data.detail || '清空失败');
@@ -1242,6 +1401,7 @@ createApp({
       invoice_date: '',
       amount: 0,
       seller: '',
+      buyer: '',
       item_name: '',
       memo: ''
     });
@@ -1254,6 +1414,7 @@ createApp({
         invoice_date: inv.invoice_date || '',
         amount: inv.amount,
         seller: inv.seller || '',
+        buyer: inv.buyer || '',
         item_name: inv.item_name || '',
         memo: inv.memo || ''
       };
@@ -1273,6 +1434,7 @@ createApp({
           showEditInvoiceModal.value = false;
           loadInvoices();
           loadReports();
+          loadBuyers();
         } else {
           alert(data.detail || '保存失败');
         }
@@ -1287,8 +1449,9 @@ createApp({
 
     return {
       currentTab, isLoggedIn, username, loginForm, loginError, showPwdModal, pwdForm,
-      reports, invoices, filterCategory, rules, showNewRuleModal, newRule,
-      aiForm, testingAI, exportUrl, isDragging, selectedFile, uploading, uploadLogs,
+      reports, invoices, filterCategory, filterBuyer, buyersList, loadBuyers, rules, showNewRuleModal, newRule,
+      aiForm, aiModelsList, fetchingModels, defaultSystemPrompt, fetchAIModels, resetSystemPrompt, testingAI, exportUrl,
+      isDragging, selectedFile, uploading, uploadLogs,
       pendingTotal, waitingPayTotal, completedTotal,
       navClass, statusBadgeClass, handleLogin, logout, saveNewPassword,
       loadReports, updateStatus, handleDrop, handleFileSelect, startUpload,

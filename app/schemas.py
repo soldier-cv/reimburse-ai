@@ -34,6 +34,11 @@ class AISettingRequest(BaseModel):
     base_url: str
     api_key: str
     model_name: str
+    system_prompt: Optional[str] = None
+
+class AIModelFetchRequest(BaseModel):
+    base_url: str
+    api_key: str
 
 class ExpenseReportUpdate(BaseModel):
     month: Optional[str] = None
@@ -49,5 +54,6 @@ class InvoiceUpdate(BaseModel):
     invoice_no: Optional[str] = None
     invoice_date: Optional[str] = None
     seller: Optional[str] = None
+    buyer: Optional[str] = None
     item_name: Optional[str] = None
     memo: Optional[str] = None

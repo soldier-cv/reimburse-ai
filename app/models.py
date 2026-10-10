@@ -19,9 +19,9 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)           # 如：上海饭范范科技有限公司
-    plate_number = Column(String(50), default="苏U88M32")# 关联车牌
-    tax_no = Column(String(100), nullable=True)          # 纳税人识别号
+    name = Column(String(100), nullable=False)           # 企业或报销主体名称
+    plate_number = Column(String(50), default="")        # 关联车辆号牌（可选）
+    tax_no = Column(String(100), nullable=True)          # 纳税人识别号 / 统一社会信用代码
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 

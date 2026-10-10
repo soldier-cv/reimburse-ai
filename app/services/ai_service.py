@@ -4,11 +4,27 @@ import base64
 import httpx
 from typing import Optional
 
+DEFAULT_SYSTEM_PROMPT = """你是一个专业的财税发票与费用单据识别助手。请识别并提取输入发票中的核心财务字段，必须仅输出标准 JSON 格式对象，不要包含任何 markdown 标记、解释或其他文字。
+字段格式定义如下：
+{
+  "invoice_no": "发票号码或凭证汇总单号",
+  "invoice_date": "开票日期(YYYY-MM-DD)",
+  "amount": 123.45,
+  "net_amount": 100.00,
+  "tax_amount": 23.45,
+  "seller": "销售方企业名称",
+  "buyer": "购买方企业名称/发票抬头",
+  "item_name": "主要商品、服务或劳务名称",
+  "quantity": 0.0,
+  "unit_price": 0.0
+}"""
+
 async def extract_invoice_with_ai(
     file_path: str,
     base_url: str,
     api_key: str,
-    model_name: str = "gpt-4o-mini"
+    model_name: str = "gpt-4o-mini",
+    system_prompt: Optional[str] = None
 ) -> dict:
     """
     通过 OpenAI 兼容的多模态视觉 API 进行发票识别与结构化提取。
@@ -29,23 +45,7 @@ async def extract_invoice_with_ai(
     except Exception as e:
         return {}
 
-    system_prompt = (
-        "你是一个专业的财税发票识别助手。请识别并提取输入发票中的核心字段，"
-        "必须仅输出标准的 JSON 格式对象，不要包含任何 markdown 标记、解释或其他文字。\n"
-        "字段定义如下：\n"
-        "{\n"
-        '  "invoice_no": "发票号码字符串",\n'
-        '  "invoice_date": "开票日期(YYYY-MM-DD)",\n'
-        '  "amount": 123.45,  // 价税合计总金额(浮点数)\n'
-        '  "net_amount": 100.00,  // 不含税金额\n'
-        '  "tax_amount": 23.45,  // 税额\n'
-        '  "seller": "销售方公司名称",\n'
-        '  "buyer": "购买方公司名称",\n'
-        '  "item_name": "主要商品或服务劳务名称",\n'
-        '  "quantity": 0.0, // 数量(如加油升数)\n'
-        '  "unit_price": 0.0 // 单价\n'
-        "}"
-    )
+    effective_prompt = (system_prompt.strip() if system_prompt and system_prompt.strip() else DEFAULT_SYSTEM_PROMPT)
 
     # 规范化 endpoint
     url = base_url.rstrip("/")
@@ -55,7 +55,7 @@ async def extract_invoice_with_ai(
     payload = {
         "model": model_name,
         "messages": [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": effective_prompt},
             {
                 "role": "user",
                 "content": [
@@ -120,3 +120,61 @@ async def test_ai_connection(base_url: str, api_key: str, model_name: str) -> di
                 return {"success": False, "message": f"连接失败，状态码: {resp.status_code}, 内容: {resp.text[:200]}"}
     except Exception as e:
         return {"success": False, "message": f"连接发生异常: {str(e)}"}
+
+async def fetch_available_models(base_url: str, api_key: str) -> dict:
+    """
+    通过 OpenAI 兼容协议从服务商获取可用模型列表。
+    请求 GET /models 接口并解析返回的模型清单。
+    """
+    if not base_url or not api_key:
+        return {"success": False, "message": "接口地址和密钥不能为空", "models": []}
+
+    url = base_url.rstrip("/")
+    if url.endswith("/chat/completions"):
+        url = url[:-len("/chat/completions")]
+    if not url.endswith("/models"):
+        url += "/models"
+
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_models = data.get("data", [])
+                model_ids = []
+                for m in raw_models:
+                    if isinstance(m, dict) and "id" in m:
+                        model_ids.append(m["id"])
+                    elif isinstance(m, str):
+                        model_ids.append(m)
+
+                # 将带有常用视觉与多模态能力的模型优先排在前列
+                def priority_key(name):
+                    n = name.lower()
+                    if any(k in n for k in ["4o", "vl", "vision", "gemini-1.5", "claude-3"]):
+                        return (0, n)
+                    return (1, n)
+
+                sorted_models = sorted(model_ids, key=priority_key)
+                return {
+                    "success": True,
+                    "message": f"成功获取到 {len(sorted_models)} 个可用模型",
+                    "models": sorted_models
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"服务商接口返回异常状态码: HTTP {resp.status_code}",
+                    "models": []
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"获取模型列表失败: {str(e)}",
+            "models": []
+        }

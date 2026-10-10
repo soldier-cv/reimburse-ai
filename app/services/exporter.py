@@ -11,8 +11,13 @@ def export_reports_to_excel(db: Session, project_id: int = 1) -> io.BytesIO:
     导出华总定制的【月度多行合并汇总版】Excel 文件流。
     """
     project = db.query(Project).filter(Project.id == project_id).first()
-    proj_name = project.name if project else "上海饭范范科技有限公司"
-    plate = project.plate_number if project else "苏U88M32"
+    proj_name = project.name if (project and project.name) else "费用报销主体"
+    plate = project.plate_number if (project and project.plate_number) else ""
+
+    info_parts = [f"报销主体：{proj_name}"]
+    if plate:
+        info_parts.append(f"车辆：{plate}")
+    info_parts.append("说明：通行费直接录入汇总单金额；燃油票默认预留明细行逐笔填入（公式自动求和）")
 
     reports = db.query(ExpenseReport).filter(ExpenseReport.project_id == project_id).order_by(ExpenseReport.month.asc()).all()
 
@@ -42,13 +47,13 @@ def export_reports_to_excel(db: Session, project_id: int = 1) -> io.BytesIO:
     ws1.views.sheetView[0].showGridLines = True
 
     ws1.merge_cells("A1:H1")
-    ws1["A1"] = "交通差旅费用报销汇总表"
+    ws1["A1"] = "费用报销汇总表"
     ws1["A1"].font = font_title
     ws1["A1"].alignment = Alignment(horizontal="left", vertical="center")
     ws1.row_dimensions[1].height = 30
 
     ws1.merge_cells("A2:H2")
-    ws1["A2"] = f"报销人：华旭东  |  车辆：{plate}  |  主体：{proj_name}  |  说明：通行费直接录入汇总单金额；燃油票默认预留3行逐笔填入（自动求和）"
+    ws1["A2"] = "  |  ".join(info_parts)
     ws1["A2"].font = font_sub
     ws1["A2"].alignment = Alignment(horizontal="left", vertical="center")
     ws1.row_dimensions[2].height = 20

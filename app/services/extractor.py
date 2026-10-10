@@ -34,7 +34,7 @@ def extract_pdf_text(pdf_path: str) -> str:
 def extract_toll_summary(pdf_path: str, filename: str) -> dict:
     """
     提取收费公路通行费电子票据汇总单
-    汇总单第一行或抬头即有：苏U88M32 交易金额 ¥818.63
+    汇总单通常包含：车牌号、汇总单号、汇总开票起止日期及交易金额
     """
     txt = extract_pdf_text(pdf_path)
     res = {

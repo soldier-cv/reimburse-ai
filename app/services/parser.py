@@ -90,6 +90,7 @@ async def process_zip_package(zip_path: str, db: Session, target_project_id: int
     ai_base_url = db.query(SystemSetting).filter(SystemSetting.key == "ai_base_url").first()
     ai_api_key = db.query(SystemSetting).filter(SystemSetting.key == "ai_api_key").first()
     ai_model = db.query(SystemSetting).filter(SystemSetting.key == "ai_model_name").first()
+    ai_sys_prompt = db.query(SystemSetting).filter(SystemSetting.key == "ai_system_prompt").first()
 
     use_ai = ai_setting_enabled and ai_setting_enabled.value == "true" and ai_api_key and ai_api_key.value
 
@@ -148,7 +149,8 @@ async def process_zip_package(zip_path: str, db: Session, target_project_id: int
                     file_path=file_path,
                     base_url=ai_base_url.value,
                     api_key=ai_api_key.value,
-                    model_name=ai_model.value if ai_model else "gpt-4o-mini"
+                    model_name=ai_model.value if ai_model else "gpt-4o-mini",
+                    system_prompt=ai_sys_prompt.value if ai_sys_prompt else None
                 )
                 if ai_res and ai_res.get("amount", 0) > 0:
                     extracted_data = ai_res
@@ -194,6 +196,7 @@ async def process_zip_package(zip_path: str, db: Session, target_project_id: int
     db.commit()
 
     # 6. 重新聚合受影响月份的 ExpenseReport 月度台账
+    today_str = datetime.now().strftime("%Y-%m-%d")
     for m in affected_months:
         if m == "未知月份":
             continue
@@ -206,11 +209,14 @@ async def process_zip_package(zip_path: str, db: Session, target_project_id: int
             report = ExpenseReport(
                 project_id=target_project_id,
                 month=m,
+                submit_date=today_str,
                 status="待报销"
             )
             db.add(report)
             db.commit()
             db.refresh(report)
+        elif not report.submit_date:
+            report.submit_date = today_str
 
         # 关联发票到报销单
         invoices_m = db.query(Invoice).filter(Invoice.month == m).all()
@@ -251,6 +257,7 @@ async def process_single_invoice_file(
     specified_invoice_no: str = None,
     specified_invoice_date: str = None,
     specified_seller: str = None,
+    specified_buyer: str = None,
     specified_item_name: str = None,
     specified_memo: str = None,
     target_project_id: int = 1,
@@ -273,6 +280,7 @@ async def process_single_invoice_file(
     ai_base_url = db.query(SystemSetting).filter(SystemSetting.key == "ai_base_url").first()
     ai_api_key = db.query(SystemSetting).filter(SystemSetting.key == "ai_api_key").first()
     ai_model = db.query(SystemSetting).filter(SystemSetting.key == "ai_model_name").first()
+    ai_sys_prompt = db.query(SystemSetting).filter(SystemSetting.key == "ai_system_prompt").first()
     use_ai = ai_setting_enabled and ai_setting_enabled.value == "true" and ai_api_key and ai_api_key.value
 
     # 1. 本地抽取
@@ -287,7 +295,8 @@ async def process_single_invoice_file(
             file_path,
             ai_base_url.value if ai_base_url else "https://api.openai.com/v1",
             ai_api_key.value,
-            ai_model.value if ai_model else "gpt-4o-mini"
+            ai_model.value if ai_model else "gpt-4o-mini",
+            system_prompt=ai_sys_prompt.value if ai_sys_prompt else None
         )
         if ai_res.get("amount", 0.0) > 0:
             extracted_data = ai_res
@@ -297,6 +306,7 @@ async def process_single_invoice_file(
     final_no = specified_invoice_no.strip() if specified_invoice_no else extracted_data.get("invoice_no", "")
     final_date = specified_invoice_date.strip() if specified_invoice_date else extracted_data.get("invoice_date", "")
     final_seller = specified_seller.strip() if specified_seller else extracted_data.get("seller", "")
+    final_buyer = specified_buyer.strip() if specified_buyer else extracted_data.get("buyer", "")
     final_item = specified_item_name.strip() if specified_item_name else extracted_data.get("item_name", "")
     final_memo = specified_memo.strip() if specified_memo else ""
     method = "manual_override" if specified_amount is not None else extracted_data.get("method", "manual")
@@ -335,6 +345,7 @@ async def process_single_invoice_file(
         invoice_date=final_date,
         amount=final_amount,
         seller=final_seller,
+        buyer=final_buyer,
         item_name=final_item,
         is_duplicate=is_dup,
         recognition_method=method,
@@ -345,6 +356,7 @@ async def process_single_invoice_file(
     db.refresh(invoice)
 
     # 7. 更新或创建对应的月度费用台账
+    today_str = datetime.now().strftime("%Y-%m-%d")
     report = db.query(ExpenseReport).filter(
         ExpenseReport.project_id == target_project_id,
         ExpenseReport.month == month
@@ -358,11 +370,14 @@ async def process_single_invoice_file(
             fuel_amount=0.0,
             other_amount=0.0,
             total_amount=0.0,
+            submit_date=today_str,
             status="待报销"
         )
         db.add(report)
         db.commit()
         db.refresh(report)
+    elif not report.submit_date:
+        report.submit_date = today_str
 
     invoice.report_id = report.id
 

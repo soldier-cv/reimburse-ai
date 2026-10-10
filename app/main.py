@@ -12,14 +12,15 @@ from .database import engine, Base, get_db, BASE_DIR
 from .models import User, Project, CategoryRule, Batch, ExpenseReport, Invoice, SystemSetting
 from .schemas import (
     LoginRequest, PasswordChangeRequest, CategoryRuleCreate, CategoryRuleUpdate,
-    StatusUpdateRequest, AISettingRequest, ExpenseReportUpdate, InvoiceUpdate
+    StatusUpdateRequest, AISettingRequest, ExpenseReportUpdate, InvoiceUpdate,
+    AIModelFetchRequest
 )
 from .services.auth import (
     get_current_user, create_access_token, verify_password, hash_password, init_default_admin
 )
 from .services.parser import process_zip_package, process_single_invoice_file
 from .services.exporter import export_reports_to_excel
-from .services.ai_service import test_ai_connection
+from .services.ai_service import test_ai_connection, fetch_available_models, DEFAULT_SYSTEM_PROMPT
 
 # 初始化数据库结构
 Base.metadata.create_all(bind=engine)
@@ -51,9 +52,9 @@ def startup_event():
         # 2. 默认业务主体
         if not db.query(Project).first():
             default_proj = Project(
-                name="上海饭范范科技有限公司",
-                plate_number="苏U88M32",
-                tax_no="91310112MACLEC6D14",
+                name="通用报销主体",
+                plate_number="",
+                tax_no="",
                 is_default=True
             )
             db.add(default_proj)
@@ -101,10 +102,11 @@ def startup_event():
         # 4. 默认 AI 设置占位
         if not db.query(SystemSetting).filter(SystemSetting.key == "ai_ocr_enabled").first():
             db.add_all([
-                SystemSetting(key="ai_ocr_enabled", value="false", description="是否启用AI OCR多模态识别"),
+                SystemSetting(key="ai_ocr_enabled", value="true", description="是否启用AI OCR多模态识别"),
                 SystemSetting(key="ai_base_url", value="https://api.openai.com/v1", description="OpenAI兼容API地址"),
                 SystemSetting(key="ai_api_key", value="", description="API Key"),
-                SystemSetting(key="ai_model_name", value="gpt-4o-mini", description="模型名称")
+                SystemSetting(key="ai_model_name", value="gpt-4o-mini", description="模型名称"),
+                SystemSetting(key="ai_system_prompt", value=DEFAULT_SYSTEM_PROMPT, description="AI视觉发票识别系统提示词")
             ])
             db.commit()
     finally:
@@ -195,6 +197,7 @@ async def upload_single_invoice(
     invoice_no: Optional[str] = Form(None),
     invoice_date: Optional[str] = Form(None),
     seller: Optional[str] = Form(None),
+    buyer: Optional[str] = Form(None),
     item_name: Optional[str] = Form(None),
     memo: Optional[str] = Form(None),
     project_id: int = Form(1),
@@ -225,6 +228,7 @@ async def upload_single_invoice(
         specified_invoice_no=invoice_no,
         specified_invoice_date=invoice_date,
         specified_seller=seller,
+        specified_buyer=buyer,
         specified_item_name=item_name,
         specified_memo=memo,
         target_project_id=project_id,
@@ -358,6 +362,7 @@ def export_excel(project_id: int = 1, user: User = Depends(get_current_user), db
 def get_invoices(
     month: str = None,
     category: str = None,
+    buyer: str = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -366,9 +371,18 @@ def get_invoices(
         query = query.filter(Invoice.month == month)
     if category:
         query = query.filter(Invoice.category_code == category)
+    if buyer and buyer.strip():
+        query = query.filter(Invoice.buyer.contains(buyer.strip()))
     
     items = query.order_by(Invoice.month.desc(), Invoice.id.desc()).all()
     return items
+
+@app.get("/api/invoices/buyers")
+def get_invoice_buyers(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """获取所有已录入发票中的不重复购买方/抬头列表"""
+    rows = db.query(Invoice.buyer).filter(Invoice.buyer != "").distinct().all()
+    buyer_list = sorted(list(set(r[0].strip() for r in rows if r[0] and r[0].strip())))
+    return buyer_list
 
 @app.delete("/api/invoices/{invoice_id}")
 def delete_invoice(invoice_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -406,6 +420,8 @@ def update_invoice(invoice_id: int, req: InvoiceUpdate, user: User = Depends(get
         inv.invoice_date = req.invoice_date
     if req.seller is not None:
         inv.seller = req.seller
+    if req.buyer is not None:
+        inv.buyer = req.buyer
     if req.item_name is not None:
         inv.item_name = req.item_name
     if req.memo is not None:
@@ -490,10 +506,12 @@ def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depend
         return s.value if s else default
 
     return {
-        "enabled": get_val("ai_ocr_enabled") == "true",
+        "enabled": get_val("ai_ocr_enabled", "true") == "true",
         "base_url": get_val("ai_base_url", "https://api.openai.com/v1"),
         "api_key": get_val("ai_api_key", ""),
-        "model_name": get_val("ai_model_name", "gpt-4o-mini")
+        "model_name": get_val("ai_model_name", "gpt-4o-mini"),
+        "system_prompt": get_val("ai_system_prompt", DEFAULT_SYSTEM_PROMPT),
+        "default_system_prompt": DEFAULT_SYSTEM_PROMPT
     }
 
 @app.post("/api/settings/ai")
@@ -507,11 +525,18 @@ def save_ai_settings(req: AISettingRequest, user: User = Depends(get_current_use
             s.value = str(v)
 
     set_val("ai_ocr_enabled", "true" if req.enabled else "false")
-    set_val("ai_base_url", req.base_url)
-    set_val("ai_api_key", req.api_key)
-    set_val("ai_model_name", req.model_name)
+    set_val("ai_base_url", req.base_url.strip())
+    set_val("ai_api_key", req.api_key.strip())
+    set_val("ai_model_name", req.model_name.strip())
+    if req.system_prompt is not None:
+        set_val("ai_system_prompt", req.system_prompt.strip())
     db.commit()
     return {"success": True, "message": "AI 设置已保存"}
+
+@app.post("/api/settings/ai/models")
+async def fetch_models(req: AIModelFetchRequest, user: User = Depends(get_current_user)):
+    res = await fetch_available_models(req.base_url, req.api_key)
+    return res
 
 @app.post("/api/settings/ai/test")
 async def test_ai_settings(req: AISettingRequest, user: User = Depends(get_current_user)):
