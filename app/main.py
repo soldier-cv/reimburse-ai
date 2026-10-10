@@ -52,7 +52,7 @@ def init_user_default_rules(db: Session, user_id: int):
             user_id=user_id,
             category_code="toll",
             category_name="通行费",
-            folder_keywords=json.dumps(["通行费", "通行", "etc", "高速", "路桥"]),
+            folder_keywords=json.dumps(["通行费", "etc", "高速"]),
             file_patterns=json.dumps(["*(票据)*.pdf", "*汇总*.pdf"]),
             extractor_type="toll_summary",
             description="ETC收费公路通行费官方汇总单(整月汇总直填)"
@@ -61,7 +61,7 @@ def init_user_default_rules(db: Session, user_id: int):
             user_id=user_id,
             category_code="fuel",
             category_name="燃油费",
-            folder_keywords=json.dumps(["燃油", "油费", "加油", "汽油", "柴油"]),
+            folder_keywords=json.dumps(["燃油", "加油"]),
             file_patterns=json.dumps([]),
             extractor_type="invoice",
             description="中石化/中石油等成品油电子普通发票(单张明细录入)"
@@ -70,7 +70,7 @@ def init_user_default_rules(db: Session, user_id: int):
             user_id=user_id,
             category_code="catering",
             category_name="餐饮招待",
-            folder_keywords=json.dumps(["餐饮", "餐费", "聚餐", "招待"]),
+            folder_keywords=json.dumps(["餐饮", "招待"]),
             file_patterns=json.dumps([]),
             extractor_type="invoice",
             description="日常工作就餐与商务招待发票"
@@ -79,7 +79,7 @@ def init_user_default_rules(db: Session, user_id: int):
             user_id=user_id,
             category_code="hotel",
             category_name="差旅住宿",
-            folder_keywords=json.dumps(["住宿", "酒店", "机票", "火车", "车票"]),
+            folder_keywords=json.dumps(["差旅", "住宿"]),
             file_patterns=json.dumps([]),
             extractor_type="invoice",
             description="差旅酒店住宿与交通客运发票"
@@ -88,7 +88,7 @@ def init_user_default_rules(db: Session, user_id: int):
             user_id=user_id,
             category_code="voucher",
             category_name="通用凭证附件",
-            folder_keywords=json.dumps(["凭证", "收据", "小票", "水单", "截图"]),
+            folder_keywords=json.dumps(["凭证", "收据"]),
             file_patterns=json.dumps([]),
             extractor_type="voucher",
             description="纯凭证文件存档(无需OCR识别)"
@@ -215,7 +215,7 @@ async def upload_zip(
     specified_month: Optional[str] = Form(None),
     specified_buyer: Optional[str] = Form(None),
     specified_memo: Optional[str] = Form(None),
-    dup_strategy: str = Form("skip"), # skip, overwrite
+    dup_strategy: str = Form("overwrite"), # overwrite (默认), skip
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -255,7 +255,7 @@ async def upload_single_invoice(
     buyer: Optional[str] = Form(None),
     item_name: Optional[str] = Form(None),
     memo: Optional[str] = Form(None),
-    dup_strategy: str = Form("skip"),
+    dup_strategy: str = Form("overwrite"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -943,20 +943,97 @@ async def test_ai_settings(req: AISettingRequest, user: User = Depends(get_curre
     return res
 
 # -------------------------------------------------------------
-# 7. 审计日志查询
+# 7. 审计日志查询与定期清理策略管理
 # -------------------------------------------------------------
+@app.get("/api/settings/audit-retention")
+def get_audit_retention_setting(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """获取审计日志保留策略配置（默认 3 个月）"""
+    us = db.query(UserSetting).filter(UserSetting.user_id == user.id, UserSetting.key == "audit_retention_months").first()
+    months = int(us.value) if us and us.value and us.value.isdigit() else 3
+    return {"retention_months": months}
+
+@app.post("/api/settings/audit-retention")
+def save_audit_retention_setting(
+    data: dict,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """保存审计日志保留策略配置"""
+    months = int(data.get("retention_months", 3))
+    us = db.query(UserSetting).filter(UserSetting.user_id == user.id, UserSetting.key == "audit_retention_months").first()
+    if not us:
+        us = UserSetting(user_id=user.id, key="audit_retention_months", value=str(months))
+        db.add(us)
+    else:
+        us.value = str(months)
+    db.commit()
+    policy_name = f"只保留近 {months} 个月" if months > 0 else "永久保留"
+    record_audit(db, user.id, "修改配置", "setting", 0, f"更新审计日志保留策略为: {policy_name}")
+    return {"success": True, "message": "审计日志清理策略已保存", "retention_months": months}
+
+@app.post("/api/audit-logs/clean")
+def clean_audit_logs(
+    data: Optional[dict] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """根据保留策略清理过期的历史审计日志"""
+    months = None
+    if data and "retention_months" in data:
+        months = int(data["retention_months"])
+    else:
+        us = db.query(UserSetting).filter(UserSetting.user_id == user.id, UserSetting.key == "audit_retention_months").first()
+        months = int(us.value) if us and us.value and us.value.isdigit() else 3
+
+    if months <= 0:
+        return {"success": True, "deleted_count": 0, "message": "当前设置为永久保留，未清理任何日志"}
+
+    from datetime import timedelta
+    cutoff = datetime.now() - timedelta(days=months * 30)
+    
+    deleted_count = db.query(AuditLog).filter(
+        AuditLog.user_id == user.id,
+        AuditLog.created_at < cutoff
+    ).delete()
+    db.commit()
+
+    if deleted_count > 0:
+        record_audit(db, user.id, "清理日志", "setting", 0, f"清理了早于 {cutoff.strftime('%Y-%m-%d')} 的 {deleted_count} 条历史审计日志")
+
+    return {
+        "success": True,
+        "deleted_count": deleted_count,
+        "message": f"成功清理了 {deleted_count} 条超过 {months} 个月的历史审计日志"
+    }
+
 @app.get("/api/audit-logs")
-def get_audit_logs(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    logs = db.query(AuditLog).filter(AuditLog.user_id == user.id).order_by(AuditLog.id.desc()).limit(50).all()
-    return [
-        {
-            "id": l.id,
-            "action": l.action,
-            "entity_type": l.entity_type,
-            "summary": l.summary,
-            "created_at": l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else ""
-        } for l in logs
-    ]
+def get_audit_logs(
+    action: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """查询操作审计日志列表"""
+    query = db.query(AuditLog).filter(AuditLog.user_id == user.id)
+    if action and action.strip():
+        query = query.filter(AuditLog.action == action.strip())
+
+    total = query.count()
+    logs = query.order_by(AuditLog.id.desc()).limit(200).all()
+    
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": l.id,
+                "action": l.action,
+                "entity_type": l.entity_type,
+                "entity_id": l.entity_id,
+                "summary": l.summary,
+                "username": user.username,
+                "created_at": l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else ""
+            } for l in logs
+        ]
+    }
 
 # -------------------------------------------------------------
 # 8. 静态资源与前端页面托管

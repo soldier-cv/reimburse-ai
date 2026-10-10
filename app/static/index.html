@@ -34,6 +34,37 @@
     ::-webkit-scrollbar-track { background: #f1f5f9; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* 统一组件外观：禁止系统默认原生样式 */
+    .custom-select {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%2364748b%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.293%207.293a1%201%200%20011.414%200L10%2010.586l3.293-3.293a1%201%200%20111.414%201.414l-4%204a1%201%200%2001-1.414%200l-4-4a1%201%200%20010-1.414z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      background-size: 1.1rem 1.1rem;
+      padding-right: 2.25rem !important;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+    }
+    .custom-select:focus {
+      outline: none;
+      border-color: #64748b;
+      box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+    }
+    .custom-input:focus {
+      outline: none;
+      border-color: #64748b;
+      box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+    }
+    .status-select {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      text-align-last: center;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body class="bg-[#f8fafc] text-slate-800 antialiased min-h-screen flex flex-col">
@@ -67,7 +98,7 @@
           <i class="fa-solid fa-receipt mr-1.5 text-xs opacity-70"></i>发票凭证库
         </button>
         <button @click="currentTab = 'settings'" :class="navClass('settings')">
-          <i class="fa-solid fa-sliders mr-1.5 text-xs opacity-70"></i>个人偏好与规则
+          <i class="fa-solid fa-sliders mr-1.5 text-xs opacity-70"></i>设置
         </button>
       </nav>
 
@@ -309,9 +340,9 @@
             </div>
             <div>
               <label class="block text-slate-600 mb-1">重复发票处理策略</label>
-              <select v-model="zipParams.dup_strategy" class="w-full p-2 border border-slate-200 rounded-xl bg-white font-medium">
-                <option value="skip">跳过重复发票 (推荐，防重复计费)</option>
+              <select v-model="zipParams.dup_strategy" class="custom-select w-full p-2.5 border border-slate-200 rounded-xl bg-white font-medium text-xs">
                 <option value="overwrite">覆盖更新已有发票信息</option>
+                <option value="skip">跳过重复发票</option>
               </select>
             </div>
           </div>
@@ -376,42 +407,42 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
             <div>
               <label class="block font-semibold mb-1 text-slate-700">费用分类 (纯中文驱动)</label>
-              <select v-model="singleForm.category_code" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-slate-400 font-medium">
+              <select v-model="singleForm.category_code" class="custom-select w-full p-2.5 border border-slate-200 rounded-xl bg-white font-medium text-xs">
                 <option v-for="r in rules" :key="r.id" :value="r.category_code">{{ r.category_name }}</option>
               </select>
             </div>
             <div>
               <label class="block font-semibold mb-1 text-slate-700">归属报销月份 (可选)</label>
-              <input type="text" v-model="singleForm.month" placeholder="留空则按发票日期自动推导，如 2026年04月" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400 font-mono">
+              <input type="text" v-model="singleForm.month" placeholder="留空则按发票日期自动推导，如 2026年04月" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl font-mono">
             </div>
 
             <div>
               <label class="block font-semibold mb-1 text-slate-700">发票金额含税 (元, 可选)</label>
-              <input type="number" step="0.01" v-model.number="singleForm.amount" placeholder="留空则由系统本地/AI自动识别" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400 font-mono">
+              <input type="number" step="0.01" v-model.number="singleForm.amount" placeholder="留空则由系统本地/AI自动识别" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl font-mono">
             </div>
             <div>
               <label class="block font-semibold mb-1 text-slate-700">发票号码 (可选)</label>
-              <input type="text" v-model="singleForm.invoice_no" placeholder="留空则由系统自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400 font-mono">
+              <input type="text" v-model="singleForm.invoice_no" placeholder="留空则由系统自动提取" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl font-mono">
             </div>
 
             <div>
               <label class="block font-semibold mb-1 text-slate-700">开票日期 (可选)</label>
-              <input type="date" v-model="singleForm.invoice_date" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400 font-mono">
+              <input type="date" v-model="singleForm.invoice_date" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl font-mono">
             </div>
             <div>
               <label class="block font-semibold mb-1 text-slate-700">报销抬头 (购买方, 可选)</label>
-              <input type="text" v-model="singleForm.buyer" placeholder="留空则自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
+              <input type="text" v-model="singleForm.buyer" placeholder="留空则自动提取" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl">
             </div>
 
             <div>
               <label class="block font-semibold mb-1 text-slate-700">销售方单位 (可选)</label>
-              <input type="text" v-model="singleForm.seller" placeholder="留空则自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
+              <input type="text" v-model="singleForm.seller" placeholder="留空则自动提取" class="custom-input w-full p-2.5 border border-slate-200 rounded-xl">
             </div>
             <div>
               <label class="block font-semibold mb-1 text-slate-700">重复发票处理策略</label>
-              <select v-model="singleForm.dup_strategy" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-slate-400">
-                <option value="skip">跳过重复发票 (防重复录入)</option>
-                <option value="overwrite">覆盖更新已有发票</option>
+              <select v-model="singleForm.dup_strategy" class="custom-select w-full p-2.5 border border-slate-200 rounded-xl bg-white font-medium text-xs">
+                <option value="overwrite">覆盖更新已有发票信息</option>
+                <option value="skip">跳过重复发票</option>
               </select>
             </div>
 
@@ -472,11 +503,11 @@
           <p class="text-xs text-slate-500 mt-0.5">所有已解析发票与凭证明细，每笔均支持挂载关联附件与全局号码查重</p>
         </div>
         <div class="flex items-center space-x-2">
-          <select v-model="filterCategory" @change="loadInvoices" class="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-none">
+          <select v-model="filterCategory" @change="loadInvoices" class="custom-select text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white font-medium">
             <option value="">全部费用类别</option>
             <option v-for="r in rules" :key="r.id" :value="r.category_code">{{ r.category_name }}</option>
           </select>
-          <select v-model="filterBuyer" @change="loadInvoices" class="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-none max-w-[180px]">
+          <select v-model="filterBuyer" @change="loadInvoices" class="custom-select text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white font-medium max-w-[180px]">
             <option value="">全部发票抬头</option>
             <option v-for="b in buyersList" :key="b" :value="b">{{ b }}</option>
           </select>
@@ -556,9 +587,6 @@
                 <td colspan="11" class="py-16 text-center text-slate-400">暂无发票或凭证归档记录</td>
               </tr>
             </tbody>
-          </table>
-        </div>
-      </div>
           </table>
         </div>
       </div>
@@ -677,7 +705,7 @@
             </div>
 
             <div v-if="aiModelsList.length > 0" class="space-y-2">
-              <select v-model="aiForm.model_name" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono bg-white">
+              <select v-model="aiForm.model_name" class="custom-select w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono bg-white">
                 <option disabled value="">请选择可用模型（已按视觉模型智能优先排序）</option>
                 <option v-for="m in aiModelsList" :key="m" :value="m">{{ m }}</option>
               </select>
@@ -719,28 +747,56 @@
         </div>
       </div>
 
-      <!-- 操作审计日志卡片 -->
-      <div class="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-slate-200/80 p-6 space-y-4">
-        <div class="flex items-center justify-between">
+      <!-- 数据安全与操作审计留痕配置卡片 -->
+      <div class="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-slate-200/80 p-6 space-y-5">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 class="text-base font-bold text-slate-900">数据修改与操作审计日志</h3>
-            <p class="text-xs text-slate-500 mt-0.5">记录发票录入、台账修改、删除与导入等关键行为，保证数据安全与可追溯</p>
+            <div class="flex items-center space-x-2">
+              <h3 class="text-base font-bold text-slate-900">数据安全与操作审计留痕</h3>
+              <span class="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full font-medium border border-slate-200 font-mono">
+                已记录 {{ auditLogsTotal }} 条日志
+              </span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">详细记录每笔发票录入、修改、删除、凭证附件挂载与系统配置等操作，保障数据安全与可追溯</p>
           </div>
-          <button @click="loadAuditLogs" class="text-xs text-slate-600 hover:text-slate-900 px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 transition">
-            <i class="fa-solid fa-arrows-rotate mr-1 text-slate-400"></i>刷新日志
+          <button @click="openAuditLogsModal" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center shrink-0 cursor-pointer">
+            <i class="fa-solid fa-list-check mr-1.5 text-xs text-slate-300"></i>查看操作审计日志
           </button>
         </div>
 
-        <div class="space-y-2 max-h-64 overflow-y-auto">
-          <div v-for="log in auditLogs" :key="log.id" class="p-3 bg-slate-50 rounded-xl border border-slate-200/60 flex items-center justify-between text-xs">
-            <div class="flex items-center space-x-2.5">
-              <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-700 font-mono">{{ log.action }}</span>
-              <span class="text-slate-800">{{ log.summary }}</span>
+        <!-- 定期清理规则设置 -->
+        <div class="p-4 bg-slate-50/70 rounded-xl border border-slate-200/70 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-xs font-bold text-slate-800 block">审计日志定期清理保留策略</span>
+              <span class="text-[11px] text-slate-500">为保障系统轻量运行与数据整洁，过期日志将自动或按需进行安全清理</span>
             </div>
-            <span class="text-[11px] font-mono text-slate-400">{{ log.created_at }}</span>
+            <span class="text-[11px] px-2.5 py-0.5 rounded-full font-mono bg-sky-50 text-sky-700 border border-sky-200 font-semibold">
+              默认保留近 3 个月
+            </span>
           </div>
-          <div v-if="auditLogs.length === 0" class="py-8 text-center text-slate-400 text-xs">
-            暂无操作审计日志
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end pt-1">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">日志保留期限设置</label>
+              <select v-model.number="auditRetentionMonths" class="custom-select w-full text-xs p-2.5 border border-slate-200 rounded-xl bg-white font-medium">
+                <option :value="1">只保留近 1 个月</option>
+                <option :value="3">只保留近 3 个月 (默认)</option>
+                <option :value="6">只保留近 6 个月</option>
+                <option :value="12">只保留近 1 年</option>
+                <option :value="0">永久保留全部日志</option>
+              </select>
+            </div>
+            <div>
+              <button @click="saveAuditRetention" :disabled="savingRetention" class="w-full px-3.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center justify-center cursor-pointer shadow-2xs">
+                <i class="fa-solid fa-floppy-disk mr-1.5 text-slate-400"></i>{{ savingRetention ? '正在保存...' : '保存清理策略' }}
+              </button>
+            </div>
+            <div>
+              <button @click="triggerCleanAuditLogs" :disabled="cleaningAuditLogs" class="w-full px-3.5 py-2.5 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-600 text-xs font-semibold rounded-xl transition flex items-center justify-center cursor-pointer shadow-2xs">
+                <i class="fa-regular fa-trash-can mr-1.5 text-rose-500"></i>{{ cleaningAuditLogs ? '正在清理...' : '立即根据策略清理' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -896,12 +952,22 @@
         
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
           <div class="sm:col-span-2 space-y-1">
-            <label class="block text-[11px] font-semibold text-slate-600">选择文件 (限制 15MB 内)</label>
-            <input type="file" ref="invoiceVoucherFileInput" @change="handleInvoiceVoucherFileChange" accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.gif,.zip,.docx,.xlsx" class="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300">
+            <label class="block text-[11px] font-semibold text-slate-600">选取凭证文件 (限制 15MB 内)</label>
+            <input type="file" ref="invoiceVoucherFileInput" @change="handleInvoiceVoucherFileChange" accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.gif,.zip,.docx,.xlsx" class="hidden">
+            <div class="flex items-center space-x-2">
+              <button type="button" @click="$refs.invoiceVoucherFileInput.click()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-medium transition flex items-center shrink-0 cursor-pointer">
+                <i class="fa-solid fa-folder-open mr-1.5 text-slate-500"></i>选取附件
+              </button>
+              <div v-if="selectedInvoiceVoucherFile" class="flex items-center justify-between px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs min-w-0 flex-1">
+                <span class="truncate font-mono text-slate-800" :title="selectedInvoiceVoucherFile.name">{{ selectedInvoiceVoucherFile.name }}</span>
+                <span class="text-[10px] text-slate-400 font-mono ml-2 shrink-0">{{ formatFileSize(selectedInvoiceVoucherFile.size) }}</span>
+              </div>
+              <span v-else class="text-xs text-slate-400 italic">未选取任何文件</span>
+            </div>
           </div>
           <div class="space-y-1">
             <label class="block text-[11px] font-semibold text-slate-600">凭证说明/备注 (可选)</label>
-            <input type="text" v-model="newVoucherMemo" placeholder="如 微信支付凭证" class="w-full text-xs p-2 border border-slate-200 rounded-xl focus:outline-none">
+            <input type="text" v-model="newVoucherMemo" placeholder="如 微信支付凭证" class="custom-input w-full text-xs p-2 border border-slate-200 rounded-xl">
           </div>
         </div>
 
@@ -980,7 +1046,7 @@
 
         <div>
           <label class="block font-semibold mb-1 text-slate-700">解析策略 (系统内置核心算法)</label>
-          <select v-model="newRule.extractor_type" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white font-medium">
+          <select v-model="newRule.extractor_type" class="custom-select w-full p-2.5 border border-slate-200 rounded-xl bg-white font-medium">
             <option value="invoice">标准增值税发票识别（单票明细提取）</option>
             <option value="toll_summary">通行费汇总单识别（月度整笔提取）</option>
             <option value="general_ocr">通用票据 / AI视觉多模态识别</option>
@@ -1043,7 +1109,7 @@
         </div>
         <div>
           <label class="block font-semibold mb-1 text-slate-700">报销进度</label>
-          <select v-model="editReportForm.status" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white font-semibold">
+          <select v-model="editReportForm.status" class="custom-select w-full p-2.5 border border-slate-200 rounded-xl bg-white font-semibold">
             <option value="待报销">待报销</option>
             <option value="待付款">待付款</option>
             <option value="已完成">已完成</option>
@@ -1150,6 +1216,110 @@
     </div>
   </div>
 
+  <!-- 系统与数据操作审计日志弹窗列表 -->
+  <div v-if="showAuditLogsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-4xl w-full p-6 space-y-4 border border-slate-200">
+      
+      <!-- 弹窗头部 -->
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-base shadow-xs">
+            <i class="fa-solid fa-clock-rotate-left"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h4 class="text-base font-bold text-slate-900">数据与操作审计日志</h4>
+              <span class="text-xs px-2.5 py-0.5 rounded-full font-mono bg-slate-100 text-slate-700 border border-slate-200 font-semibold">
+                共 {{ auditLogsTotal }} 条记录
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">详细记录发票录入、修改、删除、凭证上传与状态变更历史，支持审计追踪</p>
+          </div>
+        </div>
+        <button @click="showAuditLogsModal = false" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <!-- 筛选栏与操作工具条 -->
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 py-1">
+        <div class="flex items-center space-x-2">
+          <label class="text-xs text-slate-500 whitespace-nowrap">动作类型筛选：</label>
+          <select v-model="auditFilterAction" @change="loadAuditLogs" class="custom-select text-xs py-1.5 px-3 border border-slate-200 rounded-xl bg-white font-medium">
+            <option value="">全部动作类型</option>
+            <option value="录入发票">录入发票</option>
+            <option value="修改发票">修改发票</option>
+            <option value="删除发票">删除发票</option>
+            <option value="批量导入">批量导入</option>
+            <option value="上传凭证">上传凭证</option>
+            <option value="删除凭证">删除凭证</option>
+            <option value="修改台账">修改台账</option>
+            <option value="更新状态">更新状态</option>
+            <option value="删除台账">删除台账</option>
+            <option value="修改配置">修改配置</option>
+            <option value="清理日志">清理日志</option>
+          </select>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <button @click="loadAuditLogs" class="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition flex items-center shadow-2xs cursor-pointer">
+            <i class="fa-solid fa-arrows-rotate mr-1 text-slate-400"></i>刷新
+          </button>
+          <button @click="triggerCleanAuditLogs" :disabled="cleaningAuditLogs" class="px-3 py-1.5 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-medium transition flex items-center shadow-2xs cursor-pointer">
+            <i class="fa-regular fa-trash-can mr-1 text-rose-500"></i>{{ cleaningAuditLogs ? '清理中...' : '按策略清理旧日志' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 日志数据列表表格 -->
+      <div class="border border-slate-200/80 rounded-2xl overflow-hidden max-h-96 overflow-y-auto">
+        <table class="min-w-full divide-y divide-slate-100 text-xs text-left">
+          <thead class="bg-slate-50/85 text-slate-500 font-semibold uppercase sticky top-0 z-10 backdrop-blur-xs">
+            <tr>
+              <th class="py-3 px-3.5 w-12 text-center">#</th>
+              <th class="py-3 px-3.5 w-36">操作时间</th>
+              <th class="py-3 px-3.5 w-24 text-center">动作类型</th>
+              <th class="py-3 px-3.5 w-24 text-center">对象分类</th>
+              <th class="py-3 px-3.5">详细变更说明</th>
+              <th class="py-3 px-3.5 w-20 text-center">操作人</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 bg-white">
+            <tr v-for="(l, idx) in auditLogs" :key="l.id" class="hover:bg-slate-50/60 transition">
+              <td class="py-2.5 px-3.5 text-center text-slate-400 font-mono text-[11px]">{{ idx + 1 }}</td>
+              <td class="py-2.5 px-3.5 font-mono text-slate-500 text-[11px] whitespace-nowrap">{{ l.created_at }}</td>
+              <td class="py-2.5 px-3.5 text-center">
+                <span class="px-2 py-0.5 rounded text-[11px] font-medium" :class="auditActionBadgeClass(l.action)">
+                  {{ l.action }}
+                </span>
+              </td>
+              <td class="py-2.5 px-3.5 text-center text-slate-600 font-medium">
+                {{ formatEntityType(l.entity_type) }}
+              </td>
+              <td class="py-2.5 px-3.5 text-slate-700 leading-relaxed font-mono">
+                {{ l.summary }}
+              </td>
+              <td class="py-2.5 px-3.5 text-center text-slate-500 font-medium font-mono">
+                {{ l.username || username }}
+              </td>
+            </tr>
+            <tr v-if="auditLogs.length === 0">
+              <td colspan="6" class="py-12 text-center text-slate-400">暂无相关操作审计记录</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-400">
+        <span>当前日志保留策略：近 {{ auditRetentionMonths > 0 ? auditRetentionMonths + ' 个月' : '永久' }}</span>
+        <button @click="showAuditLogsModal = false" class="px-4 py-1.5 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition cursor-pointer">
+          关闭
+        </button>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -1194,17 +1364,23 @@ createApp({
 
     const addKeyword = () => {
       const val = kwInput.value.trim();
-      if (val && !newRule.value.keywordsList.includes(val)) {
-        newRule.value.keywordsList.push(val);
-        kwInput.value = '';
+      if (!val) return;
+      if (newRule.value.keywordsList.includes(val)) {
+        alert(`关键词标签「${val}」已存在，无需重复添加`);
+        return;
       }
+      newRule.value.keywordsList.push(val);
+      kwInput.value = '';
     };
     const addPattern = () => {
       const val = patInput.value.trim();
-      if (val && !newRule.value.patternsList.includes(val)) {
-        newRule.value.patternsList.push(val);
-        patInput.value = '';
+      if (!val) return;
+      if (newRule.value.patternsList.includes(val)) {
+        alert(`文件名模式「${val}」已存在，无需重复添加`);
+        return;
       }
+      newRule.value.patternsList.push(val);
+      patInput.value = '';
     };
 
     const aiForm = ref({ enabled: true, base_url: '', api_key: '', model_name: '', system_prompt: '' });
@@ -1213,13 +1389,20 @@ createApp({
     const defaultSystemPrompt = ref('');
     const testingAI = ref(false);
 
+    // 审计日志与保留策略状态
     const auditLogs = ref([]);
+    const auditLogsTotal = ref(0);
+    const auditFilterAction = ref('');
+    const showAuditLogsModal = ref(false);
+    const auditRetentionMonths = ref(3); // 默认保留近3个月
+    const savingRetention = ref(false);
+    const cleaningAuditLogs = ref(false);
 
     const zipParams = ref({
       specified_month: '',
       specified_buyer: '',
       specified_memo: '',
-      dup_strategy: 'skip'
+      dup_strategy: 'overwrite'
     });
 
     // 发票明细专属凭证附件管理状态
@@ -1272,7 +1455,7 @@ createApp({
     };
 
     const statusBadgeClass = (st) => {
-      const base = 'text-xs font-semibold py-1 px-2.5 rounded-lg border focus:outline-none transition cursor-pointer ';
+      const base = 'status-select text-xs font-semibold py-1 px-2.5 rounded-lg border focus:outline-none transition cursor-pointer ';
       if (st === '已完成') return base + 'bg-emerald-50 text-emerald-700 border-emerald-200';
       if (st === '待付款') return base + 'bg-amber-50 text-amber-700 border-amber-200';
       return base + 'bg-sky-50 text-sky-700 border-sky-200';
@@ -1290,6 +1473,7 @@ createApp({
           loadRules();
           loadAISettings();
           loadBuyers();
+          loadAuditRetention();
           loadAuditLogs();
         } else {
           isLoggedIn.value = false;
@@ -1397,7 +1581,7 @@ createApp({
       if (zipParams.value.specified_month) formData.append('specified_month', zipParams.value.specified_month);
       if (zipParams.value.specified_buyer) formData.append('specified_buyer', zipParams.value.specified_buyer);
       if (zipParams.value.specified_memo) formData.append('specified_memo', zipParams.value.specified_memo);
-      formData.append('dup_strategy', zipParams.value.dup_strategy || 'skip');
+      formData.append('dup_strategy', zipParams.value.dup_strategy || 'overwrite');
 
       try {
         const resp = await fetch('/api/upload/zip', {
@@ -1438,7 +1622,7 @@ createApp({
       buyer: '',
       item_name: '',
       memo: '',
-      dup_strategy: 'skip'
+      dup_strategy: 'overwrite'
     });
 
     const handleSingleDrop = (e) => {
@@ -1470,7 +1654,7 @@ createApp({
       if (singleForm.value.buyer) formData.append('buyer', singleForm.value.buyer);
       if (singleForm.value.item_name) formData.append('item_name', singleForm.value.item_name);
       if (singleForm.value.memo) formData.append('memo', singleForm.value.memo);
-      formData.append('dup_strategy', singleForm.value.dup_strategy || 'skip');
+      formData.append('dup_strategy', singleForm.value.dup_strategy || 'overwrite');
 
       try {
         const resp = await fetch('/api/upload/single', {
@@ -1781,11 +1965,103 @@ createApp({
 
     const loadAuditLogs = async () => {
       try {
-        const resp = await fetch('/api/audit-logs', { headers: authHeaders() });
+        const query = auditFilterAction.value ? `?action=${encodeURIComponent(auditFilterAction.value)}` : '';
+        const resp = await fetch(`/api/audit-logs${query}`, { headers: authHeaders() });
         if (resp.ok) {
-          auditLogs.value = await resp.json();
+          const data = await resp.json();
+          if (data && Array.isArray(data.items)) {
+            auditLogs.value = data.items;
+            auditLogsTotal.value = data.total;
+          } else if (Array.isArray(data)) {
+            auditLogs.value = data;
+            auditLogsTotal.value = data.length;
+          }
+        }
+      } catch (e) {
+        console.error('获取审计日志异常:', e);
+      }
+    };
+
+    const openAuditLogsModal = () => {
+      showAuditLogsModal.value = true;
+      loadAuditLogs();
+    };
+
+    const loadAuditRetention = async () => {
+      try {
+        const resp = await fetch('/api/settings/audit-retention', { headers: authHeaders() });
+        if (resp.ok) {
+          const data = await resp.json();
+          auditRetentionMonths.value = data.retention_months ?? 3;
         }
       } catch (e) {}
+    };
+
+    const saveAuditRetention = async () => {
+      savingRetention.value = true;
+      try {
+        const resp = await fetch('/api/settings/audit-retention', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ retention_months: auditRetentionMonths.value })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          alert('审计日志保留策略保存成功');
+        } else {
+          alert(data.detail || '保存保留策略失败');
+        }
+      } catch (e) {
+        alert('保存保留策略异常: ' + e.message);
+      } finally {
+        savingRetention.value = false;
+      }
+    };
+
+    const triggerCleanAuditLogs = async () => {
+      const promptText = auditRetentionMonths.value > 0
+        ? `确定要根据当前保留策略清理超过 ${auditRetentionMonths.value} 个月的历史审计日志吗？`
+        : '当前设置为永久保留，清理操作不会删除日志。是否继续执行清理？';
+      if (!confirm(promptText)) return;
+      cleaningAuditLogs.value = true;
+      try {
+        const resp = await fetch('/api/audit-logs/clean', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ retention_months: auditRetentionMonths.value })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          alert(data.message || '清理完成');
+          loadAuditLogs();
+        } else {
+          alert(data.detail || '清理失败');
+        }
+      } catch (e) {
+        alert('清理异常: ' + e.message);
+      } finally {
+        cleaningAuditLogs.value = false;
+      }
+    };
+
+    const auditActionBadgeClass = (action) => {
+      if (!action) return 'bg-slate-100 text-slate-700';
+      if (action.includes('删除') || action.includes('清理')) return 'bg-rose-50 text-rose-700 border border-rose-200';
+      if (action.includes('修改') || action.includes('更新')) return 'bg-amber-50 text-amber-700 border border-amber-200';
+      if (action.includes('录入') || action.includes('导入') || action.includes('上传')) return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+      return 'bg-blue-50 text-blue-700 border border-blue-200';
+    };
+
+    const formatEntityType = (type) => {
+      const map = {
+        'invoice': '发票凭证',
+        'report': '月度台账',
+        'voucher': '凭证附件',
+        'rule': '分类规则',
+        'setting': '系统配置',
+        'audit': '审计日志'
+      };
+      return map[type] || type || '-';
     };
 
     // 编辑月度台账逻辑
@@ -1941,7 +2217,8 @@ createApp({
       reports, invoices, filterCategory, filterBuyer, buyersList, loadBuyers, rules,
       showNewRuleModal, newRule, kwInput, patInput, addKeyword, addPattern, openNewRuleModal,
       aiForm, aiModelsList, fetchingModels, defaultSystemPrompt, fetchAIModels, resetSystemPrompt, testingAI,
-      auditLogs, loadAuditLogs, exportUrl,
+      auditLogs, auditLogsTotal, auditFilterAction, showAuditLogsModal, auditRetentionMonths, savingRetention, cleaningAuditLogs,
+      openAuditLogsModal, loadAuditLogs, loadAuditRetention, saveAuditRetention, triggerCleanAuditLogs, auditActionBadgeClass, formatEntityType, exportUrl,
       isDragging, selectedFile, uploading, uploadLogs, zipParams,
       pendingTotal, waitingPayTotal, completedTotal,
       navClass, statusBadgeClass, handleAuthSubmit, logout, saveNewPassword,
