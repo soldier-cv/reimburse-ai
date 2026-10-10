@@ -123,6 +123,24 @@ class Invoice(Base):
 
     user = relationship("User", back_populates="invoices")
     report = relationship("ExpenseReport", back_populates="invoices")
+    vouchers = relationship("InvoiceVoucher", back_populates="invoice", cascade="all, delete-orphan")
+
+class InvoiceVoucher(Base):
+    """发票明细关联的凭证附件表（用于单笔明细挂载支付截图、小票凭证等）"""
+    __tablename__ = "invoice_vouchers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    filename = Column(String(200), nullable=False)        # 凭证附件文件名
+    stored_path = Column(String(300), nullable=False)     # 本地存储路径
+    file_size = Column(Integer, default=0)                # 文件大小（字节）
+    content_type = Column(String(100), default="")        # 类型，如 image/png, application/pdf
+    memo = Column(String(200), default="")                # 凭证备注
+    created_at = Column(DateTime, default=datetime.now)
+
+    invoice = relationship("Invoice", back_populates="vouchers")
+    user = relationship("User")
 
 class AuditLog(Base):
     """数据修改与操作审计日志表"""

@@ -13,6 +13,26 @@
 
 ---
 
+## [2.1.0] - 2026-10-10
+
+### 新增 (Added)
+- **发票明细级关联凭证附件管理 (Invoice Item Vouchers / Attachments)**：
+  - 核心场景闭环：明确将凭证上传定位于单笔具体发票明细（如燃油票、打车费、餐饮费）挂载对应的证明材料（微信支付截图、POS机刷卡小票、行程水单等）。
+  - 数据模型层：新增 `InvoiceVoucher` 关联模型，建立 `Invoice` 与 `InvoiceVoucher` 的一对多级联关系（`cascade="all, delete-orphan"`），删除发票时自动级联清理物理文件与附件记录。
+  - 后端接口层：
+    - `GET /api/invoices` 返回列表字段中新增 `voucher_count` 凭证附件计数与 `has_file` 原件标识。
+    - 新增 `GET /api/invoices/{invoice_id}/vouchers`：获取指定发票明细关联的所有凭证附件列表。
+    - 新增 `POST /api/invoices/{invoice_id}/vouchers`：为指定发票上传凭证附件（支持 PDF、常见图片、压缩包或Office文档，限制 15MB 内，免 OCR 秒级上传）。
+    - 新增 `GET /api/vouchers/{voucher_id}/download`：安全预览或下载指定的凭证附件。
+    - 新增 `DELETE /api/vouchers/{voucher_id}`：安全删除凭证附件并同步清理物理磁盘文件。
+    - 新增 `GET /api/invoices/{invoice_id}/file`：支持在线查看与下载发票原件 PDF/图片。
+  - 前端交互层：
+    - 发票凭证库表格新增【凭证附件】独立列，显示带回形针图标的徽标按钮及已关联数量（如 `凭证 (2)`）。
+    - 全新设计【发票明细凭证附件管理】模态弹窗，顶部清晰展示当前发票明细上下文概要（发票号码、月份、类别、金额、报销抬头、商户），中间展示已挂载附件卡片列表（支持查看/下载与删除），底部提供快速选取与备注上传区。
+    - 上传或删除凭证后，主列表与弹窗内的凭证附件计数实时响应更新。
+
+---
+
 ## [2.0.0] - 2026-10-10
 
 ### 重大变更 (Breaking Changes)
