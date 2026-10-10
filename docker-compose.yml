@@ -1,20 +1,24 @@
 version: '3.8'
 
 services:
-  expense-app:
-    build: .
-    container_name: expense-system
+  reimburse-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reimburse-ai:${IMAGE_TAG:-latest}
+    container_name: reimburse-ai
     restart: unless-stopped
     ports:
-      - "8090:8090"
+      - "${PORT:-8090}:8090"
     environment:
       - PORT=8090
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD=Admin@2026!
-      # 可选：自定义 JWT 密钥
+      # 首次部署无需预置密码，访问 Web 页面将自动弹出管理员初始化向导
+      # 若需通过环境变量强制指定管理员默认账号密码，可取消注释下方配置：
+      # - ADMIN_USERNAME=admin
+      # - ADMIN_PASSWORD=YourStrongPassword!
       # - JWT_SECRET_KEY=your_custom_jwt_secret_here
     volumes:
-      # 持久化数据库
+      # 持久化 SQLite 数据库与系统设置
       - ./data:/app/data
-      # 持久化上传的发票文件
+      # 持久化原始发票与挂载的凭证附件
       - ./uploads:/app/uploads
