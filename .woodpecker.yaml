@@ -1,14 +1,13 @@
-# Woodpecker CI - reimburse-ai (Woodpecker v3.19.0)
+# Woodpecker CI - reimburse-ai (Woodpecker v3)
 # 触发策略（仅 tag + manual，日常 push 不触发）：
 #   1. tag: 推送 v* 标签（正式发版）
-#   2. manual: Woodpecker 页面手动触发（可填 deploy_tag 变量指定版本标签，默认 latest）
-# 链路：解析版本号并同步代码至宿主机目录 -> 本地构建镜像 -> docker compose 直接启动部署
+#   2. manual: Woodpecker 页面手动触发（可填 deploy_tag 变量指定版本，默认 latest）
+# 链路：同步代码到宿主机 /opt/code/reimburse-ai -> 构建 -> 推内网 registry(固定版本+latest 双 tag) -> compose 拉起 -> 健康验证
 when:
   - event: tag
     ref: refs/tags/v*
   - event: manual
 
-# 版本号解析：tag 事件用 CI_COMMIT_TAG；manual 用页面填的 deploy_tag 变量
 skip_clone: false
 
 steps:
@@ -30,7 +29,7 @@ steps:
       # manual 触发时可在页面 Deploy variables 填 deploy_tag=v1.x.y
       DEPLOY_TAG: ${DEPLOY_TAG}
 
-  - name: build-and-deploy
+  - name: build-and-push-image
     image: docker:26
     depends_on:
       - resolve-tag
@@ -39,6 +38,32 @@ steps:
       - /opt/code/reimburse-ai:/opt/code/reimburse-ai
     commands:
       - cd /opt/code/reimburse-ai
-      - RELEASE_TAG=$$(cat /opt/code/reimburse-ai/.release_tag 2>/dev/null || echo $${CI_COMMIT_TAG:-latest}) && docker build -t "reimburse-ai:$${RELEASE_TAG}" -t "reimburse-ai:latest" .
-      - RELEASE_TAG=$$(cat /opt/code/reimburse-ai/.release_tag 2>/dev/null || echo $${CI_COMMIT_TAG:-latest}) IMAGE_TAG="$${RELEASE_TAG}" docker compose up -d --force-recreate
+      - RELEASE_TAG=$$(cat .release_tag)
+      # registry 凭据只来自 from_secret，不落宿主 ~/.docker
+      - echo "$$REGISTRY_PASS" | docker login 100.64.0.88:5000 -u $$REGISTRY_USER --password-stdin
+      # 镜像铁律：固定版本 tag 与 latest 同 digest 推送，latest 仅作别名
+      - docker build -t "100.64.0.88:5000/reimburse-ai:$${RELEASE_TAG}" -t "100.64.0.88:5000/reimburse-ai:latest" .
+      - docker push "100.64.0.88:5000/reimburse-ai:$${RELEASE_TAG}"
+      - docker push "100.64.0.88:5000/reimburse-ai:latest"
+      - docker logout 100.64.0.88:5000
+    environment:
+      REGISTRY_USER:
+        from_secret: registry_user
+      REGISTRY_PASS:
+        from_secret: registry_pass
+
+  - name: deploy-and-verify
+    image: docker:26
+    depends_on:
+      - build-and-push-image
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/code/reimburse-ai:/opt/code/reimburse-ai
+    commands:
+      - cd /opt/code/reimburse-ai
+      # compose 用同 digest 的版本镜像拉起（IMAGE_TAG 默认 latest）
+      - RELEASE_TAG=$$(cat .release_tag); IMAGE_TAG=$${RELEASE_TAG} docker compose up -d --force-recreate
       - docker compose ps
+      # 健康验证：等容器 HEALTHCHECK 变 healthy，最多 150 秒
+      - >-
+        for i in $$(seq 1 30); do st=$$(docker inspect -f '{{.State.Health.Status}}' reimburse-ai 2>/dev/null || echo missing); if [ "$$st" = "healthy" ]; then echo "deploy OK: reimburse-ai $${RELEASE_TAG} healthy"; exit 0; fi; echo "waiting health ($$i): $$st"; sleep 5; done; echo "health check failed" >&2; exit 1

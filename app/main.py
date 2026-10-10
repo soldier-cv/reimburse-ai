@@ -28,7 +28,16 @@ from .services.ai_service import test_ai_connection, fetch_available_models, DEF
 # 初始化数据库结构
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="个人发票与报销助手", version="2.0.0")
+# API 文档口默认关闭（安全铁律：无鉴权不暴露路由与 schema）
+# 开发/调试需要时设环境变量 ENABLE_API_DOCS=true 显式开启
+_ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "true", "yes")
+app = FastAPI(
+    title="个人发票与报销助手",
+    version="2.0.0",
+    docs_url="/docs" if _ENABLE_DOCS else None,
+    redoc_url="/redoc" if _ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if _ENABLE_DOCS else None,
+)
 
 # CORS 中间件
 app.add_middleware(
