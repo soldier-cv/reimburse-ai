@@ -2,17 +2,32 @@ import re
 import fnmatch
 from pypdf import PdfReader
 
+import json
+
 def is_valid_file_by_pattern(filename: str, patterns_str: str) -> bool:
     """
     检查文件名是否符合该分类的有效文件名模式。
-    如果未设置模式（为空），默认所有文件均有效；
-    如果设置了多个模式（逗号分隔，如 '*票据*.pdf, *.png'），只要匹配其中任意一个即可。
+    如果未设置模式（为空或空列表），默认所有文件均有效；
+    支持 JSON 列表格式（如 ["*.pdf"]）或逗号分隔格式。
     """
-    if not patterns_str or not patterns_str.strip():
+    if not patterns_str or not str(patterns_str).strip():
         return True
     
     filename_lower = filename.lower()
-    patterns = [p.strip().lower() for p in patterns_str.split(",") if p.strip()]
+    patterns = []
+    text = str(patterns_str).strip()
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            arr = json.loads(text)
+            patterns = [str(p).strip().lower() for p in arr if str(p).strip()]
+        except Exception:
+            patterns = [p.strip().lower() for p in text.strip("[]").split(",") if p.strip()]
+    else:
+        patterns = [p.strip().lower() for p in text.split(",") if p.strip()]
+
+    if not patterns:
+        return True
+
     for p in patterns:
         if fnmatch.fnmatch(filename_lower, p):
             return True
