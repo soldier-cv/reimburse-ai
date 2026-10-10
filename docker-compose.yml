@@ -1,15 +1,13 @@
-version: '3.8'
-
 services:
   reimburse-ai:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: reimburse-ai:${IMAGE_TAG:-latest}
+    # 镜像由 Woodpecker CI 构建并推内网 registry（固定版本 + latest 双 tag）
+    # 本地无 registry 时可退回 build: 模式（context: .）
+    image: 100.64.0.88:5000/reimburse-ai:${IMAGE_TAG:-latest}
     container_name: reimburse-ai
     restart: unless-stopped
+    # 仅回环绑定，经 1Panel openresty 反代对外（对齐全生态部署约定）
     ports:
-      - "${PORT:-8090}:8090"
+      - "127.0.0.1:${PORT:-8090}:8090"
     environment:
       - PORT=8090
       # 首次部署无需预置密码，访问 Web 页面将自动弹出管理员初始化向导
@@ -17,8 +15,10 @@ services:
       # - ADMIN_USERNAME=admin
       # - ADMIN_PASSWORD=YourStrongPassword!
       # - JWT_SECRET_KEY=your_custom_jwt_secret_here
+      # API 文档口（/docs /redoc /openapi.json）默认关闭；开发调试时取消下行注释显式开启
+      # - ENABLE_API_DOCS=true
     volumes:
-      # 持久化 SQLite 数据库与系统设置
-      - ./data:/app/data
+      # 持久化 SQLite 数据库与系统设置（数据统一落 /data，异机备份走 /data 快照）
+      - /data/reimburse-ai/data:/app/data
       # 持久化原始发票与挂载的凭证附件
-      - ./uploads:/app/uploads
+      - /data/reimburse-ai/uploads:/app/uploads
