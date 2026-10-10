@@ -20,14 +20,11 @@ steps:
       - mkdir -p /opt/code/reimburse-ai/data /opt/code/reimburse-ai/uploads
       # 将当前检出的构建文件同步至宿主机部署目录
       - cp -rf app Dockerfile docker-compose.yml requirements.txt run.py /opt/code/reimburse-ai/
-      # tag 事件用 CI_COMMIT_TAG；manual 用页面参数 deploy_tag（Deploy variables 填 deploy_tag=v1.x.y）
+      # tag 事件用 CI_COMMIT_TAG；manual 用页面参数 deploy_tag（大小写都认，Deploy variables 填 deploy_tag=vX.Y.Z）
       - >-
-        if [ -n "$${CI_COMMIT_TAG}" ]; then echo "$${CI_COMMIT_TAG}"; else echo "$${DEPLOY_TAG:-latest}"; fi | tr -d ' ' > /tmp/release_tag
+        if [ -n "$${CI_COMMIT_TAG}" ]; then echo "$${CI_COMMIT_TAG}"; elif [ -n "$${deploy_tag:-}" ]; then echo "$${deploy_tag}"; elif [ -n "$${DEPLOY_TAG:-}" ]; then echo "$${DEPLOY_TAG}"; else echo latest; fi | tr -d ' ' > /tmp/release_tag
       - echo "RELEASE_TAG=$$(cat /tmp/release_tag)"
       - cp /tmp/release_tag /opt/code/reimburse-ai/.release_tag
-    environment:
-      # manual 触发时可在页面 Deploy variables 填 deploy_tag=v1.x.y
-      DEPLOY_TAG: ${DEPLOY_TAG}
 
   - name: build-and-push-image
     image: docker:26
