@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from .database import engine, Base, get_db, BASE_DIR
-from .models import User, CategoryRule, Batch, ExpenseReport, Invoice, UserSetting, SystemSetting, AuditLog
+from .models import User, CategoryRule, Batch, ExpenseReport, Invoice, InvoiceVoucher, UserSetting, SystemSetting, AuditLog
 from .schemas import (
     LoginRequest, RegisterRequest, PasswordChangeRequest, CategoryRuleCreate, CategoryRuleUpdate,
     StatusUpdateRequest, AISettingRequest, ExpenseReportUpdate, InvoiceUpdate,
@@ -462,7 +462,7 @@ def export_excel(user: User = Depends(get_current_user), db: Session = Depends(g
     )
 
 # -------------------------------------------------------------
-# 4. 发票凭证明细
+# 4. 发票凭证明细及关联凭证附件
 # -------------------------------------------------------------
 @app.get("/api/invoices")
 def get_invoices(
@@ -481,7 +481,35 @@ def get_invoices(
         query = query.filter(Invoice.buyer.contains(buyer.strip()))
     
     items = query.order_by(Invoice.month.desc(), Invoice.id.desc()).all()
-    return items
+    res = []
+    for inv in items:
+        res.append({
+            "id": inv.id,
+            "report_id": inv.report_id,
+            "batch_id": inv.batch_id,
+            "category_code": inv.category_code,
+            "category_name": inv.category_name,
+            "month": inv.month,
+            "invoice_no": inv.invoice_no or "",
+            "invoice_date": inv.invoice_date or "",
+            "amount": inv.amount or 0.0,
+            "net_amount": inv.net_amount or 0.0,
+            "tax_amount": inv.tax_amount or 0.0,
+            "seller": inv.seller or "",
+            "buyer": inv.buyer or "",
+            "item_name": inv.item_name or "",
+            "quantity": inv.quantity or 0.0,
+            "unit_price": inv.unit_price or 0.0,
+            "raw_filename": inv.raw_filename or "",
+            "stored_path": inv.stored_path or "",
+            "recognition_method": inv.recognition_method or "native_pdf",
+            "is_duplicate": bool(inv.is_duplicate),
+            "memo": inv.memo or "",
+            "voucher_count": len(inv.vouchers),
+            "has_file": bool(inv.stored_path and os.path.exists(inv.stored_path)),
+            "created_at": inv.created_at.strftime("%Y-%m-%d %H:%M:%S") if inv.created_at else ""
+        })
+    return res
 
 @app.get("/api/invoices/buyers")
 def get_invoice_buyers(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -496,8 +524,22 @@ def delete_invoice(invoice_id: int, user: User = Depends(get_current_user), db: 
     if not inv:
         raise HTTPException(status_code=404, detail="未找到发票")
     report_id = inv.report_id
-    inv_no = inv.invoice_no
-    amt = inv.amount
+    inv_no = inv.invoice_no or str(inv.id)
+    amt = inv.amount or 0.0
+
+    # 清理发票物理文件及关联凭证附件物理文件
+    if inv.stored_path and os.path.exists(inv.stored_path):
+        try:
+            os.remove(inv.stored_path)
+        except Exception:
+            pass
+    for v in inv.vouchers:
+        if v.stored_path and os.path.exists(v.stored_path):
+            try:
+                os.remove(v.stored_path)
+            except Exception:
+                pass
+
     db.delete(inv)
     db.commit()
 
@@ -549,6 +591,181 @@ def update_invoice(invoice_id: int, req: InvoiceUpdate, user: User = Depends(get
 
     record_audit(db, user.id, "修改发票", "invoice", invoice_id, f"修改发票 [{inv.invoice_no}]，最新金额 ¥{inv.amount:.2f}")
     return {"success": True, "message": "发票已更新"}
+
+@app.get("/api/invoices/{invoice_id}/file")
+def download_invoice_original_file(
+    invoice_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """查看或下载发票原件文件"""
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="未找到该发票记录")
+    if not inv.stored_path or not os.path.exists(inv.stored_path):
+        raise HTTPException(status_code=404, detail="发票原始文件不存在或已清理")
+
+    from urllib.parse import quote
+    encoded_filename = quote(inv.raw_filename or f"invoice_{inv.id}.pdf")
+    headers = {
+        "Content-Disposition": f"inline; filename*=utf-8''{encoded_filename}"
+    }
+    ext = os.path.splitext(inv.stored_path)[1].lower()
+    media_type = "application/pdf" if ext == ".pdf" else "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png" if ext == ".png" else "application/octet-stream"
+    return FileResponse(inv.stored_path, media_type=media_type, headers=headers)
+
+# -------------------------------------------------------------
+# 4.1 发票关联凭证附件管理 (Invoice Vouchers / Attachments)
+# -------------------------------------------------------------
+@app.get("/api/invoices/{invoice_id}/vouchers")
+def get_invoice_vouchers(
+    invoice_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取指定发票关联的所有凭证附件列表"""
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="未找到该发票明细")
+    
+    vouchers = db.query(InvoiceVoucher).filter(
+        InvoiceVoucher.invoice_id == invoice_id,
+        InvoiceVoucher.user_id == user.id
+    ).order_by(InvoiceVoucher.id.desc()).all()
+    
+    return [
+        {
+            "id": v.id,
+            "invoice_id": v.invoice_id,
+            "filename": v.filename,
+            "file_size": v.file_size,
+            "content_type": v.content_type,
+            "memo": v.memo or "",
+            "created_at": v.created_at.strftime("%Y-%m-%d %H:%M:%S") if v.created_at else ""
+        }
+        for v in vouchers
+    ]
+
+@app.post("/api/invoices/{invoice_id}/vouchers")
+async def upload_invoice_voucher(
+    invoice_id: int,
+    file: UploadFile = File(...),
+    memo: Optional[str] = Form(""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """为指定发票明细上传凭证附件（无需 OCR，限制 15MB 内）"""
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="未找到该发票明细")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    allowed_exts = [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".zip", ".docx", ".xlsx"]
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail="不支持的文件格式，仅支持 PDF、常见图片、压缩包或Office文档")
+
+    voucher_dir = os.path.join(UPLOAD_DIR, f"user_{user.id}", f"invoice_{invoice_id}", "vouchers")
+    os.makedirs(voucher_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_filename = f"{timestamp}_{file.filename}"
+    save_path = os.path.join(voucher_dir, safe_filename)
+
+    file_size = 0
+    with open(save_path, "wb") as buffer:
+        while chunk := await file.read(1024 * 1024):
+            file_size += len(chunk)
+            if file_size > 15 * 1024 * 1024:
+                os.remove(save_path)
+                raise HTTPException(status_code=400, detail="凭证附件大小超过 15MB 限制")
+            buffer.write(chunk)
+
+    voucher = InvoiceVoucher(
+        invoice_id=invoice_id,
+        user_id=user.id,
+        filename=file.filename,
+        stored_path=save_path,
+        file_size=file_size,
+        content_type=file.content_type or "",
+        memo=(memo or "").strip()
+    )
+    db.add(voucher)
+    db.commit()
+    db.refresh(voucher)
+
+    record_audit(db, user.id, "上传凭证", "voucher", voucher.id, f"为发票 [{inv.invoice_no or inv.id}] 上传凭证附件 [{file.filename}]")
+
+    return {
+        "success": True,
+        "message": "凭证附件上传成功",
+        "voucher": {
+            "id": voucher.id,
+            "invoice_id": voucher.invoice_id,
+            "filename": voucher.filename,
+            "file_size": voucher.file_size,
+            "content_type": voucher.content_type,
+            "memo": voucher.memo or "",
+            "created_at": voucher.created_at.strftime("%Y-%m-%d %H:%M:%S") if voucher.created_at else ""
+        }
+    }
+
+@app.get("/api/vouchers/{voucher_id}/download")
+def download_voucher_file(
+    voucher_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """在线预览或下载凭证附件"""
+    voucher = db.query(InvoiceVoucher).filter(
+        InvoiceVoucher.id == voucher_id,
+        InvoiceVoucher.user_id == user.id
+    ).first()
+    if not voucher:
+        raise HTTPException(status_code=404, detail="未找到该凭证附件")
+    
+    if not os.path.exists(voucher.stored_path):
+        raise HTTPException(status_code=404, detail="凭证物理文件已不存在")
+
+    from urllib.parse import quote
+    encoded_filename = quote(voucher.filename)
+    headers = {
+        "Content-Disposition": f"inline; filename*=utf-8''{encoded_filename}"
+    }
+    return FileResponse(
+        voucher.stored_path,
+        media_type=voucher.content_type or "application/octet-stream",
+        headers=headers
+    )
+
+@app.delete("/api/vouchers/{voucher_id}")
+def delete_voucher_file(
+    voucher_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """删除指定的凭证附件"""
+    voucher = db.query(InvoiceVoucher).filter(
+        InvoiceVoucher.id == voucher_id,
+        InvoiceVoucher.user_id == user.id
+    ).first()
+    if not voucher:
+        raise HTTPException(status_code=404, detail="未找到该凭证附件")
+
+    stored_path = voucher.stored_path
+    filename = voucher.filename
+    invoice_id = voucher.invoice_id
+
+    db.delete(voucher)
+    db.commit()
+
+    if os.path.exists(stored_path):
+        try:
+            os.remove(stored_path)
+        except Exception:
+            pass
+
+    record_audit(db, user.id, "删除凭证", "voucher", voucher_id, f"删除发票 [{invoice_id}] 的凭证附件 [{filename}]")
+    return {"success": True, "message": "凭证附件已删除"}
 
 # -------------------------------------------------------------
 # 5. 分类映射规则管理 (Category Rules) - 按用户隔离
