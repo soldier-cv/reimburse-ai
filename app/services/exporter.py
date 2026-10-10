@@ -3,23 +3,15 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 from sqlalchemy.orm import Session
-from ..models import ExpenseReport, Invoice, Project
+from ..models import ExpenseReport, Invoice
 
-def export_reports_to_excel(db: Session, project_id: int = 1) -> io.BytesIO:
+def export_reports_to_excel(db: Session, user_id: int) -> io.BytesIO:
     """
-    根据数据库中的月度台账和发票数据，
+    根据数据库中的月度台账和发票数据（按用户隔离），
     导出华总定制的【月度多行合并汇总版】Excel 文件流。
     """
-    project = db.query(Project).filter(Project.id == project_id).first()
-    proj_name = project.name if (project and project.name) else "费用报销主体"
-    plate = project.plate_number if (project and project.plate_number) else ""
-
-    info_parts = [f"报销主体：{proj_name}"]
-    if plate:
-        info_parts.append(f"车辆：{plate}")
-    info_parts.append("说明：通行费直接录入汇总单金额；燃油票默认预留明细行逐笔填入（公式自动求和）")
-
-    reports = db.query(ExpenseReport).filter(ExpenseReport.project_id == project_id).order_by(ExpenseReport.month.asc()).all()
+    reports = db.query(ExpenseReport).filter(ExpenseReport.user_id == user_id).order_by(ExpenseReport.month.asc()).all()
+    info_parts = ["个人发票与报销助手", "说明：通行费直接录入汇总单金额；燃油票默认预留明细行逐笔填入（公式自动求和）"]
 
     wb = openpyxl.Workbook()
 
@@ -75,8 +67,8 @@ def export_reports_to_excel(db: Session, project_id: int = 1) -> io.BytesIO:
     seq = 1
 
     for rep in reports:
-        # 查询该月的燃油发票
-        fuel_invs = db.query(Invoice).filter(Invoice.month == rep.month, Invoice.category_code == "fuel").all()
+        # 查询该用户该月的燃油发票
+        fuel_invs = db.query(Invoice).filter(Invoice.user_id == user_id, Invoice.month == rep.month, Invoice.category_code == "fuel").all()
         fuels = [inv.amount for inv in fuel_invs if inv.amount > 0]
         
         num_rows = max(3, len(fuels))

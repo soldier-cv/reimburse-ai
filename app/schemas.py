@@ -1,7 +1,11 @@
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel
 
 class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class RegisterRequest(BaseModel):
     username: str
     password: str
 
@@ -12,15 +16,15 @@ class PasswordChangeRequest(BaseModel):
 class CategoryRuleCreate(BaseModel):
     category_code: str
     category_name: str
-    folder_keywords: str
-    file_patterns: Optional[str] = ""
+    folder_keywords: Union[List[str], str]
+    file_patterns: Optional[Union[List[str], str]] = ""
     extractor_type: Optional[str] = "invoice"
     description: Optional[str] = ""
 
 class CategoryRuleUpdate(BaseModel):
     category_name: Optional[str] = None
-    folder_keywords: Optional[str] = None
-    file_patterns: Optional[str] = None
+    folder_keywords: Optional[Union[List[str], str]] = None
+    file_patterns: Optional[Union[List[str], str]] = None
     extractor_type: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -57,3 +61,12 @@ class InvoiceUpdate(BaseModel):
     buyer: Optional[str] = None
     item_name: Optional[str] = None
     memo: Optional[str] = None
+
+class AuditLogItem(BaseModel):
+    id: int
+    action: str
+    entity_type: str
+    entity_id: Optional[int]
+    summary: str
+    details: Optional[str]
+    created_at: str

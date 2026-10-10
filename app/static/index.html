@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>费用报销与发票管理系统</title>
-  <!-- Tailwind CSS CDN -->
+  <title>个人发票与报销助手</title>
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Vue 3 CDN -->
+  <!-- Font Awesome 图标库 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Vue 3 -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <!-- FontAwesome 纯矢量图标 -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script>
     tailwind.config = {
       theme: {
@@ -21,7 +21,7 @@
               500: '#0284c7',
               600: '#0369a1',
               700: '#075985',
-              900: '#0c4a6e'
+              900: '#0c4a6e',
             }
           }
         }
@@ -30,35 +30,28 @@
   </script>
   <style>
     [v-cloak] { display: none; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      letter-spacing: -0.01em;
-    }
-    .badge-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 9999px;
-      display: inline-block;
-      margin-right: 6px;
-    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
   </style>
 </head>
-<body class="bg-[#f8fafc] text-slate-800 antialiased min-h-screen flex flex-col selection:bg-brand-100 selection:text-brand-900">
+<body class="bg-[#f8fafc] text-slate-800 antialiased min-h-screen flex flex-col">
 
 <div id="app" v-cloak class="min-h-screen flex flex-col">
   <!-- 顶栏导航 -->
   <header class="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
       <div class="flex items-center space-x-3.5">
-        <div class="w-9 h-9 bg-slate-900 rounded-lg flex items-center justify-center text-white text-sm shadow-sm">
-          <i class="fa-solid fa-file-invoice text-slate-200"></i>
+        <div class="w-9 h-9 bg-slate-900 rounded-xl flex items-center justify-center text-white text-sm shadow-sm">
+          <i class="fa-solid fa-receipt text-slate-200"></i>
         </div>
         <div>
           <div class="flex items-center space-x-2">
-            <span class="text-sm font-semibold tracking-tight text-slate-900">费用报销管理系统</span>
-            <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono border border-slate-200">v1.0</span>
+            <span class="text-sm font-semibold tracking-tight text-slate-900">个人发票与报销助手</span>
+            <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono border border-slate-200">v2.0</span>
           </div>
-          <p class="text-xs text-slate-400">智能发票识别与多维度费用台账系统</p>
+          <p class="text-xs text-slate-400">个人日常开支与报销智能归档工具</p>
         </div>
       </div>
 
@@ -68,13 +61,13 @@
           <i class="fa-solid fa-table-list mr-1.5 text-xs opacity-70"></i>月度报销台账
         </button>
         <button @click="currentTab = 'upload'" :class="navClass('upload')">
-          <i class="fa-solid fa-cloud-arrow-up mr-1.5 text-xs opacity-70"></i>上传压缩包
+          <i class="fa-solid fa-cloud-arrow-up mr-1.5 text-xs opacity-70"></i>数据导入与录入
         </button>
         <button @click="currentTab = 'invoices'" :class="navClass('invoices')">
           <i class="fa-solid fa-receipt mr-1.5 text-xs opacity-70"></i>发票凭证库
         </button>
         <button @click="currentTab = 'settings'" :class="navClass('settings')">
-          <i class="fa-solid fa-sliders mr-1.5 text-xs opacity-70"></i>规则与设置
+          <i class="fa-solid fa-sliders mr-1.5 text-xs opacity-70"></i>个人偏好与规则
         </button>
       </nav>
 
@@ -110,7 +103,7 @@
             <span>待报销总额</span>
             <span class="w-6 h-6 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fa-solid fa-clock"></i></span>
           </div>
-          <div class="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          <div class="mt-2 text-2xl font-bold tracking-tight text-slate-900 font-mono">
             ¥{{ pendingTotal.toFixed(2) }}
           </div>
           <div class="mt-1 text-xs text-slate-400">待提交审批与打款</div>
@@ -121,7 +114,7 @@
             <span>待付款总额</span>
             <span class="w-6 h-6 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center"><i class="fa-solid fa-hourglass-half"></i></span>
           </div>
-          <div class="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          <div class="mt-2 text-2xl font-bold tracking-tight text-slate-900 font-mono">
             ¥{{ waitingPayTotal.toFixed(2) }}
           </div>
           <div class="mt-1 text-xs text-slate-400">已审批等待出纳打款</div>
@@ -132,7 +125,7 @@
             <span>已完成报销</span>
             <span class="w-6 h-6 rounded-md bg-emerald-50 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-circle-check"></i></span>
           </div>
-          <div class="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          <div class="mt-2 text-2xl font-bold tracking-tight text-slate-900 font-mono">
             ¥{{ completedTotal.toFixed(2) }}
           </div>
           <div class="mt-1 text-xs text-slate-400">已成功到账</div>
@@ -150,17 +143,20 @@
         </div>
       </div>
 
-      <!-- 表格头部与操作栏 -->
+      <!-- 操作栏 -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         <div>
           <h2 class="text-lg font-bold text-slate-900">月度费用台账明细</h2>
-          <p class="text-xs text-slate-500 mt-0.5">燃油票逐行录入并公式求和，通行费单据直填，状态自动同步</p>
+          <p class="text-xs text-slate-500 mt-0.5">燃油票自动汇总公式求和，通行费及通用凭证单据精准归档</p>
         </div>
         <div class="flex items-center space-x-2.5">
+          <button @click="openVoucherModal" class="px-3.5 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 shadow-sm transition flex items-center">
+            <i class="fa-solid fa-paperclip mr-1.5 text-slate-400"></i>上传凭证附件
+          </button>
           <button @click="loadReports" class="px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 shadow-sm transition flex items-center">
             <i class="fa-solid fa-arrows-rotate mr-1.5 text-slate-400"></i>刷新
           </button>
-          <button v-if="reports.length > 0" @click="confirmClearAll" class="px-3 py-2 text-xs font-medium bg-rose-50 border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-100/80 shadow-sm transition flex items-center" title="清空所有台账与发票">
+          <button v-if="reports.length > 0" @click="confirmClearAll" class="px-3 py-2 text-xs font-medium bg-rose-50 border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-100/80 shadow-sm transition flex items-center">
             <i class="fa-regular fa-trash-can mr-1.5 text-rose-500"></i>清空全部
           </button>
           <a :href="exportUrl" download class="px-3.5 py-2 text-xs font-semibold bg-slate-900 text-white rounded-xl hover:bg-slate-800 shadow-sm transition flex items-center">
@@ -180,8 +176,9 @@
                 <th class="py-3.5 px-4 w-32 text-right">通行费 (元)</th>
                 <th class="py-3.5 px-4 min-w-[240px]">燃油票明细 (单张逐笔)</th>
                 <th class="py-3.5 px-4 w-32 text-right">燃油小计 (元)</th>
+                <th class="py-3.5 px-4 w-28 text-right">其他凭证</th>
                 <th class="py-3.5 px-4 w-36 text-right">月度总报销 (元)</th>
-                <th class="py-3.5 px-4 w-32 text-center">提交时间</th>
+                <th class="py-3.5 px-4 w-36 text-center">提交时间</th>
                 <th class="py-3.5 px-4 w-32 text-center">报销进度</th>
                 <th class="py-3.5 px-4 w-32 text-center">操作</th>
               </tr>
@@ -190,19 +187,20 @@
               <tr v-for="(rep, idx) in reports" :key="rep.id" class="hover:bg-slate-50/60 transition group">
                 <td class="py-4 px-4 text-center text-slate-400 text-xs font-mono">{{ idx + 1 }}</td>
                 <td class="py-4 px-4 text-center font-semibold text-slate-900">{{ rep.month }}</td>
-                <td class="py-4 px-4 text-right font-medium text-slate-700">¥{{ rep.toll_amount.toFixed(2) }}</td>
+                <td class="py-4 px-4 text-right font-medium text-slate-700 font-mono">¥{{ rep.toll_amount.toFixed(2) }}</td>
                 <td class="py-4 px-4">
                   <div class="flex flex-wrap gap-1.5">
-                    <span v-for="t in rep.fuel_tickets" :key="t.id" class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-mono font-medium bg-slate-50 text-slate-700 border border-slate-200/80 shadow-2xs" :title="'发票号:' + t.invoice_no">
+                    <span v-for="t in rep.fuel_tickets" :key="t.id" class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-medium bg-slate-50 text-slate-700 border border-slate-200/80" :title="'发票号:' + t.invoice_no">
                       ¥{{ t.amount.toFixed(2) }}
                     </span>
                     <span v-if="!rep.fuel_tickets || rep.fuel_tickets.length === 0" class="text-xs text-slate-400 italic">无燃油票</span>
                   </div>
                 </td>
                 <td class="py-4 px-4 text-right font-semibold text-sky-700 bg-sky-50/30 font-mono">¥{{ rep.fuel_amount.toFixed(2) }}</td>
+                <td class="py-4 px-4 text-right font-medium text-slate-700 font-mono">¥{{ (rep.other_amount || 0).toFixed(2) }}</td>
                 <td class="py-4 px-4 text-right font-bold text-slate-900 bg-amber-50/30 text-base font-mono">¥{{ rep.total_amount.toFixed(2) }}</td>
                 <td class="py-4 px-4 text-center">
-                  <input type="date" v-model="rep.submit_date" @change="updateStatus(rep)" class="w-32 text-center text-xs py-1 px-1.5 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white transition font-mono" title="点击修改提交报销时间">
+                  <input type="date" v-model="rep.submit_date" @change="updateStatus(rep)" class="w-32 text-center text-xs py-1 px-1.5 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white transition font-mono" title="点击日历即时修改报销时间">
                 </td>
                 <td class="py-4 px-4 text-center">
                   <select v-model="rep.status" @change="updateStatus(rep)" :class="statusBadgeClass(rep.status)">
@@ -226,14 +224,14 @@
                 </td>
               </tr>
               <tr v-if="reports.length === 0">
-                <td colspan="9" class="py-16 text-center text-slate-400">
+                <td colspan="10" class="py-16 text-center text-slate-400">
                   <div class="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3.5 text-slate-400 border border-slate-200/60">
                     <i class="fa-regular fa-folder-open text-2xl"></i>
                   </div>
-                  <p class="text-sm font-semibold text-slate-700">当前暂无月度报销台账数据</p>
-                  <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">初始环境已就绪，您可以上传包含发票的 ZIP 压缩包，系统将自动解压、提取与分类汇总</p>
+                  <p class="text-sm font-semibold text-slate-700">当前暂无月度报销台账记录</p>
+                  <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">空间已就绪，您可以上传包含发票的 ZIP 压缩包或单张发票，系统将自动分类与核算</p>
                   <button @click="currentTab = 'upload'" class="mt-4 px-4 py-2 text-xs font-semibold bg-slate-900 text-white rounded-xl hover:bg-slate-800 shadow-sm transition inline-flex items-center">
-                    <i class="fa-solid fa-cloud-arrow-up mr-1.5 text-slate-300"></i>立即前往上传压缩包
+                    <i class="fa-solid fa-cloud-arrow-up mr-1.5 text-slate-300"></i>前往数据导入与录入
                   </button>
                 </td>
               </tr>
@@ -243,11 +241,11 @@
       </div>
     </div>
 
-    <!-- 2. 发票导入视图 (支持 ZIP 压缩包与单文件发票) -->
+    <!-- 2. 数据导入与录入视图 -->
     <div v-if="currentTab === 'upload'" class="max-w-2xl mx-auto space-y-6">
       <div class="text-center space-y-1">
-        <h2 class="text-xl font-bold tracking-tight text-slate-900">发票数据导入与录入</h2>
-        <p class="text-xs text-slate-500">支持全月 ZIP 压缩包批量导入，或单张发票即时上传并设置基础信息入库</p>
+        <h2 class="text-xl font-bold tracking-tight text-slate-900">发票与凭证录入</h2>
+        <p class="text-xs text-slate-500">支持全月 ZIP 压缩包自动解压归类，或单张发票即时上传并设置基础信息</p>
       </div>
 
       <!-- 导入模式切换 -->
@@ -269,24 +267,53 @@
       </div>
 
       <!-- 模式一：拖拽上传 ZIP 卡片 -->
-      <div v-if="uploadMode === 'zip'" class="space-y-6">
+      <div v-if="uploadMode === 'zip'" class="space-y-5">
         <div 
           @dragover.prevent="isDragging = true" 
           @dragleave.prevent="isDragging = false" 
           @drop.prevent="handleDrop"
-          :class="['border border-dashed rounded-3xl p-10 text-center transition cursor-pointer bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]', isDragging ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-slate-400']"
+          :class="['border border-dashed rounded-3xl p-8 text-center transition cursor-pointer bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]', isDragging ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-slate-400']"
           @click="$refs.fileInput.click()"
         >
           <input type="file" ref="fileInput" @change="handleFileSelect" accept=".zip" class="hidden">
-          <div class="w-14 h-14 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-xl">
+          <div class="w-12 h-12 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center mx-auto mb-3 text-xl">
             <i class="fa-solid fa-file-zipper"></i>
           </div>
           <p class="text-sm font-semibold text-slate-800">点击选择或拖拽 ZIP 压缩包至此处</p>
-          <p class="text-xs text-slate-400 mt-1">支持包含各月目录结构打包（如 202604_华旭东）或单月全量打包</p>
+          <p class="text-xs text-slate-400 mt-1">支持包含各月目录结构打包（如 202604_日常开支）或整月多文件夹打包</p>
           
-          <div v-if="selectedFile" class="mt-5 inline-flex items-center px-3.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-700">
+          <div v-if="selectedFile" class="mt-4 inline-flex items-center px-3.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-700">
             <i class="fa-solid fa-paperclip mr-2 text-slate-400"></i>
             {{ selectedFile.name }} ({{ (selectedFile.size / 1024 / 1024).toFixed(2) }} MB)
+          </div>
+        </div>
+
+        <!-- ZIP 批次自定义辅助参数（针对无日期发票或特殊报销要求） -->
+        <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs space-y-3">
+          <div class="flex items-center justify-between text-xs font-semibold text-slate-800">
+            <span>批次参数补充设置 (用于覆盖缺漏信息)</span>
+            <span class="text-[11px] text-slate-400 font-normal">可选配置</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <label class="block text-slate-600 mb-1">指定默认归属月份 (如 OCR 无日期)</label>
+              <input type="text" v-model="zipParams.specified_month" placeholder="如 2026年04月，留空按文件夹推导" class="w-full p-2 border border-slate-200 rounded-xl font-mono">
+            </div>
+            <div>
+              <label class="block text-slate-600 mb-1">统一默认报销抬头</label>
+              <input type="text" v-model="zipParams.specified_buyer" placeholder="留空则提取发票原文" class="w-full p-2 border border-slate-200 rounded-xl">
+            </div>
+            <div>
+              <label class="block text-slate-600 mb-1">批次备注信息</label>
+              <input type="text" v-model="zipParams.specified_memo" placeholder="例如：4月自驾出差、通勤补贴" class="w-full p-2 border border-slate-200 rounded-xl">
+            </div>
+            <div>
+              <label class="block text-slate-600 mb-1">重复发票处理策略</label>
+              <select v-model="zipParams.dup_strategy" class="w-full p-2 border border-slate-200 rounded-xl bg-white font-medium">
+                <option value="skip">跳过重复发票 (推荐，防重复计费)</option>
+                <option value="overwrite">覆盖更新已有发票信息</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -325,7 +352,6 @@
 
       <!-- 模式二：单文件发票上传与录入表单 -->
       <div v-if="uploadMode === 'single'" class="bg-white rounded-3xl p-7 border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] space-y-5">
-        <!-- 文件选取区域 -->
         <div 
           @dragover.prevent="isDraggingSingle = true" 
           @dragleave.prevent="isDraggingSingle = false" 
@@ -346,17 +372,12 @@
           </div>
         </div>
 
-        <!-- 基础配置与手动覆盖选项 -->
-        <div class="space-y-4 pt-2">
+        <div class="space-y-4 pt-1">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
             <div>
-              <label class="block font-semibold mb-1 text-slate-700">费用分类 (必选)</label>
+              <label class="block font-semibold mb-1 text-slate-700">费用分类 (纯中文驱动)</label>
               <select v-model="singleForm.category_code" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-slate-400 font-medium">
-                <option value="fuel">燃油费 (fuel)</option>
-                <option value="toll">通行费 (toll)</option>
-                <option value="catering">餐饮接待 (catering)</option>
-                <option value="hotel">差旅住宿 (hotel)</option>
-                <option v-for="r in rules" :key="r.id" :value="r.category_code">{{ r.category_name }} ({{ r.category_code }})</option>
+                <option v-for="r in rules" :key="r.id" :value="r.category_code">{{ r.category_name }}</option>
               </select>
             </div>
             <div>
@@ -378,12 +399,20 @@
               <input type="date" v-model="singleForm.invoice_date" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400 font-mono">
             </div>
             <div>
+              <label class="block font-semibold mb-1 text-slate-700">报销抬头 (购买方, 可选)</label>
+              <input type="text" v-model="singleForm.buyer" placeholder="留空则自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
+            </div>
+
+            <div>
               <label class="block font-semibold mb-1 text-slate-700">销售方单位 (可选)</label>
               <input type="text" v-model="singleForm.seller" placeholder="留空则自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
             </div>
             <div>
-              <label class="block font-semibold mb-1 text-slate-700">发票抬头 (购买方, 可选)</label>
-              <input type="text" v-model="singleForm.buyer" placeholder="留空则自动提取" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
+              <label class="block font-semibold mb-1 text-slate-700">重复发票处理策略</label>
+              <select v-model="singleForm.dup_strategy" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-slate-400">
+                <option value="skip">跳过重复发票 (防重复录入)</option>
+                <option value="overwrite">覆盖更新已有发票</option>
+              </select>
             </div>
 
             <div class="sm:col-span-2">
@@ -393,7 +422,7 @@
 
             <div class="sm:col-span-2">
               <label class="block font-semibold mb-1 text-slate-700">备注说明 (可选)</label>
-              <input type="text" v-model="singleForm.memo" placeholder="例如：某客户拜访加油、ETC充值" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
+              <input type="text" v-model="singleForm.memo" placeholder="例如：加油日常充值、出差高铁" class="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-400">
             </div>
           </div>
         </div>
@@ -421,8 +450,7 @@
             <div>归属月份：{{ singleUploadResult.month }}</div>
             <div>费用分类：{{ singleUploadResult.category_name }}</div>
             <div>发票号码：{{ singleUploadResult.invoice_no || '未识别/空' }}</div>
-            <div>发票抬头：{{ singleUploadResult.buyer || '默认通用抬头' }}</div>
-            <div>识别引擎：{{ singleUploadResult.recognition_method }}</div>
+            <div>发票抬头：{{ singleUploadResult.buyer || '默认个人抬头' }}</div>
           </div>
           <div class="pt-2 flex justify-end space-x-2">
             <button @click="currentTab = 'reports'; loadReports();" class="px-3 py-1.5 bg-emerald-700 text-white rounded-lg text-xs font-medium hover:bg-emerald-800 transition">
@@ -440,18 +468,18 @@
     <div v-if="currentTab === 'invoices'" class="space-y-6">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 class="text-lg font-bold text-slate-900">发票凭证归档</h2>
-          <p class="text-xs text-slate-500 mt-0.5">所有已解析发票记录，具备全局号码防重复校验</p>
+          <h2 class="text-lg font-bold text-slate-900">发票与凭证归档</h2>
+          <p class="text-xs text-slate-500 mt-0.5">所有已解析发票与手动上传凭证记录，支持全局号码防重复校验</p>
         </div>
         <div class="flex items-center space-x-2">
+          <button @click="openVoucherModal" class="px-3 py-2 text-xs font-medium bg-slate-900 text-white rounded-xl hover:bg-slate-800 shadow-sm transition flex items-center">
+            <i class="fa-solid fa-paperclip mr-1.5 text-slate-300"></i>上传凭证附件
+          </button>
           <select v-model="filterCategory" @change="loadInvoices" class="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-none">
             <option value="">全部费用类别</option>
-            <option value="fuel">燃油费</option>
-            <option value="toll">通行费</option>
-            <option value="catering">餐饮接待</option>
-            <option value="hotel">差旅住宿</option>
+            <option v-for="r in rules" :key="r.id" :value="r.category_code">{{ r.category_name }}</option>
           </select>
-          <select v-model="filterBuyer" @change="loadInvoices" class="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-none max-w-[200px]" title="按发票抬头筛选">
+          <select v-model="filterBuyer" @change="loadInvoices" class="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-none max-w-[180px]">
             <option value="">全部发票抬头</option>
             <option v-for="b in buyersList" :key="b" :value="b">{{ b }}</option>
           </select>
@@ -469,12 +497,12 @@
                 <th class="py-3.5 px-4 w-12 text-center">#</th>
                 <th class="py-3.5 px-4 w-28 text-center">所属月份</th>
                 <th class="py-3.5 px-4 w-28 text-center">类别</th>
-                <th class="py-3.5 px-4 min-w-[160px]">发票抬头 (购买方)</th>
-                <th class="py-3.5 px-4 w-44">发票号码</th>
+                <th class="py-3.5 px-4 min-w-[160px]">报销抬头</th>
+                <th class="py-3.5 px-4 w-44">发票号码 / 凭证标识</th>
                 <th class="py-3.5 px-4 w-28 text-center">开票日期</th>
-                <th class="py-3.5 px-4 w-32 text-right">金额 (含税)</th>
-                <th class="py-3.5 px-4 min-w-[180px]">服务劳务 / 货物</th>
-                <th class="py-3.5 px-4 w-24 text-center">识别引擎</th>
+                <th class="py-3.5 px-4 w-32 text-right">金额 (元)</th>
+                <th class="py-3.5 px-4 min-w-[180px]">服务项目 / 货物明细</th>
+                <th class="py-3.5 px-4 w-28 text-center">录入方式</th>
                 <th class="py-3.5 px-4 w-24 text-center">操作</th>
               </tr>
             </thead>
@@ -495,7 +523,11 @@
                 <td class="py-3 px-4 text-center text-xs text-slate-500 font-mono">{{ inv.invoice_date || '-' }}</td>
                 <td class="py-3 px-4 text-right font-bold text-slate-900 font-mono">¥{{ inv.amount.toFixed(2) }}</td>
                 <td class="py-3 px-4 text-xs text-slate-600 truncate max-w-xs" :title="inv.item_name">{{ inv.item_name || '-' }}</td>
-                <td class="py-3 px-4 text-center text-xs font-mono text-slate-400">{{ inv.recognition_method }}</td>
+                <td class="py-3 px-4 text-center text-xs font-mono text-slate-500">
+                  <span v-if="inv.recognition_method === 'voucher'" class="text-blue-600 font-medium">纯凭证归档</span>
+                  <span v-else-if="inv.recognition_method === 'ai_ocr'" class="text-purple-600 font-medium">AI视觉识别</span>
+                  <span v-else>原生解析</span>
+                </td>
                 <td class="py-3 px-4 text-center">
                   <div class="flex items-center justify-center space-x-1">
                     <button @click="openEditInvoiceModal(inv)" class="text-xs text-slate-500 hover:text-blue-600 transition p-1" title="编辑发票">
@@ -508,7 +540,7 @@
                 </td>
               </tr>
               <tr v-if="invoices.length === 0">
-                <td colspan="10" class="py-16 text-center text-slate-400">暂无发票归档记录</td>
+                <td colspan="10" class="py-16 text-center text-slate-400">暂无发票或凭证归档记录</td>
               </tr>
             </tbody>
           </table>
@@ -516,18 +548,18 @@
       </div>
     </div>
 
-    <!-- 4. 规则与设置视图 -->
+    <!-- 4. 个人偏好与规则设置视图 -->
     <div v-if="currentTab === 'settings'" class="max-w-4xl mx-auto space-y-8">
       
-      <!-- 分类与文件夹映射规则面板 -->
+      <!-- 个人分类与文件夹映射规则面板 -->
       <div class="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-slate-200/80 p-6 space-y-5">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-base font-bold text-slate-900">文件夹名称分类映射规则</h3>
-            <p class="text-xs text-slate-500 mt-0.5">解压 ZIP 包时，系统自动匹配目录关键词归类；并依据模式保留有效文件（留空默认全量有效）</p>
+            <h3 class="text-base font-bold text-slate-900">个人分类与文件夹名称映射规则</h3>
+            <p class="text-xs text-slate-500 mt-0.5">解压 ZIP 包时，系统自动匹配目录关键词归类；所有规则按个人空间独立管理</p>
           </div>
-          <button @click="showNewRuleModal = true" class="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition flex items-center">
-            <i class="fa-solid fa-plus mr-1.5 text-xs text-slate-400"></i>新增规则
+          <button @click="openNewRuleModal" class="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition flex items-center">
+            <i class="fa-solid fa-plus mr-1.5 text-xs text-slate-400"></i>新增分类规则
           </button>
         </div>
 
@@ -535,23 +567,41 @@
           <table class="min-w-full divide-y divide-slate-100 text-xs text-left">
             <thead class="bg-slate-50/75 text-slate-500 font-semibold uppercase">
               <tr>
-                <th class="py-3 px-3.5">代码</th>
+                <th class="py-3 px-3.5">代码标识</th>
                 <th class="py-3 px-3.5">分类名称</th>
-                <th class="py-3 px-3.5">目录匹配关键词 (逗号隔开)</th>
-                <th class="py-3 px-3.5">有效文件名模式 (空则默认全量)</th>
-                <th class="py-3 px-3.5">解析策略</th>
+                <th class="py-3 px-3.5">目录匹配关键词 (独立标签)</th>
+                <th class="py-3 px-3.5">有效文件名模式</th>
+                <th class="py-3 px-3.5">解析策略 (系统内置算法)</th>
                 <th class="py-3 px-3.5 w-16 text-center">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 bg-white">
               <tr v-for="r in rules" :key="r.id" class="hover:bg-slate-50/60 transition">
-                <td class="py-2.5 px-3.5 font-mono font-semibold text-slate-900">{{ r.category_code }}</td>
-                <td class="py-2.5 px-3.5 font-medium text-slate-800">{{ r.category_name }}</td>
-                <td class="py-2.5 px-3.5 font-mono text-slate-600">{{ r.folder_keywords }}</td>
-                <td class="py-2.5 px-3.5 font-mono text-amber-700">{{ r.file_patterns || '(默认所有文件有效)' }}</td>
-                <td class="py-2.5 px-3.5 font-mono text-slate-400">{{ r.extractor_type }}</td>
-                <td class="py-2.5 px-3.5 text-center">
-                  <button @click="deleteRule(r.id)" class="text-slate-400 hover:text-rose-600 transition" title="删除">
+                <td class="py-3 px-3.5 font-mono font-semibold text-slate-900">{{ r.category_code }}</td>
+                <td class="py-3 px-3.5 font-medium text-slate-800">{{ r.category_name }}</td>
+                <td class="py-3 px-3.5">
+                  <div class="flex flex-wrap gap-1">
+                    <span v-for="kw in r.folder_keywords_list" :key="kw" class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md text-[11px] border border-slate-200">
+                      {{ kw }}
+                    </span>
+                    <span v-if="!r.folder_keywords_list || r.folder_keywords_list.length === 0" class="text-slate-400 italic">未设置</span>
+                  </div>
+                </td>
+                <td class="py-3 px-3.5">
+                  <div class="flex flex-wrap gap-1 font-mono">
+                    <span v-for="pat in r.file_patterns_list" :key="pat" class="px-2 py-0.5 bg-amber-50 text-amber-800 rounded-md text-[11px] border border-amber-200">
+                      {{ pat }}
+                    </span>
+                    <span v-if="!r.file_patterns_list || r.file_patterns_list.length === 0" class="text-slate-400">全部文件有效</span>
+                  </div>
+                </td>
+                <td class="py-3 px-3.5 text-slate-700 font-medium">
+                  <span class="inline-flex items-center">
+                    <i class="fa-solid fa-microchip mr-1.5 text-slate-400"></i>{{ r.extractor_type_cn }}
+                  </span>
+                </td>
+                <td class="py-3 px-3.5 text-center">
+                  <button @click="deleteRule(r.id)" class="text-slate-400 hover:text-rose-600 transition" title="删除规则">
                     <i class="fa-regular fa-trash-can"></i>
                   </button>
                 </td>
@@ -561,15 +611,15 @@
         </div>
       </div>
 
-      <!-- 外部 AI 视觉 / OCR 识别接口配置 -->
+      <!-- 个人 AI 视觉 / OCR 识别接口配置 -->
       <div class="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-slate-200/80 p-6 space-y-5">
         <div class="flex items-center justify-between">
           <div>
             <div class="flex items-center space-x-2">
-              <h3 class="text-base font-bold text-slate-900">AI 视觉多模态 OCR 接口配置</h3>
-              <span class="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full font-medium border border-rose-200">核心必备配置</span>
+              <h3 class="text-base font-bold text-slate-900">个人 AI 视觉多模态接口配置</h3>
+              <span class="text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full font-medium border border-sky-200">用户级独立密钥</span>
             </div>
-            <p class="text-xs text-slate-500 mt-0.5">用于解析照片、截图及无文字层 PDF 发票；先填地址与密钥，再动态拉取可用模型与调优提示词</p>
+            <p class="text-xs text-slate-500 mt-0.5">当上传手机拍摄小票或纯图片导致本地提取无文本时，自动调用您的专属多模态接口兜底提取</p>
           </div>
           <div class="flex items-center space-x-2">
             <input type="checkbox" id="aiEnabled" v-model="aiForm.enabled" class="rounded text-slate-900 h-4 w-4 focus:ring-0 cursor-pointer">
@@ -578,25 +628,22 @@
         </div>
 
         <div class="space-y-4 pt-1">
-          <!-- 1. 接口地址 -->
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1.5">
               1. 接口地址 (Base URL) <span class="text-rose-500">*</span>
             </label>
             <input type="text" v-model="aiForm.base_url" placeholder="https://api.openai.com/v1" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
-            <span class="text-[11px] text-slate-400 mt-1 block">兼容 OpenAI 规范的 API 接口，例如通义千问 (DashScope)、DeepSeek、SiliconFlow、OpenAI 等</span>
+            <span class="text-[11px] text-slate-400 mt-1 block">兼容 OpenAI 规范的 API 接口，例如阿里通义千问 (DashScope)、DeepSeek、SiliconFlow 等</span>
           </div>
 
-          <!-- 2. API 密钥 -->
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1.5">
               2. API 密钥 (API Key) <span class="text-rose-500">*</span>
             </label>
             <input type="password" v-model="aiForm.api_key" placeholder="sk-..." class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
-            <span class="text-[11px] text-slate-400 mt-1 block">密钥安全保存在后端 SQLite 数据库中，不会明文泄露</span>
+            <span class="text-[11px] text-slate-400 mt-1 block">密钥专属隔离，仅存储于您的个人用户配置中</span>
           </div>
 
-          <!-- 3. 模型名称 (下拉选择 + 动态获取) -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
               <label class="text-xs font-semibold text-slate-700">
@@ -607,44 +654,32 @@
                 @click="fetchAIModels" 
                 :disabled="fetchingModels || !aiForm.base_url || !aiForm.api_key"
                 class="px-2.5 py-1 text-xs font-medium bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-lg transition flex items-center"
-                title="连接接口地址获取支持的模型列表"
               >
                 <i :class="['mr-1 text-xs', fetchingModels ? 'fa-solid fa-circle-notch fa-spin text-blue-600' : 'fa-solid fa-list-check text-slate-500']"></i>
                 {{ fetchingModels ? '正在拉取模型...' : '获取可用模型列表' }}
               </button>
             </div>
 
-            <!-- 如果已拉取模型列表，优先展示下拉菜单 -->
             <div v-if="aiModelsList.length > 0" class="space-y-2">
               <select v-model="aiForm.model_name" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono bg-white">
                 <option disabled value="">请选择可用模型（已按视觉模型智能优先排序）</option>
                 <option v-for="m in aiModelsList" :key="m" :value="m">{{ m }}</option>
               </select>
               <div class="flex items-center justify-between text-[11px] text-slate-400">
-                <span>已拉取到 {{ aiModelsList.length }} 个可用模型</span>
+                <span>已获取到 {{ aiModelsList.length }} 个可用模型</span>
                 <button type="button" @click="aiModelsList = []" class="text-slate-500 hover:underline">切换为手动输入</button>
               </div>
             </div>
-
-            <!-- 若未拉取或手动输入模式 -->
             <div v-else>
               <input type="text" v-model="aiForm.model_name" placeholder="例如 gpt-4o-mini 或 qwen-vl-plus" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none font-mono">
-              <span class="text-[11px] text-slate-400 mt-1 block">可直接输入，或点击右上角【获取可用模型列表】自动拉取并下拉选择</span>
+              <span class="text-[11px] text-slate-400 mt-1 block">可直接输入，或点击右上角按钮由接口动态拉取并下拉选择</span>
             </div>
           </div>
 
-          <!-- 4. 系统提示词 (System Prompt) 自定义展示与配置 -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <label class="text-xs font-semibold text-slate-700">
-                4. 系统提示词 (System Prompt)
-              </label>
-              <button 
-                type="button" 
-                @click="resetSystemPrompt" 
-                class="text-[11px] text-slate-500 hover:text-blue-600 transition flex items-center"
-                title="一键恢复为官方内置默认提示词"
-              >
+              <label class="text-xs font-semibold text-slate-700">4. 系统提示词 (System Prompt)</label>
+              <button type="button" @click="resetSystemPrompt" class="text-[11px] text-slate-500 hover:text-blue-600 transition flex items-center">
                 <i class="fa-solid fa-arrow-rotate-left mr-1"></i>恢复默认提示词
               </button>
             </div>
@@ -654,7 +689,7 @@
               placeholder="自定义发票提取提示词..." 
               class="w-full text-xs p-3 font-mono border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none leading-relaxed text-slate-700"
             ></textarea>
-            <span class="text-[11px] text-slate-400 mt-1 block">该提示词指导多模态大模型从发票图片中抽取发票代码、号码、金额、日期、购买方抬头等标准 JSON 结构</span>
+            <span class="text-[11px] text-slate-400 mt-1 block">可根据个人需求微调大模型抽取 JSON 结构（如购买方、发票代码等规则）</span>
           </div>
         </div>
 
@@ -667,60 +702,205 @@
           </button>
         </div>
       </div>
+
+      <!-- 操作审计日志卡片 -->
+      <div class="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-slate-200/80 p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">数据修改与操作审计日志</h3>
+            <p class="text-xs text-slate-500 mt-0.5">记录发票录入、台账修改、删除与导入等关键行为，保证数据安全与可追溯</p>
+          </div>
+          <button @click="loadAuditLogs" class="text-xs text-slate-600 hover:text-slate-900 px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 transition">
+            <i class="fa-solid fa-arrows-rotate mr-1 text-slate-400"></i>刷新日志
+          </button>
+        </div>
+
+        <div class="space-y-2 max-h-64 overflow-y-auto">
+          <div v-for="log in auditLogs" :key="log.id" class="p-3 bg-slate-50 rounded-xl border border-slate-200/60 flex items-center justify-between text-xs">
+            <div class="flex items-center space-x-2.5">
+              <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-700 font-mono">{{ log.action }}</span>
+              <span class="text-slate-800">{{ log.summary }}</span>
+            </div>
+            <span class="text-[11px] font-mono text-slate-400">{{ log.created_at }}</span>
+          </div>
+          <div v-if="auditLogs.length === 0" class="py-8 text-center text-slate-400 text-xs">
+            暂无操作审计日志
+          </div>
+        </div>
+      </div>
+
     </div>
   </main>
 
-  <!-- 登录弹窗 (未登录或暴露公网保护) -->
+  <!-- 登录与注册弹窗 (支持多用户自主注册) -->
   <div v-if="!isLoggedIn" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl shadow-xl border border-slate-200 max-w-sm w-full p-7 space-y-5">
       <div class="text-center space-y-1.5">
         <div class="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center mx-auto text-base shadow-sm">
           <i class="fa-solid fa-shield-halved"></i>
         </div>
-        <h3 class="text-base font-bold text-slate-900">报销系统管理员登录</h3>
-        <p class="text-xs text-slate-400">服务已配置公网安全鉴权保护</p>
+        <h3 class="text-base font-bold text-slate-900">{{ authMode === 'login' ? '个人发票报销助手登录' : '注册新用户空间' }}</h3>
+        <p class="text-xs text-slate-400">{{ authMode === 'login' ? '安全认证保护，多用户数据强隔离' : '注册即可自动创建专属报销与发票空间' }}</p>
       </div>
 
-      <form @submit.prevent="handleLogin" class="space-y-4">
+      <form @submit.prevent="handleAuthSubmit" class="space-y-4">
         <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1">账号</label>
-          <input type="text" v-model="loginForm.username" required class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
+          <label class="block text-xs font-semibold text-slate-700 mb-1">用户名</label>
+          <input type="text" v-model="authForm.username" required placeholder="请输入您的账号" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">密码</label>
-          <input type="password" v-model="loginForm.password" required class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
-          <p class="text-[10px] text-slate-400 mt-1">初始账号: admin / 初始密码: Admin@2026!</p>
+          <input type="password" v-model="authForm.password" required placeholder="请输入密码" class="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-slate-400 focus:outline-none">
+          <p v-if="authMode === 'login'" class="text-[10px] text-slate-400 mt-1">初始默认账号: admin / 密码: Admin@2026!</p>
         </div>
-        <div v-if="loginError" class="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-          {{ loginError }}
+        <div v-if="authError" class="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+          {{ authError }}
         </div>
         <button type="submit" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-sm transition">
-          登录系统
+          {{ authMode === 'login' ? '登录个人助手' : '立即注册并进入' }}
         </button>
       </form>
+
+      <div class="text-center pt-2 border-t border-slate-100">
+        <button v-if="authMode === 'login'" @click="authMode = 'register'; authError = '';" class="text-xs text-blue-600 hover:underline">
+          没有账号？点击注册新用户空间
+        </button>
+        <button v-else @click="authMode = 'login'; authError = '';" class="text-xs text-slate-500 hover:underline">
+          已有账号？返回直接登录
+        </button>
+      </div>
     </div>
   </div>
 
-  <!-- 新增规则弹窗 -->
-  <div v-if="showNewRuleModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 border border-slate-200">
-      <h4 class="text-base font-bold text-slate-900">新增分类映射规则</h4>
+  <!-- 凭证附件独立上传弹窗 (纯凭证，无OCR) -->
+  <div v-if="showVoucherModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm">
+            <i class="fa-solid fa-paperclip"></i>
+          </div>
+          <div>
+            <h4 class="text-sm font-bold text-slate-900">上传凭证附件</h4>
+            <p class="text-[11px] text-slate-400">纯文件存档，无需 OCR，用于微信截图、小票收据等</p>
+          </div>
+        </div>
+        <button @click="showVoucherModal = false" class="text-slate-400 hover:text-slate-600 p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
       <div class="space-y-3 text-xs">
         <div>
-          <label class="block font-semibold mb-1 text-slate-700">分类代码 (英文标识)</label>
-          <input type="text" v-model="newRule.category_code" placeholder="如 catering, hotel, office" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
+          <label class="block font-semibold mb-1 text-slate-700">选取凭证文件 (限制 15MB 内)</label>
+          <input type="file" ref="voucherFileInput" @change="handleVoucherFileSelect" accept=".pdf,.jpg,.jpeg,.png,.webp" class="w-full p-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold mb-1 text-slate-700">凭证归属月份</label>
+            <input type="text" v-model="voucherForm.month" placeholder="如 2026年04月" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
+          </div>
+          <div>
+            <label class="block font-semibold mb-1 text-slate-700">凭证分类</label>
+            <select v-model="voucherForm.category_code" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white">
+              <option v-for="r in rules" :key="r.id" :value="r.category_code">{{ r.category_name }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold mb-1 text-slate-700">凭证金额 (元, 可选)</label>
+            <input type="number" step="0.01" v-model.number="voucherForm.amount" placeholder="0.00" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
+          </div>
+          <div>
+            <label class="block font-semibold mb-1 text-slate-700">报销抬头 (可选)</label>
+            <input type="text" v-model="voucherForm.buyer" placeholder="个人或公司抬头" class="w-full p-2.5 border border-slate-200 rounded-xl">
+          </div>
         </div>
         <div>
-          <label class="block font-semibold mb-1 text-slate-700">分类名称 (中文显示)</label>
-          <input type="text" v-model="newRule.category_name" placeholder="如 餐饮招待, 差旅住宿, 办公用品" class="w-full p-2.5 border border-slate-200 rounded-xl">
+          <label class="block font-semibold mb-1 text-slate-700">凭证项目名称 (可选)</label>
+          <input type="text" v-model="voucherForm.item_name" placeholder="如 客户拜访打车小票、微信支付流水截图" class="w-full p-2.5 border border-slate-200 rounded-xl">
         </div>
         <div>
-          <label class="block font-semibold mb-1 text-slate-700">目录匹配关键词 (逗号隔开)</label>
-          <input type="text" v-model="newRule.folder_keywords" placeholder="如 餐饮,餐费,商务招待" class="w-full p-2.5 border border-slate-200 rounded-xl">
+          <label class="block font-semibold mb-1 text-slate-700">备注说明 (可选)</label>
+          <input type="text" v-model="voucherForm.memo" placeholder="填写说明备注" class="w-full p-2.5 border border-slate-200 rounded-xl">
         </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+        <button @click="showVoucherModal = false" class="px-3.5 py-2 border border-slate-200 rounded-xl text-xs text-slate-600 hover:bg-slate-50">取消</button>
+        <button @click="submitVoucherUpload" :disabled="uploadingVoucher" class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 disabled:opacity-50">
+          {{ uploadingVoucher ? '正在上传归档...' : '上传并归档凭证' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新增/编辑分类映射规则弹窗 (采用多 input 独立标签管理，彻底避免逗号混淆) -->
+  <div v-if="showNewRuleModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-xl max-w-lg w-full p-6 space-y-4 border border-slate-200">
+      <h4 class="text-base font-bold text-slate-900">新增分类映射规则</h4>
+      <div class="space-y-3.5 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold mb-1 text-slate-700">分类代码 (英文标识)</label>
+            <input type="text" v-model="newRule.category_code" placeholder="如 office, transport" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
+          </div>
+          <div>
+            <label class="block font-semibold mb-1 text-slate-700">分类名称 (纯中文)</label>
+            <input type="text" v-model="newRule.category_name" placeholder="如 办公用品, 交通出行" class="w-full p-2.5 border border-slate-200 rounded-xl">
+          </div>
+        </div>
+
+        <!-- 目录匹配关键词多 input 标签管理 -->
         <div>
-          <label class="block font-semibold mb-1 text-slate-700">有效文件名模式 (留空表示该目录下全部有效)</label>
-          <input type="text" v-model="newRule.file_patterns" placeholder="如 *.pdf 或 *发票*.pdf" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
+          <label class="block font-semibold mb-1 text-slate-700">目录匹配关键词 (独立添加，无需输入分隔符)</label>
+          <div class="flex flex-wrap gap-1.5 p-2 border border-slate-200 rounded-xl min-h-[44px] bg-slate-50/50 items-center">
+            <span v-for="(kw, idx) in newRule.keywordsList" :key="idx" class="inline-flex items-center px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium">
+              {{ kw }}
+              <button type="button" @click="newRule.keywordsList.splice(idx, 1)" class="ml-1.5 text-slate-400 hover:text-rose-500">
+                <i class="fa-solid fa-xmark text-[10px]"></i>
+              </button>
+            </span>
+            <div class="flex items-center space-x-1 flex-1 min-w-[120px]">
+              <input type="text" v-model="kwInput" @keydown.enter.prevent="addKeyword" placeholder="输入关键词按回车添加" class="w-full p-1 bg-transparent text-xs focus:outline-none">
+              <button type="button" @click="addKeyword" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-slate-700 text-[11px] whitespace-nowrap">
+                + 添加
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 有效文件名模式多 input 标签管理 -->
+        <div>
+          <label class="block font-semibold mb-1 text-slate-700">有效文件名过滤模式 (空则默认全部有效)</label>
+          <div class="flex flex-wrap gap-1.5 p-2 border border-slate-200 rounded-xl min-h-[44px] bg-slate-50/50 items-center">
+            <span v-for="(pat, idx) in newRule.patternsList" :key="idx" class="inline-flex items-center px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 font-mono text-[11px]">
+              {{ pat }}
+              <button type="button" @click="newRule.patternsList.splice(idx, 1)" class="ml-1.5 text-amber-400 hover:text-rose-500">
+                <i class="fa-solid fa-xmark text-[10px]"></i>
+              </button>
+            </span>
+            <div class="flex items-center space-x-1 flex-1 min-w-[120px]">
+              <input type="text" v-model="patInput" @keydown.enter.prevent="addPattern" placeholder="如 *.pdf 或 *票据*.pdf" class="w-full p-1 bg-transparent text-xs font-mono focus:outline-none">
+              <button type="button" @click="addPattern" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-slate-700 text-[11px] whitespace-nowrap">
+                + 添加
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold mb-1 text-slate-700">解析策略 (系统内置核心算法)</label>
+          <select v-model="newRule.extractor_type" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white font-medium">
+            <option value="invoice">标准增值税发票识别（单票明细提取）</option>
+            <option value="toll_summary">通行费汇总单识别（月度整笔提取）</option>
+            <option value="general_ocr">通用票据 / AI视觉多模态识别</option>
+            <option value="voucher">纯凭证文件存档（无需识别）</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block font-semibold mb-1 text-slate-700">说明备注 (可选)</label>
+          <input type="text" v-model="newRule.description" placeholder="说明该分类用途" class="w-full p-2.5 border border-slate-200 rounded-xl">
         </div>
       </div>
       <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
@@ -733,7 +913,7 @@
   <!-- 修改密码弹窗 -->
   <div v-if="showPwdModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 border border-slate-200">
-      <h4 class="text-base font-bold text-slate-900">修改管理员密码</h4>
+      <h4 class="text-base font-bold text-slate-900">修改登录密码</h4>
       <div class="space-y-3 text-xs">
         <div>
           <label class="block font-semibold mb-1 text-slate-700">当前旧密码</label>
@@ -790,7 +970,7 @@
         </div>
 
         <div>
-          <label class="block font-semibold mb-1 text-slate-700">其他费用 (元)</label>
+          <label class="block font-semibold mb-1 text-slate-700">其他费用凭证 (元)</label>
           <input type="number" step="0.01" v-model.number="editReportForm.other_amount" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
         </div>
         <div>
@@ -835,7 +1015,7 @@
 
       <div class="grid grid-cols-2 gap-3 text-xs">
         <div>
-          <label class="block font-semibold mb-1 text-slate-700">发票号码</label>
+          <label class="block font-semibold mb-1 text-slate-700">发票号码 / 凭证号</label>
           <input type="text" v-model="editInvoiceForm.invoice_no" placeholder="发票代码/号码" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
         </div>
         <div>
@@ -844,7 +1024,7 @@
         </div>
 
         <div>
-          <label class="block font-semibold mb-1 text-slate-700">金额含税 (元)</label>
+          <label class="block font-semibold mb-1 text-slate-700">金额 (元)</label>
           <input type="number" step="0.01" v-model.number="editInvoiceForm.amount" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono font-bold text-slate-900">
         </div>
         <div>
@@ -853,13 +1033,13 @@
         </div>
 
         <div class="col-span-2">
-          <label class="block font-semibold mb-1 text-slate-700">销售方单位名称</label>
-          <input type="text" v-model="editInvoiceForm.seller" placeholder="销方企业名称" class="w-full p-2.5 border border-slate-200 rounded-xl">
+          <label class="block font-semibold mb-1 text-slate-700">报销抬头 (购买方)</label>
+          <input type="text" v-model="editInvoiceForm.buyer" placeholder="报销抬头名称" class="w-full p-2.5 border border-slate-200 rounded-xl">
         </div>
 
         <div class="col-span-2">
-          <label class="block font-semibold mb-1 text-slate-700">发票抬头 (购买方单位)</label>
-          <input type="text" v-model="editInvoiceForm.buyer" placeholder="购方企业或机构抬头" class="w-full p-2.5 border border-slate-200 rounded-xl">
+          <label class="block font-semibold mb-1 text-slate-700">销售方 / 商户单位</label>
+          <input type="text" v-model="editInvoiceForm.seller" placeholder="销方或商户名称" class="w-full p-2.5 border border-slate-200 rounded-xl">
         </div>
 
         <div class="col-span-2">
@@ -897,8 +1077,9 @@ createApp({
     const username = ref('admin');
     const token = ref(localStorage.getItem('expense_token') || '');
 
-    const loginForm = ref({ username: 'admin', password: '' });
-    const loginError = ref('');
+    const authMode = ref('login'); // 'login' | 'register'
+    const authForm = ref({ username: 'admin', password: '' });
+    const authError = ref('');
     const showPwdModal = ref(false);
     const pwdForm = ref({ old_password: '', new_password: '' });
 
@@ -910,13 +1091,59 @@ createApp({
     const rules = ref([]);
 
     const showNewRuleModal = ref(false);
-    const newRule = ref({ category_code: '', category_name: '', folder_keywords: '', file_patterns: '', extractor_type: 'invoice' });
+    const newRule = ref({
+      category_code: '',
+      category_name: '',
+      keywordsList: [],
+      patternsList: [],
+      extractor_type: 'invoice',
+      description: ''
+    });
+    const kwInput = ref('');
+    const patInput = ref('');
+
+    const addKeyword = () => {
+      const val = kwInput.value.trim();
+      if (val && !newRule.value.keywordsList.includes(val)) {
+        newRule.value.keywordsList.push(val);
+        kwInput.value = '';
+      }
+    };
+    const addPattern = () => {
+      const val = patInput.value.trim();
+      if (val && !newRule.value.patternsList.includes(val)) {
+        newRule.value.patternsList.push(val);
+        patInput.value = '';
+      }
+    };
 
     const aiForm = ref({ enabled: true, base_url: '', api_key: '', model_name: '', system_prompt: '' });
     const aiModelsList = ref([]);
     const fetchingModels = ref(false);
     const defaultSystemPrompt = ref('');
     const testingAI = ref(false);
+
+    const auditLogs = ref([]);
+
+    const zipParams = ref({
+      specified_month: '',
+      specified_buyer: '',
+      specified_memo: '',
+      dup_strategy: 'skip'
+    });
+
+    // 凭证上传
+    const showVoucherModal = ref(false);
+    const selectedVoucherFile = ref(null);
+    const uploadingVoucher = ref(false);
+    const voucherForm = ref({
+      month: '',
+      category_code: 'voucher',
+      amount: null,
+      buyer: '',
+      item_name: '',
+      memo: ''
+    });
 
     const exportUrl = ref('/api/reports/export/excel');
 
@@ -963,6 +1190,7 @@ createApp({
           loadRules();
           loadAISettings();
           loadBuyers();
+          loadAuditLogs();
         } else {
           isLoggedIn.value = false;
         }
@@ -971,13 +1199,14 @@ createApp({
       }
     };
 
-    const handleLogin = async () => {
-      loginError.value = '';
+    const handleAuthSubmit = async () => {
+      authError.value = '';
+      const endpoint = authMode.value === 'login' ? '/api/auth/login' : '/api/auth/register';
       try {
-        const resp = await fetch('/api/auth/login', {
+        const resp = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(loginForm.value)
+          body: JSON.stringify(authForm.value)
         });
         const data = await resp.json();
         if (resp.ok && data.success) {
@@ -990,11 +1219,12 @@ createApp({
           loadRules();
           loadAISettings();
           loadBuyers();
+          loadAuditLogs();
         } else {
-          loginError.value = data.detail || '登录失败';
+          authError.value = data.detail || (authMode.value === 'login' ? '登录失败' : '注册失败');
         }
       } catch (e) {
-        loginError.value = '请求异常: ' + e.message;
+        authError.value = '请求异常: ' + e.message;
       }
     };
 
@@ -1015,6 +1245,7 @@ createApp({
         alert('密码修改成功');
         showPwdModal.value = false;
         pwdForm.value = { old_password: '', new_password: '' };
+        loadAuditLogs();
       } else {
         const data = await resp.json();
         alert(data.detail || '修改失败');
@@ -1040,6 +1271,7 @@ createApp({
           memo: rep.memo
         })
       });
+      loadAuditLogs();
     };
 
     const handleDrop = (e) => {
@@ -1062,6 +1294,10 @@ createApp({
 
       const formData = new FormData();
       formData.append('file', selectedFile.value);
+      if (zipParams.value.specified_month) formData.append('specified_month', zipParams.value.specified_month);
+      if (zipParams.value.specified_buyer) formData.append('specified_buyer', zipParams.value.specified_buyer);
+      if (zipParams.value.specified_memo) formData.append('specified_memo', zipParams.value.specified_memo);
+      formData.append('dup_strategy', zipParams.value.dup_strategy || 'skip');
 
       try {
         const resp = await fetch('/api/upload/zip', {
@@ -1076,6 +1312,7 @@ createApp({
           selectedFile.value = null;
           loadReports();
           loadBuyers();
+          loadAuditLogs();
         } else {
           uploadLogs.value = data.logs || [data.detail || '处理失败'];
         }
@@ -1100,7 +1337,8 @@ createApp({
       seller: '',
       buyer: '',
       item_name: '',
-      memo: ''
+      memo: '',
+      dup_strategy: 'skip'
     });
 
     const handleSingleDrop = (e) => {
@@ -1132,6 +1370,7 @@ createApp({
       if (singleForm.value.buyer) formData.append('buyer', singleForm.value.buyer);
       if (singleForm.value.item_name) formData.append('item_name', singleForm.value.item_name);
       if (singleForm.value.memo) formData.append('memo', singleForm.value.memo);
+      formData.append('dup_strategy', singleForm.value.dup_strategy || 'skip');
 
       try {
         const resp = await fetch('/api/upload/single', {
@@ -1147,12 +1386,72 @@ createApp({
           loadReports();
           loadInvoices();
           loadBuyers();
+          loadAuditLogs();
         } else {
           alert(data.detail || '单文件上传处理失败');
         }
       } catch (e) {
         uploadingSingle.value = false;
         alert('上传请求异常: ' + e.message);
+      }
+    };
+
+    // 纯凭证上传逻辑
+    const openVoucherModal = () => {
+      selectedVoucherFile.value = null;
+      voucherForm.value = {
+        month: '',
+        category_code: rules.value.length > 0 ? rules.value[0].category_code : 'voucher',
+        amount: null,
+        buyer: '',
+        item_name: '',
+        memo: ''
+      };
+      showVoucherModal.value = true;
+    };
+
+    const handleVoucherFileSelect = (e) => {
+      if (e.target.files.length > 0) {
+        selectedVoucherFile.value = e.target.files[0];
+      }
+    };
+
+    const submitVoucherUpload = async () => {
+      if (!selectedVoucherFile.value) {
+        alert('请选取凭证文件');
+        return;
+      }
+      uploadingVoucher.value = true;
+      const formData = new FormData();
+      formData.append('file', selectedVoucherFile.value);
+      formData.append('category_code', voucherForm.value.category_code);
+      if (voucherForm.value.month) formData.append('month', voucherForm.value.month);
+      if (voucherForm.value.amount) formData.append('amount', voucherForm.value.amount);
+      if (voucherForm.value.buyer) formData.append('buyer', voucherForm.value.buyer);
+      if (voucherForm.value.item_name) formData.append('item_name', voucherForm.value.item_name);
+      if (voucherForm.value.memo) formData.append('memo', voucherForm.value.memo);
+
+      try {
+        const resp = await fetch('/api/upload/voucher', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: formData
+        });
+        const data = await resp.json();
+        uploadingVoucher.value = false;
+        if (resp.ok && data.success) {
+          showVoucherModal.value = false;
+          alert('凭证已成功归档入库');
+          loadReports();
+          loadInvoices();
+          loadBuyers();
+          loadAuditLogs();
+        } else {
+          alert(data.detail || '凭证上传失败');
+        }
+      } catch (e) {
+        uploadingVoucher.value = false;
+        alert('上传异常: ' + e.message);
       }
     };
 
@@ -1182,30 +1481,64 @@ createApp({
     };
 
     const deleteInvoice = async (id) => {
-      if (!confirm('确定删除该发票记录吗？')) return;
+      if (!confirm('确定删除该发票凭证吗？')) return;
       await fetch(`/api/invoices/${id}`, { method: 'DELETE', headers: authHeaders() });
       loadInvoices();
       loadReports();
       loadBuyers();
+      loadAuditLogs();
     };
 
     const loadRules = async () => {
       const resp = await fetch('/api/rules', { headers: authHeaders() });
       if (resp.ok) {
         rules.value = await resp.json();
+        if (rules.value.length > 0 && !singleForm.value.category_code) {
+          singleForm.value.category_code = rules.value[0].category_code;
+        }
       }
     };
 
+    const openNewRuleModal = () => {
+      newRule.value = {
+        category_code: '',
+        category_name: '',
+        keywordsList: [],
+        patternsList: [],
+        extractor_type: 'invoice',
+        description: ''
+      };
+      kwInput.value = '';
+      patInput.value = '';
+      showNewRuleModal.value = true;
+    };
+
     const saveNewRule = async () => {
+      if (!newRule.value.category_code.trim() || !newRule.value.category_name.trim()) {
+        alert('请填写分类代码与分类名称');
+        return;
+      }
+      if (kwInput.value.trim()) addKeyword();
+      if (patInput.value.trim()) addPattern();
+
+      const payload = {
+        category_code: newRule.value.category_code,
+        category_name: newRule.value.category_name,
+        folder_keywords: newRule.value.keywordsList,
+        file_patterns: newRule.value.patternsList,
+        extractor_type: newRule.value.extractor_type,
+        description: newRule.value.description
+      };
+
       const resp = await fetch('/api/rules', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRule.value)
+        body: JSON.stringify(payload)
       });
       if (resp.ok) {
         showNewRuleModal.value = false;
-        newRule.value = { category_code: '', category_name: '', folder_keywords: '', file_patterns: '', extractor_type: 'invoice' };
         loadRules();
+        loadAuditLogs();
       } else {
         const data = await resp.json();
         alert(data.detail || '保存失败');
@@ -1213,9 +1546,10 @@ createApp({
     };
 
     const deleteRule = async (id) => {
-      if (!confirm('确定删除该规则吗？')) return;
+      if (!confirm('确定删除该分类规则吗？')) return;
       await fetch(`/api/rules/${id}`, { method: 'DELETE', headers: authHeaders() });
       loadRules();
+      loadAuditLogs();
     };
 
     const loadAISettings = async () => {
@@ -1258,7 +1592,7 @@ createApp({
               aiForm.value.model_name = aiModelsList.value[0];
             }
           }
-          alert(`成功拉取到 ${data.count} 个可用模型，已优先排序列出视觉多模态模型`);
+          alert(`成功拉取到 ${data.count} 个可用模型，已按视觉模型智能优先排序列出`);
         } else {
           alert('拉取模型失败: ' + (data.detail || data.error || '远端接口未返回有效模型列表'));
         }
@@ -1282,7 +1616,8 @@ createApp({
         body: JSON.stringify(aiForm.value)
       });
       if (resp.ok) {
-        alert('AI 设置已保存');
+        alert('个人 AI 设置已保存');
+        loadAuditLogs();
       }
     };
 
@@ -1301,6 +1636,15 @@ createApp({
       } finally {
         testingAI.value = false;
       }
+    };
+
+    const loadAuditLogs = async () => {
+      try {
+        const resp = await fetch('/api/audit-logs', { headers: authHeaders() });
+        if (resp.ok) {
+          auditLogs.value = await resp.json();
+        }
+      } catch (e) {}
     };
 
     // 编辑月度台账逻辑
@@ -1343,6 +1687,7 @@ createApp({
           showEditReportModal.value = false;
           loadReports();
           loadInvoices();
+          loadAuditLogs();
         } else {
           alert(data.detail || '保存失败');
         }
@@ -1352,7 +1697,7 @@ createApp({
     };
 
     const confirmDeleteReport = async (rep) => {
-      if (!confirm(`确定删除 ${rep.month} 的月度费用台账及关联发票吗？此操作不可撤销。`)) return;
+      if (!confirm(`确定删除 ${rep.month} 的月度费用台账及关联凭证吗？此操作不可撤销。`)) return;
       try {
         const resp = await fetch(`/api/reports/${rep.id}`, {
           method: 'DELETE',
@@ -1363,6 +1708,7 @@ createApp({
           loadReports();
           loadInvoices();
           loadBuyers();
+          loadAuditLogs();
         } else {
           alert(data.detail || '删除失败');
         }
@@ -1372,7 +1718,7 @@ createApp({
     };
 
     const confirmClearAll = async () => {
-      if (!confirm('警告：此操作将清空所有已解析的月度台账与发票凭证，恢复为空白初始状态！确定清空吗？')) return;
+      if (!confirm('警告：此操作将清空您个人名下所有的月度台账与发票凭证，恢复为空白初始状态！确定清空吗？')) return;
       try {
         const resp = await fetch('/api/reports/clear-all', {
           method: 'POST',
@@ -1383,6 +1729,7 @@ createApp({
           loadReports();
           loadInvoices();
           loadBuyers();
+          loadAuditLogs();
           uploadLogs.value = [];
         } else {
           alert(data.detail || '清空失败');
@@ -1435,6 +1782,7 @@ createApp({
           loadInvoices();
           loadReports();
           loadBuyers();
+          loadAuditLogs();
         } else {
           alert(data.detail || '保存失败');
         }
@@ -1448,19 +1796,23 @@ createApp({
     });
 
     return {
-      currentTab, isLoggedIn, username, loginForm, loginError, showPwdModal, pwdForm,
-      reports, invoices, filterCategory, filterBuyer, buyersList, loadBuyers, rules, showNewRuleModal, newRule,
-      aiForm, aiModelsList, fetchingModels, defaultSystemPrompt, fetchAIModels, resetSystemPrompt, testingAI, exportUrl,
-      isDragging, selectedFile, uploading, uploadLogs,
+      currentTab, isLoggedIn, username, authMode, authForm, authError, showPwdModal, pwdForm,
+      reports, invoices, filterCategory, filterBuyer, buyersList, loadBuyers, rules,
+      showNewRuleModal, newRule, kwInput, patInput, addKeyword, addPattern, openNewRuleModal,
+      aiForm, aiModelsList, fetchingModels, defaultSystemPrompt, fetchAIModels, resetSystemPrompt, testingAI,
+      auditLogs, loadAuditLogs, exportUrl,
+      isDragging, selectedFile, uploading, uploadLogs, zipParams,
       pendingTotal, waitingPayTotal, completedTotal,
-      navClass, statusBadgeClass, handleLogin, logout, saveNewPassword,
+      navClass, statusBadgeClass, handleAuthSubmit, logout, saveNewPassword,
       loadReports, updateStatus, handleDrop, handleFileSelect, startUpload,
       loadInvoices, viewMonthInvoices, deleteInvoice, saveNewRule, deleteRule,
       saveAI, testAI,
       showEditReportModal, editReportForm, openEditReportModal, saveEditReport, confirmDeleteReport, confirmClearAll,
       showEditInvoiceModal, editInvoiceForm, openEditInvoiceModal, saveEditInvoice,
       uploadMode, isDraggingSingle, selectedSingleFile, uploadingSingle, singleUploadResult, singleForm,
-      handleSingleDrop, handleSingleFileSelect, startSingleUpload
+      handleSingleDrop, handleSingleFileSelect, startSingleUpload,
+      showVoucherModal, openVoucherModal, selectedVoucherFile, uploadingVoucher, voucherForm,
+      handleVoucherFileSelect, submitVoucherUpload
     };
   }
 }).mount('#app');
