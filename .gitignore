@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Data & Uploads (保持目录结构，忽略生成的数据库与具体文件)
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/*.sqlite3
+data/*.key
+*.key
+!data/.gitkeep
+
+uploads/*
+!uploads/.gitkeep
+uploads/single/*
+!uploads/single/.gitkeep
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & Temporary Files
+*.log
+*.tmp
+temp/
+tmp/
