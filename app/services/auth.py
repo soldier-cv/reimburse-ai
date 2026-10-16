@@ -1,52 +1,128 @@
 import os
+import hmac
 import hashlib
 import secrets
 from datetime import datetime, timedelta
 import jwt
+import argon2
+import argon2.exceptions
 from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from ..database import get_db, DATA_DIR
 from ..models import User
 
-# JWT 密钥初始化与持久化
+# JWT 密钥初始化与持久化（权限收紧为 0600，且 fail-closed）
 SECRET_FILE = os.path.join(DATA_DIR, "jwt_secret.key")
-if os.path.exists(SECRET_FILE):
-    with open(SECRET_FILE, "r", encoding="utf-8") as f:
-        JWT_SECRET = f.read().strip()
-else:
-    JWT_SECRET = os.environ.get("JWT_SECRET_KEY", secrets.token_hex(32))
+
+def load_or_create_jwt_secret() -> str:
+    env_secret = os.environ.get("JWT_SECRET_KEY", "").strip()
+    if env_secret:
+        if os.path.exists(SECRET_FILE):
+            try:
+                os.chmod(SECRET_FILE, 0o600)
+            except OSError:
+                pass
+        return env_secret
+
+    if os.path.exists(SECRET_FILE):
+        with open(SECRET_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if not content:
+            raise RuntimeError(f"JWT secret file {SECRET_FILE} exists but is empty or only whitespace (fail-closed)")
+        try:
+            os.chmod(SECRET_FILE, 0o600)
+        except OSError:
+            pass
+        return content
+
+    new_secret = secrets.token_hex(32)
     try:
-        with open(SECRET_FILE, "w", encoding="utf-8") as f:
-            f.write(JWT_SECRET)
-    except Exception:
-        pass
+        fd = os.open(SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
+            f.write(new_secret)
+        return new_secret
+    except Exception as e:
+        raise RuntimeError(f"Failed to persist JWT secret to {SECRET_FILE} (fail-closed): {e}")
+
+JWT_SECRET = load_or_create_jwt_secret()
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30 # 默认30天有效，个人使用更便利
+ACCESS_TOKEN_EXPIRE_DAYS = 7 # 会话有效期收窄至 7 天
 
 security = HTTPBearer(auto_error=False)
+pwd_hasher = argon2.PasswordHasher()
 
-def hash_password(password: str, salt: str = None) -> tuple[str, str]:
-    """使用 PBKDF2-HMAC-SHA256 进行密码哈希"""
-    if not salt:
-        salt = secrets.token_hex(16)
-    hashed = hashlib.pbkdf2_hmac(
+def _verify_legacy_pbkdf2(plain_password: str, salt: str, hashed: str) -> bool:
+    # 仅用于校验/迁移旧记录（PBKDF2-HMAC-SHA256 遗留兼容分支）
+    legacy_hash = hashlib.pbkdf2_hmac(
         "sha256",
-        password.encode("utf-8"),
+        plain_password.encode("utf-8"),
         salt.encode("utf-8"),
         100000
     ).hex()
-    return hashed, salt
+    return hmac.compare_digest(legacy_hash, hashed)
+
+def hash_password(password: str, salt: str = None) -> tuple[str, str]:
+    """使用 argon2id 进行密码哈希，salt 作为遗留兼容返回值固定为空字符串"""
+    hashed = pwd_hasher.hash(password)
+    return hashed, ""
+
+def verify_password_and_check_rehash(plain_password: str, salt: str, hashed: str) -> tuple[bool, bool]:
+    """
+    校验密码并判断是否需要升级哈希：
+    返回 (is_valid, needs_rehash)。
+    若为 legacy pbkdf2 密码，校验成功后 needs_rehash 为 True。
+    若为 argon2 哈希，捕获所有校验异常返回 False，避免冒泡成 500。
+    """
+    if not plain_password or not hashed:
+        return False, False
+
+    if hashed.startswith("$argon2"):
+        try:
+            pwd_hasher.verify(hashed, plain_password)
+            needs_rehash = pwd_hasher.check_needs_rehash(hashed)
+            return True, needs_rehash
+        except (
+            argon2.exceptions.VerifyMismatchError,
+            argon2.exceptions.VerificationError,
+            argon2.exceptions.InvalidHashError,
+        ):
+            return False, False
+        except Exception:
+            return False, False
+    else:
+        valid = _verify_legacy_pbkdf2(plain_password, salt or "", hashed)
+        return valid, True if valid else False
 
 def verify_password(plain_password: str, salt: str, hashed: str) -> bool:
-    new_hashed, _ = hash_password(plain_password, salt)
-    return secrets.compare_digest(new_hashed, hashed)
+    valid, _ = verify_password_and_check_rehash(plain_password, salt, hashed)
+    return valid
+
+def rehash_user_password_if_needed(db: Session, user: User, plain_password: str, needs_rehash: bool) -> None:
+    """
+    登录成功且 needs_rehash（含 legacy）时重算并写回 argon2 哈希。
+    升级失败用 try/except 包住，绝不锁死账号。
+    """
+    if not needs_rehash:
+        return
+    try:
+        new_hash, _ = hash_password(plain_password)
+        user.password_hash = new_hash
+        user.salt = ""
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[AUTH WARNING] 密码哈希透明升级写库失败，跳过以保障登录正常: {e}")
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS))
-    to_encode.update({"exp": expire})
+    now = datetime.utcnow()
+    expire = now + (expires_delta or timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS))
+    to_encode.update({
+        "exp": expire,
+        "iat": int(now.timestamp())
+    })
     return jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
 
 def decode_access_token(token: str) -> dict:
@@ -63,18 +139,17 @@ def get_current_user(
 ) -> User:
     """
     鉴权中间件 / 依赖：
-    支持以下三种方式提取 Token：
+    支持以下两种凭据传递方式（彻底禁止 query param 传 token）：
     1. Header: Authorization: Bearer <token>
-    2. Cookie: expense_token=<token>
-    3. Query Param: ?token=<token> (用于浏览器下载文件场景)
+    2. Cookie: access_token=<token> 或 expense_token=<token>
     """
     token = None
     if auth and auth.credentials:
         token = auth.credentials
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
     elif "expense_token" in request.cookies:
         token = request.cookies.get("expense_token")
-    elif "token" in request.query_params:
-        token = request.query_params.get("token")
 
     if not token:
         raise HTTPException(
@@ -97,6 +172,15 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 校验 session_version：缺失或与数据库不一致时判 401（改密即失效旧 token，存量旧 token 统一要求重新登录）
+    token_sv = payload.get("sv")
+    if token_sv is None or token_sv != user.session_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="认证令牌已失效或无效，请重新登录",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -128,6 +212,7 @@ def init_default_admin(db: Session):
             username=init_username,
             password_hash=hashed,
             salt=salt,
+            session_version=0,
             role="admin",
             created_at=datetime.now()
         )

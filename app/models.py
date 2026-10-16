@@ -9,8 +9,9 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
-    password_hash = Column(String(128), nullable=False)
-    salt = Column(String(64), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    salt = Column(String(64), nullable=False, default="") # 遗留字段，仅 pbkdf2 旧记录使用，argon2 用户存空字符串
+    session_version = Column(Integer, nullable=False, default=0, server_default="0") # 会话版本号，用于改密/踢出旧会话
     role = Column(String(20), default="user") # admin, user
     created_at = Column(DateTime, default=datetime.now)
     last_login = Column(DateTime, nullable=True)
