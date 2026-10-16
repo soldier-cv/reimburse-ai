@@ -6,11 +6,12 @@
 
 ## 核心安全准则与交互规范
 
-1. **禁止运行全量测试**：绝对禁止直接执行 `mvn test`、全量破坏性测试命令，避免污染真实数据。
-2. **环境感知**：当前运行环境为 **Windows 10**，发出的所有终端命令（路径、编码、PowerShell 脚本）必须兼容 Windows 环境。
+1. **禁止运行全量破坏性测试**：不得执行会污染真实数据的命令（如对 `/data/reimburse-ai` 的删除、对生产库的 DDL）。测试一律用 `tests/` 下的隔离 tmp 库。
+2. **环境感知**：运行环境为 **Linux（Ubuntu）**，服务以 Docker 容器部署（宿主端口 8092 → 容器 8090，数据目录 `/data/reimburse-ai`）。命令、路径、编码按 Linux 处理。
 3. **语言规范**：始终使用**中文**进行回复和解释。
 4. **禁止使用 Emoji**：界面 UI、系统提示词、代码注释与日志中**严禁使用任何 emoji 表情**；UI 统一采用 FontAwesome 矢量图标配合 Tailwind 现代极简设计。
-5. **代码提交准则**：**未经华总明确要求，不得擅自执行 `git commit` 或 `git push`**。变更完成后在本地工作区验证无误，记录于 `AGENTS.md` 并汇报，待明确指令后再统一提交。
+5. **代码提交准则**：改动在本地工作区验证无误后，按逻辑分组 `git commit`；**`git push` 由派发方在验收通过后执行**（仓库有远端 `origin`，默认分支 `main`）。
+6. **认证鉴权纪律（禁止自研，华总 2026-10-16 定案）**：涉及认证/鉴权/权限/口令/会话的实现，一律使用成熟框架或库——口令哈希用 `argon2-cffi`，令牌签发/验签用 `PyJWT`，限流用 `slowapi`/`limits`，一次性签名链接用 `itsdangerous`；**禁止手写密码哈希、令牌签名、随机数生成、常量时间比较**。随机值用 `secrets`，常量时间比较用 `hmac.compare_digest`。凭证只走 Header/Cookie，**禁止 query 参数传凭证**（下载场景用一次性签名链接）。
 
 ---
 
@@ -96,9 +97,8 @@
 ### 2. Woodpecker CI (v3.19.0) 流水线规范
 - 配置文件位于 `.woodpecker.yaml`；
 - **触发条件限制**：严格遵循 Woodpecker 3.19.0 规范，顶层配置 `when: - event: [tag, manual]`，**仅提供 `tag` 标签推送与 `manual` 手动触发**；
-- **直接本地构建与部署（无需上传外部镜像仓库）**：
-  1. `verify`：执行 Python 语法编译校验（`py_compile`），不执行破坏性全量测试；
-  2. `deploy`：使用 `docker:cli` 挂载宿主机 `/var/run/docker.sock`，直接执行 `docker compose -p reimburse-ai up -d --build` 在本地完成镜像构建与服务部署。
+- **构建与部署流水线说明**：
+  流水线为 `resolve-tag`（同步代码到宿主 `/opt/code/reimburse-ai` 并写 `.release_tag`）→ `build-and-push-image`（构建并推 `100.64.0.88:5000/reimburse-ai:<tag>` 与 `latest`）→ `deploy-and-verify`（`docker compose up -d --force-recreate` 后轮询 HEALTHCHECK）。
 
 ---
 
