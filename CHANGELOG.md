@@ -5,6 +5,17 @@
 本日志格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并且本项目遵循 [语义化版本 (Semantic Versioning)](https://semver.org/lang/zh-CN/)。
 
+## [2.4.0] - 2026-10-16
+
+### 安全与认证加固 (Security & Auth Hardening)
+- 口令哈希改用 `argon2-cffi`（argon2id）并支持旧记录登录透明升级；
+- 登录/注册/初始化管理员加限流与失败封 IP 封禁；
+- token 有效期 30 天→7 天并新增 `session_version`（改密即失效旧会话）；
+- 文件下载改为一次性签名链接，全面禁止 query 参数传凭证；
+- `jwt_secret.key` 权限收紧为 0600 且 fail-closed。
+
+---
+
 ## [未发布] (Unreleased)
 
 ### 计划中
