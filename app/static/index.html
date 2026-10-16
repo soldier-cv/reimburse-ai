@@ -191,9 +191,9 @@
           <button v-if="reports.length > 0" @click="confirmClearAll" class="px-3 py-2 text-xs font-medium bg-rose-50 border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-100/80 shadow-sm transition flex items-center">
             <i class="fa-regular fa-trash-can mr-1.5 text-rose-500"></i>清空全部
           </button>
-          <a :href="exportUrl" download class="px-3.5 py-2 text-xs font-semibold bg-slate-900 text-white rounded-xl hover:bg-slate-800 shadow-sm transition flex items-center">
+          <button @click="openSignedFile('export', 0)" class="px-3.5 py-2 text-xs font-semibold bg-slate-900 text-white rounded-xl hover:bg-slate-800 shadow-sm transition flex items-center">
             <i class="fa-solid fa-download mr-1.5 text-slate-300"></i>导出 Excel 表格
-          </a>
+          </button>
         </div>
       </div>
 
@@ -572,9 +572,9 @@
                 </td>
                 <td class="py-3 px-4 text-center">
                   <div class="flex items-center justify-center space-x-1.5">
-                    <a v-if="inv.has_file" :href="'/api/invoices/' + inv.id + '/file?token=' + token" target="_blank" class="text-xs text-slate-500 hover:text-emerald-600 transition p-1" title="查看发票原件文件">
+                    <button v-if="inv.has_file" @click="openSignedFile('invoice', inv.id)" class="text-xs text-slate-500 hover:text-emerald-600 transition p-1" title="查看发票原件文件">
                       <i class="fa-solid fa-file-pdf"></i>
-                    </a>
+                    </button>
                     <button @click="openEditInvoiceModal(inv)" class="text-xs text-slate-500 hover:text-blue-600 transition p-1" title="编辑发票">
                       <i class="fa-solid fa-pen-to-square"></i>
                     </button>
@@ -994,9 +994,9 @@
               </div>
             </div>
             <div class="flex items-center space-x-1.5 shrink-0">
-              <a :href="'/api/vouchers/' + v.id + '/download?token=' + token" target="_blank" class="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition inline-flex items-center font-medium" title="在线预览或下载">
+              <button @click="openSignedFile('voucher', v.id)" class="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition inline-flex items-center font-medium" title="在线预览或下载">
                 <i class="fa-solid fa-arrow-down-to-bracket mr-1 text-[11px]"></i>查看
-              </a>
+              </button>
               <button @click="deleteVoucherAttachment(v.id)" class="p-1.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="删除凭证附件">
                 <i class="fa-regular fa-trash-can"></i>
               </button>
@@ -1662,7 +1662,21 @@ createApp({
       return filename.toLowerCase().endsWith('.pdf');
     };
 
-    const exportUrl = ref('/api/reports/export/excel');
+    const openSignedFile = async (kind, id) => {
+      try {
+        const resp = await fetch(`/api/files/sign?kind=${kind}&id=${id}`, {
+          headers: authHeaders()
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          alert(data.detail || '获取下载链接失败');
+          return;
+        }
+        window.open(data.url, '_blank');
+      } catch (e) {
+        alert('获取下载链接异常');
+      }
+    };
 
     const pendingTotal = computed(() => {
       return reports.value.filter(r => r.status === '待报销').reduce((acc, cur) => acc + cur.total_amount, 0);
@@ -1742,7 +1756,6 @@ createApp({
           username.value = data.username;
           userRole.value = data.role || 'admin';
           showInitAdminModal.value = false;
-          exportUrl.value = `/api/reports/export/excel?token=${data.token}`;
           loadReports();
           loadRules();
           loadAISettings();
@@ -1880,7 +1893,6 @@ createApp({
           username.value = data.username;
           userRole.value = data.role || 'user';
           isLoggedIn.value = true;
-          exportUrl.value = `/api/reports/export/excel?token=${token.value}`;
           loadReports();
           loadRules();
           loadAISettings();
@@ -1912,7 +1924,6 @@ createApp({
           isLoggedIn.value = true;
           username.value = data.username;
           userRole.value = data.role || 'user';
-          exportUrl.value = `/api/reports/export/excel?token=${data.token}`;
           loadReports();
           loadRules();
           loadAISettings();
@@ -1941,6 +1952,11 @@ createApp({
         body: JSON.stringify(pwdForm.value)
       });
       if (resp.ok) {
+        const data = await resp.json();
+        if (data.token) {
+          token.value = data.token;
+          localStorage.setItem('expense_token', data.token);
+        }
         alert('密码修改成功');
         showPwdModal.value = false;
         pwdForm.value = { old_password: '', new_password: '' };
@@ -2639,7 +2655,7 @@ createApp({
       showNewRuleModal, newRule, kwInput, patInput, addKeyword, addPattern, openNewRuleModal,
       aiForm, aiModelsList, fetchingModels, defaultSystemPrompt, fetchAIModels, resetSystemPrompt, testingAI,
       auditLogs, auditLogsTotal, auditFilterAction, showAuditLogsModal, auditRetentionMonths, savingRetention, cleaningAuditLogs,
-      openAuditLogsModal, loadAuditLogs, loadAuditRetention, saveAuditRetention, triggerCleanAuditLogs, auditActionBadgeClass, formatEntityType, exportUrl,
+      openAuditLogsModal, loadAuditLogs, loadAuditRetention, saveAuditRetention, triggerCleanAuditLogs, auditActionBadgeClass, formatEntityType, openSignedFile,
       isDragging, selectedFile, uploading, uploadLogs, zipParams,
       pendingTotal, waitingPayTotal, completedTotal,
       navClass, statusBadgeClass, handleAuthSubmit, logout, saveNewPassword,

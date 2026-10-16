@@ -3,11 +3,14 @@ import json
 import shutil
 from datetime import datetime
 from typing import Optional, List
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Response, status
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Response, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .database import engine, Base, get_db, BASE_DIR
 from .models import User, CategoryRule, Batch, ExpenseReport, Invoice, InvoiceVoucher, UserSetting, SystemSetting, AuditLog
@@ -16,9 +19,13 @@ from .schemas import (
     StatusUpdateRequest, AISettingRequest, ExpenseReportUpdate, InvoiceUpdate,
     AIModelFetchRequest, InitAdminRequest, AdminCreateUserRequest, AdminResetPasswordRequest
 )
+from .services.migrations import ensure_auth_schema
 from .services.auth import (
-    get_current_user, create_access_token, verify_password, hash_password, init_default_admin
+    get_current_user, create_access_token, verify_password_and_check_rehash,
+    rehash_user_password_if_needed, hash_password, init_default_admin
 )
+from .services.auth_guard import check_auth_banned, record_auth_failure, clear_auth_failures
+from .services.download_tokens import make_download_token, verify_download_token, DOWNLOAD_TOKEN_TTL_SECONDS
 from .services.parser import (
     process_zip_package, process_single_invoice_file, process_voucher_file, record_audit
 )
@@ -31,6 +38,7 @@ Base.metadata.create_all(bind=engine)
 # API 文档口默认关闭（安全铁律：无鉴权不暴露路由与 schema）
 # 开发/调试需要时设环境变量 ENABLE_API_DOCS=true 显式开启
 _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "true", "yes")
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人发票与报销助手",
     version="2.0.0",
@@ -38,6 +46,8 @@ app = FastAPI(
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS 中间件
 app.add_middleware(
@@ -108,6 +118,7 @@ def init_user_default_rules(db: Session, user_id: int):
 
 @app.on_event("startup")
 def startup_event():
+    ensure_auth_schema(engine)
     db = next(get_db())
     try:
         init_default_admin(db)
@@ -132,23 +143,25 @@ def get_init_status(db: Session = Depends(get_db)):
     }
 
 @app.post("/api/system/init-admin")
-def init_admin_user(req: InitAdminRequest, response: Response, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def init_admin_user(request: Request, req: InitAdminRequest, response: Response, db: Session = Depends(get_db)):
     """系统首次部署向导：设置超级管理员用户名与密码"""
     has_admin = db.query(User).filter(User.role == "admin").count() > 0
     if has_admin:
         raise HTTPException(status_code=400, detail="系统管理员已初始化，禁止重复设置")
 
     username = req.username.strip()
-    if not username or len(username) < 3:
-        raise HTTPException(status_code=400, detail="管理员用户名长度不能少于 3 位")
-    if not req.password or len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="管理员密码长度不能少于 6 位")
+    if not username or len(username) < 3 or len(username) > 50:
+        raise HTTPException(status_code=400, detail="管理员用户名长度必须在 3 到 50 位之间")
+    if not req.password or len(req.password) < 6 or len(req.password) > 128:
+        raise HTTPException(status_code=400, detail="管理员密码长度必须在 6 到 128 位之间")
 
     existing = db.query(User).filter(User.username == username).first()
     pwd_hash, salt = hash_password(req.password)
     if existing:
         existing.password_hash = pwd_hash
         existing.salt = salt
+        existing.session_version = 0
         existing.role = "admin"
         db.commit()
         user = existing
@@ -157,6 +170,7 @@ def init_admin_user(req: InitAdminRequest, response: Response, db: Session = Dep
             username=username,
             password_hash=pwd_hash,
             salt=salt,
+            session_version=0,
             role="admin",
             created_at=datetime.now()
         )
@@ -167,7 +181,7 @@ def init_admin_user(req: InitAdminRequest, response: Response, db: Session = Dep
     init_user_default_rules(db, user.id)
     record_audit(db, user.id, "系统初始化", "system", user.id, f"首次部署初始化成功，设置超级管理员 [{username}]")
 
-    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role})
+    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role, "sv": user.session_version})
     response.set_cookie(
         key="access_token",
         value=token,
@@ -187,13 +201,17 @@ def init_admin_user(req: InitAdminRequest, response: Response, db: Session = Dep
 # 1. 认证与用户管理 (Auth & Multi-user)
 # -------------------------------------------------------------
 @app.post("/api/auth/register")
-def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def register_user(request: Request, req: RegisterRequest, db: Session = Depends(get_db)):
     """用户自主注册新账户（独立隔离数据空间）"""
+    client_ip = get_remote_address(request)
+    check_auth_banned(client_ip)
+
     username = req.username.strip()
-    if not username or len(username) < 3:
-        raise HTTPException(status_code=400, detail="用户名长度不能少于 3 位")
-    if not req.password or len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="密码长度不能少于 6 位")
+    if not username or len(username) < 3 or len(username) > 50:
+        raise HTTPException(status_code=400, detail="用户名长度必须在 3 到 50 位之间")
+    if not req.password or len(req.password) < 6 or len(req.password) > 128:
+        raise HTTPException(status_code=400, detail="密码长度必须在 6 到 128 位之间")
 
     existing = db.query(User).filter(User.username == username).first()
     if existing:
@@ -204,6 +222,7 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
         username=username,
         password_hash=pwd_hash,
         salt=salt,
+        session_version=0,
         role="user",
         created_at=datetime.now()
     )
@@ -215,7 +234,7 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     init_user_default_rules(db, user.id)
     record_audit(db, user.id, "注册账号", "user", user.id, f"新用户 [{username}] 成功注册")
 
-    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role})
+    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role, "sv": user.session_version})
     return {
         "success": True,
         "message": "注册成功，已为您初始化专属报销规则空间",
@@ -225,13 +244,34 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     }
 
 @app.post("/api/auth/login")
-def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == req.username).first()
+@limiter.limit("10/minute")
+def login(request: Request, req: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    client_ip = get_remote_address(request)
+    # 封禁判定必须在口令校验之前
+    check_auth_banned(client_ip)
+
+    if not req.username or not req.username.strip() or not req.password:
+        record_auth_failure(client_ip)
+        raise HTTPException(status_code=400, detail="用户名或密码不能为空")
+
+    user = db.query(User).filter(User.username == req.username.strip()).first()
     if not user:
+        record_auth_failure(client_ip)
         raise HTTPException(status_code=400, detail="用户名或密码错误")
 
-    if not verify_password(req.password, user.salt, user.password_hash):
+    is_valid, needs_rehash = verify_password_and_check_rehash(req.password, user.salt, user.password_hash)
+    if not is_valid:
+        record_auth_failure(client_ip)
         raise HTTPException(status_code=400, detail="用户名或密码错误")
+
+    # 登录成功，清除该 IP 的失败计数
+    clear_auth_failures(client_ip)
+
+    # 密码透明升级（try/except 隔离，失败不影响登录）
+    try:
+        rehash_user_password_if_needed(db, user, req.password, needs_rehash)
+    except Exception as e:
+        print(f"[AUTH WARNING] 密码透明升级异常，忽略以保障正常登录: {e}")
 
     user.last_login = datetime.now()
     db.commit()
@@ -239,7 +279,7 @@ def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     # 兜底确保该用户拥有默认规则
     init_user_default_rules(db, user.id)
 
-    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role})
+    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role, "sv": user.session_version})
     response.set_cookie(
         key="access_token",
         value=token,
@@ -286,10 +326,10 @@ def admin_create_user(req: AdminCreateUserRequest, current_user: User = Depends(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="权限不足，仅管理员可创建用户")
     username = req.username.strip()
-    if not username or len(username) < 3:
-        raise HTTPException(status_code=400, detail="用户名长度不能少于 3 位")
-    if not req.password or len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="初始密码长度不能少于 6 位")
+    if not username or len(username) < 3 or len(username) > 50:
+        raise HTTPException(status_code=400, detail="用户名长度必须在 3 到 50 位之间")
+    if not req.password or len(req.password) < 6 or len(req.password) > 128:
+        raise HTTPException(status_code=400, detail="初始密码长度必须在 6 到 128 位之间")
 
     role = req.role if req.role in ["admin", "user"] else "user"
     existing = db.query(User).filter(User.username == username).first()
@@ -301,6 +341,7 @@ def admin_create_user(req: AdminCreateUserRequest, current_user: User = Depends(
         username=username,
         password_hash=pwd_hash,
         salt=salt,
+        session_version=0,
         role=role,
         created_at=datetime.now()
     )
@@ -325,8 +366,8 @@ def admin_reset_user_password(user_id: int, req: AdminResetPasswordRequest, curr
     """管理员重置用户密码"""
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="权限不足，仅管理员可重置密码")
-    if not req.new_password or len(req.new_password) < 6:
-        raise HTTPException(status_code=400, detail="新密码长度不能少于 6 位")
+    if not req.new_password or len(req.new_password) < 6 or len(req.new_password) > 128:
+        raise HTTPException(status_code=400, detail="新密码长度必须在 6 到 128 位之间")
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="目标用户不存在")
@@ -334,6 +375,7 @@ def admin_reset_user_password(user_id: int, req: AdminResetPasswordRequest, curr
     pwd_hash, salt = hash_password(req.new_password)
     target_user.password_hash = pwd_hash
     target_user.salt = salt
+    target_user.session_version += 1 # 踢掉目标用户全部旧会话
     db.commit()
 
     record_audit(db, current_user.id, "重置密码", "user", target_user.id, f"管理员 [{current_user.username}] 重置了用户 [{target_user.username}] 的密码")
@@ -359,6 +401,7 @@ def admin_delete_user(user_id: int, current_user: User = Depends(get_current_use
 @app.post("/api/auth/logout")
 def logout(response: Response):
     response.delete_cookie(key="access_token")
+    response.delete_cookie(key="expense_token")
     return {"success": True, "message": "已退出登录"}
 
 @app.get("/api/auth/me")
@@ -370,16 +413,31 @@ def get_me(user: User = Depends(get_current_user)):
     }
 
 @app.post("/api/auth/change-password")
-def change_password(req: PasswordChangeRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not verify_password(req.old_password, user.salt, user.password_hash):
+def change_password(req: PasswordChangeRequest, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not req.new_password or len(req.new_password) < 6 or len(req.new_password) > 128:
+        raise HTTPException(status_code=400, detail="新密码长度必须在 6 到 128 位之间")
+
+    is_valid, _ = verify_password_and_check_rehash(req.old_password, user.salt, user.password_hash)
+    if not is_valid:
         raise HTTPException(status_code=400, detail="原密码不正确")
 
     new_hash, new_salt = hash_password(req.new_password)
     user.password_hash = new_hash
     user.salt = new_salt
+    user.session_version += 1 # 改密即失效旧 token
     db.commit()
-    record_audit(db, user.id, "修改密码", "user", user.id, "管理员密码已成功重置")
-    return {"success": True, "message": "密码修改成功"}
+
+    token = create_access_token({"sub": user.username, "uid": user.id, "role": user.role, "sv": user.session_version})
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        max_age=86400 * 7,
+        samesite="lax"
+    )
+
+    record_audit(db, user.id, "修改密码", "user", user.id, "密码修改成功，旧会话已注销")
+    return {"success": True, "message": "密码修改成功", "token": token}
 
 # -------------------------------------------------------------
 # 2. 上传与解析 (ZIP 批量、单发票、纯凭证附件)
@@ -621,8 +679,7 @@ def update_report_status(report_id: int, req: StatusUpdateRequest, user: User = 
     record_audit(db, user.id, "更新状态", "report", report.id, f"更新台账 [{report.month}] 状态为 [{req.status}]，提交时间 [{req.submit_date}]")
     return {"success": True}
 
-@app.get("/api/reports/export/excel")
-def export_excel(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def _build_export_excel_response(user: User, db: Session) -> StreamingResponse:
     from urllib.parse import quote
     excel_stream = export_reports_to_excel(db, user_id=user.id)
     raw_name = f"费用报销汇总表_{user.username}.xlsx"
@@ -635,6 +692,10 @@ def export_excel(user: User = Depends(get_current_user), db: Session = Depends(g
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers
     )
+
+@app.get("/api/reports/export/excel")
+def export_excel(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _build_export_excel_response(user, db)
 
 # -------------------------------------------------------------
 # 4. 发票凭证明细及关联凭证附件
@@ -767,16 +828,7 @@ def update_invoice(invoice_id: int, req: InvoiceUpdate, user: User = Depends(get
     record_audit(db, user.id, "修改发票", "invoice", invoice_id, f"修改发票 [{inv.invoice_no}]，最新金额 ¥{inv.amount:.2f}")
     return {"success": True, "message": "发票已更新"}
 
-@app.get("/api/invoices/{invoice_id}/file")
-def download_invoice_original_file(
-    invoice_id: int,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """查看或下载发票原件文件"""
-    inv = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == user.id).first()
-    if not inv:
-        raise HTTPException(status_code=404, detail="未找到该发票记录")
+def _build_invoice_file_response(inv: Invoice) -> FileResponse:
     if not inv.stored_path or not os.path.exists(inv.stored_path):
         raise HTTPException(status_code=404, detail="发票原始文件不存在或已清理")
 
@@ -788,6 +840,18 @@ def download_invoice_original_file(
     ext = os.path.splitext(inv.stored_path)[1].lower()
     media_type = "application/pdf" if ext == ".pdf" else "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png" if ext == ".png" else "application/octet-stream"
     return FileResponse(inv.stored_path, media_type=media_type, headers=headers)
+
+@app.get("/api/invoices/{invoice_id}/file")
+def download_invoice_original_file(
+    invoice_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """查看或下载发票原件文件"""
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="未找到该发票记录")
+    return _build_invoice_file_response(inv)
 
 # -------------------------------------------------------------
 # 4.1 发票关联凭证附件管理 (Invoice Vouchers / Attachments)
@@ -884,20 +948,7 @@ async def upload_invoice_voucher(
         }
     }
 
-@app.get("/api/vouchers/{voucher_id}/download")
-def download_voucher_file(
-    voucher_id: int,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """在线预览或下载凭证附件"""
-    voucher = db.query(InvoiceVoucher).filter(
-        InvoiceVoucher.id == voucher_id,
-        InvoiceVoucher.user_id == user.id
-    ).first()
-    if not voucher:
-        raise HTTPException(status_code=404, detail="未找到该凭证附件")
-    
+def _build_voucher_file_response(voucher: InvoiceVoucher) -> FileResponse:
     if not os.path.exists(voucher.stored_path):
         raise HTTPException(status_code=404, detail="凭证物理文件已不存在")
 
@@ -911,6 +962,21 @@ def download_voucher_file(
         media_type=voucher.content_type or "application/octet-stream",
         headers=headers
     )
+
+@app.get("/api/vouchers/{voucher_id}/download")
+def download_voucher_file(
+    voucher_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """在线预览或下载凭证附件"""
+    voucher = db.query(InvoiceVoucher).filter(
+        InvoiceVoucher.id == voucher_id,
+        InvoiceVoucher.user_id == user.id
+    ).first()
+    if not voucher:
+        raise HTTPException(status_code=404, detail="未找到该凭证附件")
+    return _build_voucher_file_response(voucher)
 
 @app.delete("/api/vouchers/{voucher_id}")
 def delete_voucher_file(
@@ -1209,6 +1275,78 @@ def get_audit_logs(
             } for l in logs
         ]
     }
+
+# -------------------------------------------------------------
+# 4.2 一次性安全签名下载 (Signed Download Links)
+# -------------------------------------------------------------
+@app.get("/api/files/sign")
+def sign_file_download(
+    kind: str,
+    id: int = 0,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    为发票原件、凭证附件或月度导出签发一次性限时签名下载短链接（有效期 300 秒）。
+    严格鉴权：仅资源属主可获取该资源的下载签名链接。
+    """
+    if kind not in ("invoice", "voucher", "export"):
+        raise HTTPException(status_code=400, detail="不支持的文件签名类型")
+
+    if kind == "invoice":
+        inv = db.query(Invoice).filter(Invoice.id == id, Invoice.user_id == user.id).first()
+        if not inv:
+            raise HTTPException(status_code=404, detail="未找到该发票记录")
+    elif kind == "voucher":
+        voucher = db.query(InvoiceVoucher).filter(InvoiceVoucher.id == id, InvoiceVoucher.user_id == user.id).first()
+        if not voucher:
+            raise HTTPException(status_code=404, detail="未找到该凭证附件")
+    elif kind == "export":
+        id = 0
+
+    token = make_download_token(kind=kind, obj_id=id, user_id=user.id)
+    return {
+        "url": f"/api/files/download/{kind}/{id}?t={token}",
+        "expires_in": DOWNLOAD_TOKEN_TTL_SECONDS
+    }
+
+@app.get("/api/files/download/{kind}/{id}")
+def download_signed_file(
+    kind: str,
+    id: int,
+    t: str,
+    db: Session = Depends(get_db)
+):
+    """
+    凭一次性签名令牌下载文件，无需 Authorization Header 与 Cookie。
+    防探测安全策略：签名无效、已过期、跨用户越权或物理文件不存在时，统一返回 403。
+    """
+    payload = verify_download_token(t)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="下载链接无效或已过期")
+
+    if payload.get("k") != kind or payload.get("i") != id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="下载链接无效或已过期")
+
+    user_id = payload.get("u")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="下载链接无效或已过期")
+
+    if kind == "export":
+        return _build_export_excel_response(user, db)
+    elif kind == "invoice":
+        inv = db.query(Invoice).filter(Invoice.id == id, Invoice.user_id == user_id).first()
+        if not inv or not inv.stored_path or not os.path.exists(inv.stored_path):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="下载链接无效或已过期")
+        return _build_invoice_file_response(inv)
+    elif kind == "voucher":
+        voucher = db.query(InvoiceVoucher).filter(InvoiceVoucher.id == id, InvoiceVoucher.user_id == user_id).first()
+        if not voucher or not os.path.exists(voucher.stored_path):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="下载链接无效或已过期")
+        return _build_voucher_file_response(voucher)
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="下载链接无效或已过期")
 
 # -------------------------------------------------------------
 # 8. 静态资源与前端页面托管

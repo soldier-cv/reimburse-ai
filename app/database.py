@@ -2,12 +2,12 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# 数据库路径：保存在 data/expense.db 中
+# 数据库路径：保存在 data/expense.db 中，允许测试环境通过环境变量隔离
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.environ.get("EXPENSE_DATA_DIR") or os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-DB_PATH = os.path.join(DATA_DIR, "expense.db")
+DB_PATH = os.environ.get("EXPENSE_DB_PATH") or os.path.join(DATA_DIR, "expense.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
