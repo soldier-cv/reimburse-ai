@@ -43,6 +43,7 @@ uploads/single/*
 # IDE & OS
 .idea/
 .vscode/
+.playwright-mcp/
 *.swp
 *.swo
 *~

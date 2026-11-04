@@ -1,120 +1,96 @@
-# AGENTS.md - 个人发票与报销助手项目规范与知识库
+# AGENTS.md - 个人应收与报销管理台项目规范
 
-本项目为个人发票报销智能管理与归档系统（Reimburse-AI），专为个人日常与出差开销报销场景设计，支持全月 ZIP 自动解压核算、单票录入、明细级凭证挂载、多用户数据强隔离与 AI 视觉多模态辅助提取。
+本项目是个人对公应收台账：记录公司应付给我的报销、工资、奖金、补贴，跟踪提交、逾期与到账，并导出财务报销材料。不是个人记账，不记录个人消费、预算、账户余额。
 
 ---
 
 ## 核心安全准则与交互规范
 
-1. **禁止运行全量破坏性测试**：不得执行会污染真实数据的命令（如对 `/data/reimburse-ai` 的删除、对生产库的 DDL）。测试一律用 `tests/` 下的隔离 tmp 库。
-2. **环境感知**：运行环境为 **Linux（Ubuntu）**，服务以 Docker 容器部署（宿主端口 8092 → 容器 8090，数据目录 `/data/reimburse-ai`）。命令、路径、编码按 Linux 处理。
-3. **语言规范**：始终使用**中文**进行回复和解释。
-4. **禁止使用 Emoji**：界面 UI、系统提示词、代码注释与日志中**严禁使用任何 emoji 表情**；UI 统一采用 FontAwesome 矢量图标配合 Tailwind 现代极简设计。
-5. **代码提交准则**：改动在本地工作区验证无误后，按逻辑分组 `git commit`；**`git push` 由派发方在验收通过后执行**（仓库有远端 `origin`，默认分支 `main`）。
-6. **认证鉴权纪律（禁止自研，华总 2026-10-16 定案）**：涉及认证/鉴权/权限/口令/会话的实现，一律使用成熟框架或库——口令哈希用 `argon2-cffi`，令牌签发/验签用 `PyJWT`，限流用 `slowapi`/`limits`，一次性签名链接用 `itsdangerous`；**禁止手写密码哈希、令牌签名、随机数生成、常量时间比较**。随机值用 `secrets`，常量时间比较用 `hmac.compare_digest`。凭证只走 Header/Cookie，**禁止 query 参数传凭证**（下载场景用一次性签名链接）。
+1. **禁止破坏生产数据**：不得对 `/data/reimburse-ai` 执行删除、覆盖或破坏性 DDL。测试必须使用 `tests/` 下的隔离临时库与临时上传目录。
+2. **环境感知**：生产为 Linux + Docker（宿主 8092 → 容器 8090，数据 `/data/reimburse-ai`）；本地开发可能是 Windows。命令与路径按当前环境处理。
+3. **语言规范**：始终使用中文回复和解释。
+4. **禁止 Emoji**：界面、提示词、注释、日志一律不使用 emoji；图标统一使用 EttsDohikct 或内联 SVG。
+5. **认证鉴权纪律**：口令哈希用 `argon2-cffi`，令牌用 `PyJWT`，限流用 `slowapi`/`limits`，签名链接用 `itsdangerous`；禁止手写密码哈希、令牌签名、随机数与常量时间比较。凭证只走 Header/Cookie，禁止 query 传凭证。
+6. **数据隔离**：所有业务查询必须带 `user_id`。管理员只能管理账号，不能读取其他成员账本。
+7. **注册默认关闭**：成员账号由管理员在设置中创建；仅当显式设置 `ALLOW_REGISTRATION=1` 时开放自主注册。
+8. **CORS 默认关闭**：前后端同源部署；跨域来源必须通过 `CORS_ORIGINS` 显式白名单。
+9. **提交准则**：本地验证通过后按逻辑分组 `git commit`；`git push` 由派发方验收后执行。
 
 ---
 
-## 通行费 (ETC) 报销业务与文件解析核心规范
+## 业务定位与核心口径
 
-### 1. 票根网 ETC 电子发票文件体系与关系
-
-当从“票根网 / 全国收费公路通行费电子发票服务平台”下载月度发票包时，通常包含以下固定文件结构：
-- `通行费电子票据汇总单(票据).pdf`（副标题：按票据索引）
-- `通行费电子票据汇总单(行程).pdf`（副标题：按行程索引）
-- `通行费电子发票.zip`（内含几十张单笔行程的 xml/ofd 电子发票）
-
-### 2. 核心处理规则与互斥防重逻辑
-
-- **汇总单为主票据，行程单为明细凭证**：
-  - 国家税法明确规定《收费公路通行费电子票据汇总单》为法定报销单据；
-  - `(票据).pdf` 与 `(行程).pdf` 顶部的车牌号码、开票日期与**交易金额完全相同**；
-  - **严禁双重计费**：系统必须以【按票据索引 / (票据).pdf】作为主费用发票录入当月通行费；
-  - 【按行程索引 / (行程).pdf】是辅助行程流水清单，**系统必须自动将其作为主汇总单的凭证附件（`InvoiceVoucher`）挂载归档**，绝对不能创建第二笔发票，防止通行费金额被双倍（200%）重复核算。
-- **原始发票包自动凭证挂载**：
-  - 同目录下的 `通行费电子发票.zip` 为底层原始发票集合包，在已有汇总单时，**自动挂载为主汇总单的原始凭据包**（`InvoiceVoucher`），严禁拆解累加金额，亦严禁在扫描日志中生硬报错跳过。
-- **确定性单号生成（保障跨文件精确对齐）**：
-  - 若 PDF 文本中无印刷汇总单号，必须基于确定性组合特征生成唯一编号：
-    `TOLL_{车牌号}_{申请日期}_{金额(分)}`（例如：`TOLL_苏U88M32_20250811_100560`）；
-  - 确保 `(票据).pdf` 与 `(行程).pdf` 解析出的 `invoice_no` 绝对一致，杜绝退化为随机或临时单号（如 `TEMP_xxx`）导致防重机制失效。
-- **文件处理优先级排序**：
-  - 扫描目录时，必须保证处理顺序：`主票据(票据)` (优先级0) -> `普通发票` (优先级1) -> `行程清单(行程)` (优先级2) -> `发票压缩包(*.zip)` (优先级3)；确保主发票先入库，辅助文件能顺利获取到主发票 ID 进行凭证挂载。
-- **外键挂载刷新约束**：
-  - 新增 `Invoice` 主记录后必须立即调用 `db.flush()`，确保 `invoice_record.id` 生成后再插入关联的 `InvoiceVoucher` 记录。
+- **应收事项 `Receivable` 是唯一账本事实**；发票、截图、聊天记录只是附件。
+- 一笔应收只属于一个批次；批次是向公司的一次提交。
+- **不做部分到账**：一笔到账必须与所选应收合计完全一致，否则拒绝。
+- 状态：`待提交 / 已提交 / 已到账 / 被驳回 / 已放弃`。
+- 逾期不单独存状态，由「今天 > 预计到账日 且 未到账」实时计算。
+- 待收 = 待提交 + 已提交；草稿、被驳回、已放弃不计入。
+- 工资与报销共用应收模型，用 `kind` 区分 `reimbursement / payroll / other`。
+- 金额全库使用整数分 `*_cents`，禁止 Float 存金额；展示与导出时转元。
 
 ---
 
-## 票据金额解析与数值清洗避坑指南
+## 数据模型
 
-### 1. 千分位逗号截断问题 (Critical Pitfall)
-
-- **问题现象**：
-  票据金额大于或等于 1,000 元时（如高速费 `¥1,005.60`、油卡充值 `¥2,000.00`），文本中常含有千分位逗号 `,`；
-  若使用 `re.search(r'[\d\.]+', txt)`，正则遇到逗号会立即截断，仅提取逗号前的数字（例如 `1`），导致金额被错误解析为 `¥1.00`！
-- **强制规范**：
-  - 所有金额提取正则必须统一使用 `([\d,]+\.?\d*)`；
-  - 提取后必须通过统一函数 `parse_clean_amount(val_str)` 清洗逗号和空格：
-    ```python
-    def parse_clean_amount(val_str: str) -> float:
-        if not val_str:
-            return 0.0
-        cleaned = re.sub(r'[^\d\.]', '', str(val_str).replace(',', '').strip())
-        try:
-            return float(cleaned)
-        except Exception:
-            return 0.0
-    ```
+| 表 | 用途 |
+|---|---|
+| `Company` | 欠款主体，含发票抬头、税号、每月打款日、账期天数 |
+| `Category` | 应收类别，含 kind、是否需要发票 |
+| `Receivable` | 应收事项：公司、类别、批次、归属月、发生日、金额、状态、预计到账日 |
+| `Batch` | 提交批次：公司、期间、提交日、预计到账日、状态 |
+| `Payment` | 一笔实际到账 |
+| `PaymentItem` | 到账结清了哪几笔应收，全额标记，不存分摊金额 |
+| `Attachment` | 发票、截图、聊天记录、回单 |
+| `CaptureDraft` | 已上传未确认的采集草稿，承载 AI 识别结果 |
+| `ExportRecord` | 导出快照：清单、金额、文件哈希、路径 |
+| `AuditLog` / `UserSetting` / `SystemSetting` | 审计与配置 |
 
 ---
 
-## 首次部署初始化与管理员多用户体系规范
+## 采集与 AI 识别
 
-### 1. 首次部署管理员账号设置向导
-- **移除硬编码默认密码**：不再在页面暴露或强绑默认写死密码。
-- **初始化检测与引导**：
-  - 前端加载时请求 `GET /api/system/init-status` 检查数据库中是否存在 `role == 'admin'` 的管理员账号；
-  - 若 `initialized == false`，自动弹出【系统首次部署初始化向导】模态窗，由部署者设置超级管理员用户名与高强度密码；
-  - 提交 `POST /api/system/init-admin` 后自动创建管理员、初始化默认分类规则并完成首次登录。
+- 入口统一为 `POST /api/capture`：图片、PDF、OFD、ZIP；单文件 25MB，单次最多 30 个。
+- 上传立即返回草稿，后台识别；`CAPTURE_SYNC=1` 仅用于测试。
+- 识别顺序：PDF 文本层本地抽取 → 视觉模型兜底；同一文件按 SHA256 去重。
+- AI 输出必须是严格 JSON，字段见 `app/services/ai_service.py`；金额取支付实付、发票价税合计、工资实发。
+- AI 置信度不可信，金额必须可编辑、可看原图；金额为空不允许确认。
+- 去重：文件哈希 + 发票代码/号码 + 同批重复；命中只提示，不自动删除。
+- 确认时生成 `Receivable + Attachment`，草稿状态置为 `confirmed`；支持把草稿追加到已有应收。
 
-### 2. 管理员用户管理中心
-- **权限控制**：基于 `get_current_admin` 依赖校验 `current_user.role == 'admin'`；
-- **管理能力**：
-  - `GET /api/admin/users`：查询系统所有成员列表（ID、用户名、角色、创建时间）；
-  - `POST /api/admin/users`：管理员创建新用户（支持指定用户名、初始密码、角色 `user`/`admin`），并为新用户自动初始化默认发票分类规则；
-  - `POST /api/admin/users/{user_id}/reset-password`：管理员重置指定成员的登录密码；
-  - `DELETE /api/admin/users/{user_id}`：管理员移除成员账号（禁止删除当前登录管理员自身），并级联清理其名下数据。
+## 导出
 
----
-
-## 容器化部署与 CI/CD 流水线规范
-
-### 1. Docker Compose 部署规范 (`reimburse-ai`)
-- **命名规范**：服务名、容器名、镜像名严格对齐 Git 仓库名称 `reimburse-ai`（本地镜像名：`reimburse-ai:latest`）；
-- **一体化架构（无需额外 Nginx）**：
-  - FastAPI 后端通过 `StaticFiles` 与 `GET /` 路由直接托管前端单页应用（`app/static/index.html`）并提供 `/api/*` 接口，单容器同时承载 Web 端与服务端；
-  - 挂载 `${DATA_DIR:-./data}:/app/data`（SQLite 数据库持久化）与 `${UPLOADS_DIR:-./uploads}:/app/uploads`（发票与凭证文件持久化），默认映射端口 `8090:8090`。
-
-### 2. Woodpecker CI (v3.19.0) 流水线规范
-- 配置文件位于 `.woodpecker.yaml`；
-- **触发条件限制**：严格遵循 Woodpecker 3.19.0 规范，顶层配置 `when: - event: [tag, manual]`，**仅提供 `tag` 标签推送与 `manual` 手动触发**；
-- **构建与部署流水线说明**：
-  流水线为 `resolve-tag`（同步代码到宿主 `/opt/code/reimburse-ai` 并写 `.release_tag`）→ `build-and-push-image`（构建并推 `100.64.0.88:5000/reimburse-ai:<tag>` 与 `latest`）→ `deploy-and-verify`（`docker compose up -d --force-recreate` 后轮询 HEALTHCHECK）。
+- `GET /api/export/excel`：筛选条件导出明细 Excel。
+- `GET /api/export/pdf`：合并票据 PDF，按清单编号。
+- `POST /api/export/finance-pack`：财务包 ZIP，包含封面、Excel、合并 PDF、原件、截图。
+- 每次财务包写入 `ExportRecord`，保留文件哈希与路径。
+- PDF 合成使用 Pillow + PyMuPDF；容器必须安装中文字体（Dockerfile 已安装 `fonts-noto-cjk`）。
 
 ---
 
-## 凭证附件管理架构规范 (InvoiceVoucher)
+## 部署与 CI
 
-- **明细级关联**：凭证挂载建立在 `Invoice`（发票明细）级别，而非月度报销单级别。
-- **级联清理**：删除发票记录时，其名下关联的所有 `InvoiceVoucher` 附件记录与物理磁盘文件必须自动级联删除（`cascade="all, delete-orphan"`）。
-- **文件支持**：支持 PDF、常见图片、压缩包等，限制 15MB 内，免 OCR 秒传，支持在线预览与原件下载。
+- `docker-compose.yml`：服务/容器/镜像名 `reimburse-ai`，宿主 8092 → 容器 8090。
+- 挂载：`/data/reimburse-ai/data:/app/data`、`/data/reimburse-ai/uploads:/app/uploads`。
+- `.woodpecker.yaml`：仅 `tag` 与 `manual` 触发；`resolve-tag → build-and-push-image → deploy-and-verify`。
+- 健康检查：`GET /health` 或首页 `GET /`。
 
----
+## 本地命令
 
-## 审计日志与系统配置规范
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python run.py
+python -m pytest -q
+```
 
-- **操作审计追踪**：关键动作（录入、修改、删除、批量导入、凭证上传、状态流转、管理员用户管理）必须自动写入 `AuditLog`。
-- **生命周期定期清理**：
-  - 默认保留近 3 个月历史日志（可通过 `UserSetting` 配置 1/3/6/12 个月或永久）；
-  - 提供 `POST /api/audit-logs/clean` 接口与前端一键清理按钮，保障系统轻量化运行。
-- **组件外观统一**：
-  - 严禁浏览器原生粗糙下拉框与按钮；全站统一采用 `.custom-select`、`.status-select` 等现代 SVG 矢量内嵌样式。
+测试使用临时数据库与上传目录，禁止指向生产路径。
+
+## 已知边界
+
+- 单币种人民币，不做汇率。
+- 不做退款/红冲、预算、账户余额、邮件微信提醒、分享链接。
+- 不做发票税务验真。
+- OFD 只保存原件，不做自动识别。
+- AI 需要用户自行配置 OpenAI 兼容接口；未配置时手动填金额。
