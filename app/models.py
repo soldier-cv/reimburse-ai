@@ -1,165 +1,314 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
+
 from .database import Base
 
+
 class User(Base):
-    """个人用户账号表（支持多用户隔离体系）"""
+    """个人用户账号表（多用户，数据严格隔离）"""
+
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
-    salt = Column(String(64), nullable=False, default="") # 遗留字段，仅 pbkdf2 旧记录使用，argon2 用户存空字符串
-    session_version = Column(Integer, nullable=False, default=0, server_default="0") # 会话版本号，用于改密/踢出旧会话
-    role = Column(String(20), default="user") # admin, user
+    salt = Column(String(64), nullable=False, default="")
+    session_version = Column(Integer, nullable=False, default=0, server_default="0")
+    role = Column(String(20), default="user")
     created_at = Column(DateTime, default=datetime.now)
     last_login = Column(DateTime, nullable=True)
 
-    # 关联用户的各项数据
-    reports = relationship("ExpenseReport", back_populates="user", cascade="all, delete-orphan")
-    invoices = relationship("Invoice", back_populates="user", cascade="all, delete-orphan")
-    rules = relationship("CategoryRule", back_populates="user", cascade="all, delete-orphan")
+    companies = relationship("Company", back_populates="user", cascade="all, delete-orphan")
+    categories = relationship("Category", back_populates="user", cascade="all, delete-orphan")
+    receivables = relationship("Receivable", back_populates="user", cascade="all, delete-orphan")
     batches = relationship("Batch", back_populates="user", cascade="all, delete-orphan")
+    payments = relationship("Payment", back_populates="user", cascade="all, delete-orphan")
+    attachments = relationship("Attachment", back_populates="user", cascade="all, delete-orphan")
+    drafts = relationship("CaptureDraft", back_populates="user", cascade="all, delete-orphan")
+    exports = relationship("ExportRecord", back_populates="user", cascade="all, delete-orphan")
     settings = relationship("UserSetting", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
 
+
 class UserSetting(Base):
-    """用户个性化配置表（AI配置、默认报销偏好等，每个用户完全独立）"""
+    """用户个性化配置（AI 接口等）"""
+
     __tablename__ = "user_settings"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    key = Column(String(50), nullable=False) # ai_ocr_enabled, ai_base_url, ai_api_key, ai_model_name, ai_system_prompt, default_buyer
+    key = Column(String(50), nullable=False)
     value = Column(Text, nullable=True)
     description = Column(String(200), nullable=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     user = relationship("User", back_populates="settings")
-    __table_args__ = (UniqueConstraint("user_id", "key", name="uix_user_key"),)
 
-class CategoryRule(Base):
-    """分类与文件夹名称映射规则表（按用户隔离）"""
-    __tablename__ = "category_rules"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uix_user_setting_key"),)
+
+
+class Company(Base):
+    """欠款主体（公司/雇主）"""
+
+    __tablename__ = "companies"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    category_code = Column(String(50), nullable=False)              # 英文编码，如 fuel, toll, catering, hotel, voucher
-    category_name = Column(String(50), nullable=False)              # 中文名称，如 燃油费, 通行费, 餐饮招待
-    folder_keywords = Column(Text, nullable=False, default="[]")    # 匹配关键词，以 JSON 数组格式或逗号存储
-    file_patterns = Column(Text, default="[]")                      # 有效文件名过滤列表，空则全量有效
-    extractor_type = Column(String(50), default="invoice")          # 解析策略：invoice, toll_summary, general_ocr, voucher
-    description = Column(String(200), nullable=True)
+    name = Column(String(100), nullable=False)
+    short_name = Column(String(30), default="")
+    invoice_title = Column(String(150), default="")
+    tax_id = Column(String(50), default="")
+    payday = Column(Integer, default=0)          # 每月固定打款日，0 表示不固定
+    payment_days = Column(Integer, default=30)   # 提交后多少天应到账
+    color = Column(String(20), default="#2563eb")
+    note = Column(String(200), default="")
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
 
-    user = relationship("User", back_populates="rules")
-    __table_args__ = (UniqueConstraint("user_id", "category_code", name="uix_user_category"),)
+    user = relationship("User", back_populates="companies")
+    receivables = relationship("Receivable", back_populates="company")
+    batches = relationship("Batch", back_populates="company")
+    payments = relationship("Payment", back_populates="company")
+
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uix_user_company_name"),)
+
+
+class Category(Base):
+    """应收类别"""
+
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    name = Column(String(50), nullable=False)
+    kind = Column(String(20), default="reimbursement")  # reimbursement / payroll / other
+    requires_invoice = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User", back_populates="categories")
+    receivables = relationship("Receivable", back_populates="category")
+
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uix_user_category_name"),)
+
 
 class Batch(Base):
-    """ZIP 压缩包上传批次（按用户隔离）"""
-    __tablename__ = "batches"
+    """一次向公司提交的批次"""
+
+    __tablename__ = "submit_batches"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    filename = Column(String(200), nullable=False)
-    upload_time = Column(DateTime, default=datetime.now)
-    file_count = Column(Integer, default=0)
-    total_amount = Column(Float, default=0.0)
-    status = Column(String(50), default="completed") # processing, completed, error
-    log_info = Column(Text, nullable=True)
-
-    user = relationship("User", back_populates="batches")
-
-class ExpenseReport(Base):
-    """月度报销台账（按用户强隔离）"""
-    __tablename__ = "expense_reports"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    month = Column(String(20), nullable=False, index=True) # 如 "2026年04月" 或 "2026-04"
-    toll_amount = Column(Float, default=0.0)               # 通行费 (汇总单直接取)
-    fuel_amount = Column(Float, default=0.0)               # 燃油小计 (自动求和)
-    other_amount = Column(Float, default=0.0)              # 其他费用小计
-    total_amount = Column(Float, default=0.0)              # 月度总报销 (公式自动合计)
-    submit_date = Column(String(50), default="")           # 提交时间 (默认上传当天 YYYY-MM-DD)
-    status = Column(String(50), default="待报销")          # 待报销, 待付款, 已完成
-    memo = Column(String(200), default="")
+    company_id = Column(Integer, ForeignKey("companies.id"), index=True, nullable=False)
+    title = Column(String(150), nullable=False)
+    period = Column(String(7), default="")            # YYYY-MM
+    status = Column(String(20), default="draft")      # draft / submitted / paid / cancelled
+    submitted_on = Column(String(10), default="")
+    expected_on = Column(String(10), default="")
+    paid_on = Column(String(10), default="")
+    note = Column(String(300), default="")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    user = relationship("User", back_populates="reports")
-    invoices = relationship("Invoice", back_populates="report", cascade="all, delete-orphan")
-    __table_args__ = (UniqueConstraint("user_id", "month", name="uix_user_month"),)
+    user = relationship("User", back_populates="batches")
+    company = relationship("Company", back_populates="batches")
+    receivables = relationship("Receivable", back_populates="batch")
+    payments = relationship("Payment", back_populates="batch")
 
-class Invoice(Base):
-    """发票与凭证明细（按用户强隔离）"""
-    __tablename__ = "invoices"
+
+class Receivable(Base):
+    """应收事项：公司应付给我的一笔钱"""
+
+    __tablename__ = "receivables"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    report_id = Column(Integer, ForeignKey("expense_reports.id"), nullable=True)
-    batch_id = Column(Integer, ForeignKey("batches.id"), nullable=True)
-    category_code = Column(String(50), nullable=False)     # fuel, toll, voucher etc.
-    category_name = Column(String(50), default="")
-    month = Column(String(20), nullable=False)             # 归属月份
-    
-    invoice_no = Column(String(100), index=True)           # 发票号码 (用于防重复报销)
-    invoice_date = Column(String(50), default="")          # 开票日期
-    amount = Column(Float, default=0.0)                    # 价税合计 / 凭证金额
-    net_amount = Column(Float, default=0.0)                # 不含税金额
-    tax_amount = Column(Float, default=0.0)                # 税额
-    
-    seller = Column(String(150), default="")               # 销售方 / 付款商户
-    buyer = Column(String(150), default="")                # 购买方 / 报销抬头
-    item_name = Column(String(150), default="")            # 货物服务名称 / 凭证项目
-    quantity = Column(Float, default=0.0)                  # 加油升数等
-    unit_price = Column(Float, default=0.0)                # 单价
-    
-    raw_filename = Column(String(200), nullable=False)     # 原始文件名
-    stored_path = Column(String(300), nullable=False)      # 本地存储绝对路径
-    recognition_method = Column(String(50), default="native_pdf") # native_pdf, ai_ocr, manual, voucher (纯凭证)
-    is_duplicate = Column(Boolean, default=False)          # 是否检测到重复
-    memo = Column(Text, default="")                        # 备注信息
+    company_id = Column(Integer, ForeignKey("companies.id"), index=True, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), index=True, nullable=True)
+    batch_id = Column(Integer, ForeignKey("submit_batches.id"), index=True, nullable=True)
+
+    kind = Column(String(20), default="reimbursement")  # reimbursement / payroll / other
+    title = Column(String(150), nullable=False)
+    period = Column(String(7), default="", index=True)  # YYYY-MM 归属月
+    occurred_on = Column(String(10), default="", index=True)
+    amount_cents = Column(Integer, nullable=False, default=0)
+
+    status = Column(String(20), default="pending", index=True)
+    # pending 待提交 / submitted 已提交 / paid 已到账 / rejected 被驳回 / abandoned 已放弃
+
+    expected_on = Column(String(10), default="")
+    submitted_on = Column(String(10), default="")
+    paid_on = Column(String(10), default="")
+    note = Column(Text, default="")
+    source = Column(String(20), default="manual")  # manual / capture / import
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    user = relationship("User", back_populates="invoices")
-    report = relationship("ExpenseReport", back_populates="invoices")
-    vouchers = relationship("InvoiceVoucher", back_populates="invoice", cascade="all, delete-orphan")
+    user = relationship("User", back_populates="receivables")
+    company = relationship("Company", back_populates="receivables")
+    category = relationship("Category", back_populates="receivables")
+    batch = relationship("Batch", back_populates="receivables")
+    attachments = relationship("Attachment", back_populates="receivable", cascade="all, delete-orphan")
+    payment_items = relationship("PaymentItem", back_populates="receivable", cascade="all, delete-orphan")
 
-class InvoiceVoucher(Base):
-    """发票明细关联的凭证附件表（用于单笔明细挂载支付截图、小票凭证等）"""
-    __tablename__ = "invoice_vouchers"
+
+class Payment(Base):
+    """一笔实际到账"""
+
+    __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True, index=True)
-    invoice_id = Column(Integer, ForeignKey("invoices.id"), index=True, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    filename = Column(String(200), nullable=False)        # 凭证附件文件名
-    stored_path = Column(String(300), nullable=False)     # 本地存储路径
-    file_size = Column(Integer, default=0)                # 文件大小（字节）
-    content_type = Column(String(100), default="")        # 类型，如 image/png, application/pdf
-    memo = Column(String(200), default="")                # 凭证备注
+    company_id = Column(Integer, ForeignKey("companies.id"), index=True, nullable=False)
+    batch_id = Column(Integer, ForeignKey("submit_batches.id"), index=True, nullable=True)
+    amount_cents = Column(Integer, nullable=False, default=0)
+    paid_on = Column(String(10), default="", index=True)
+    note = Column(String(300), default="")
+    idempotency_key = Column(String(64), nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
-    invoice = relationship("Invoice", back_populates="vouchers")
-    user = relationship("User")
+    user = relationship("User", back_populates="payments")
+    company = relationship("Company", back_populates="payments")
+    batch = relationship("Batch", back_populates="payments")
+    items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
+
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uix_payment_idem"),)
+
+
+class PaymentItem(Base):
+    """到账记录结清的应收事项（全额核销，不分摊金额）"""
+
+    __tablename__ = "payment_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    payment_id = Column(Integer, ForeignKey("payments.id"), index=True, nullable=False)
+    receivable_id = Column(Integer, ForeignKey("receivables.id"), index=True, nullable=False)
+
+    payment = relationship("Payment", back_populates="items")
+    receivable = relationship("Receivable", back_populates="payment_items")
+
+    __table_args__ = (UniqueConstraint("payment_id", "receivable_id", name="uix_payment_item"),)
+
+
+class Attachment(Base):
+    """发票、截图、聊天记录、付款回单等证明附件"""
+
+    __tablename__ = "attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    receivable_id = Column(Integer, ForeignKey("receivables.id"), index=True, nullable=False)
+    kind = Column(String(20), default="screenshot")  # invoice / screenshot / receipt / chat / payment_proof / other
+    filename = Column(String(255), nullable=False)
+    stored_path = Column(String(500), nullable=False)
+    content_type = Column(String(100), default="")
+    file_size = Column(Integer, default=0)
+    sha256 = Column(String(64), default="", index=True)
+    invoice_code = Column(String(50), default="")
+    invoice_no = Column(String(100), default="", index=True)
+    amount_cents = Column(Integer, nullable=True)
+    note = Column(String(300), default="")
+    sort_order = Column(Integer, default=0)
+    ocr_json = Column(Text, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User", back_populates="attachments")
+    receivable = relationship("Receivable", back_populates="attachments")
+
+
+class CaptureDraft(Base):
+    """已上传、未确认的采集草稿"""
+
+    __tablename__ = "capture_drafts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+
+    original_filename = Column(String(255), nullable=False)
+    stored_path = Column(String(500), nullable=False)
+    thumb_path = Column(String(500), default="")
+    content_type = Column(String(100), default="")
+    file_size = Column(Integer, default=0)
+    sha256 = Column(String(64), default="", index=True)
+
+    doc_type = Column(String(20), default="other")  # invoice / payment / salary / chat / other
+    extracted_json = Column(Text, nullable=True)
+    amount_cents = Column(Integer, nullable=True)
+    occurred_on = Column(String(10), default="")
+    title = Column(String(200), default="")
+    merchant = Column(String(150), default="")
+    invoice_code = Column(String(50), default="")
+    invoice_no = Column(String(100), default="")
+    note = Column(String(300), default="")
+
+    status = Column(String(20), default="pending", index=True)
+    # pending / processing / ready / failed / confirmed / discarded
+    error = Column(Text, nullable=True)
+    receivable_id = Column(Integer, ForeignKey("receivables.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    user = relationship("User", back_populates="drafts")
+
+
+class ExportRecord(Base):
+    """导出快照，保证财务包可追溯"""
+
+    __tablename__ = "export_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    kind = Column(String(30), default="finance_pack")  # finance_pack / excel / pdf
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    batch_id = Column(Integer, ForeignKey("submit_batches.id"), nullable=True)
+    receivable_ids = Column(Text, default="[]")
+    amount_cents = Column(Integer, default=0)
+    filename = Column(String(255), default="")
+    stored_path = Column(String(500), default="")
+    file_size = Column(Integer, default=0)
+    file_hash = Column(String(64), default="")
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User", back_populates="exports")
+
 
 class AuditLog(Base):
-    """数据修改与操作审计日志表"""
+    """关键操作审计日志"""
+
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    action = Column(String(50), nullable=False)            # 录入发票, 修改发票, 删除发票, 修改台账, 批量导入, 凭证上传, 清空数据, 修改配置
-    entity_type = Column(String(50), nullable=False)       # invoice, report, voucher, rule, setting
+    action = Column(String(50), nullable=False)
+    entity_type = Column(String(50), nullable=False)
     entity_id = Column(Integer, nullable=True)
-    summary = Column(Text, nullable=False)                 # 审计说明
-    details = Column(Text, nullable=True)                  # 变动明细（JSON）
+    summary = Column(Text, nullable=False)
+    details = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
     user = relationship("User", back_populates="audit_logs")
 
+
 class SystemSetting(Base):
-    """系统全局级配置表"""
+    """系统全局配置"""
+
     __tablename__ = "system_settings"
 
     id = Column(Integer, primary_key=True, index=True)

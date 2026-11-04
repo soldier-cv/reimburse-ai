@@ -18,6 +18,10 @@ services:
       # - JWT_SECRET_KEY=your_custom_jwt_secret_here
       # API 文档口（/docs /redoc /openapi.json）默认关闭；开发调试时取消下行注释显式开启
       # - ENABLE_API_DOCS=true
+      # 成员账号默认由管理员创建；如需开放自主注册，取消下行注释
+      # - ALLOW_REGISTRATION=1
+      # 同源部署无需 CORS；如被独立前端调用，配置白名单（逗号分隔）
+      # - CORS_ORIGINS=http://localhost:3000
     volumes:
       # 持久化 SQLite 数据库与系统设置（数据统一落 /data，异机备份走 /data 快照）
       - /data/reimburse-ai/data:/app/data

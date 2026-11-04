@@ -11,6 +11,12 @@ COPY requirements.txt .
 # 安装依赖
 RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
+# 中文字体：导出 PDF 的封面、页码与明细必须有 CJK 字体
+RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 # 复制代码
 COPY . .
 

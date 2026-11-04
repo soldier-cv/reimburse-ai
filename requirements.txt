@@ -11,3 +11,6 @@ argon2-cffi>=23.1.0
 slowapi>=0.1.9
 limits>=3.0
 itsdangerous>=2.1.0
+pymupdf>=1.24.0
+pillow>=10.0.0
+pillow-heif>=0.18.0

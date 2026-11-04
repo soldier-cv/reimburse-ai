@@ -19,7 +19,7 @@ steps:
       # 确保持久化目录存在（保留已有 data 与 uploads 数据）
       - mkdir -p /opt/code/reimburse-ai/data /opt/code/reimburse-ai/uploads
       # 将当前检出的构建文件同步至宿主机部署目录
-      - cp -rf app Dockerfile docker-compose.yml requirements.txt run.py /opt/code/reimburse-ai/
+      - cp -rf app scripts Dockerfile docker-compose.yml requirements.txt run.py /opt/code/reimburse-ai/
       # tag 事件用 CI_COMMIT_TAG；manual 用页面参数 deploy_tag（大小写都认，Deploy variables 填 deploy_tag=vX.Y.Z）
       - >-
         if [ -n "$${CI_COMMIT_TAG}" ]; then echo "$${CI_COMMIT_TAG}"; elif [ -n "$${deploy_tag:-}" ]; then echo "$${deploy_tag}"; elif [ -n "$${DEPLOY_TAG:-}" ]; then echo "$${DEPLOY_TAG}"; else echo latest; fi | tr -d ' ' > /tmp/release_tag
