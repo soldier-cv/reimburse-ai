@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+.pytest_cache
+.playwright-mcp
+data
+uploads
+tests
+*.log
+*.tmp
+.DS_Store

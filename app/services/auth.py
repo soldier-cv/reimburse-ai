@@ -2,7 +2,7 @@ import os
 import hmac
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import jwt
 import argon2
 import argon2.exceptions
@@ -117,7 +117,7 @@ def rehash_user_password_if_needed(db: Session, user: User, plain_password: str,
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     expire = now + (expires_delta or timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS))
     to_encode.update({
         "exp": expire,
