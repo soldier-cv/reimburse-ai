@@ -918,6 +918,9 @@ def update_draft(draft_id: int, req: DraftUpdate, user: User = Depends(get_curre
         draft.invoice_no = req.invoice_no.strip()[:100]
     if req.note is not None:
         draft.note = req.note.strip()[:300]
+    if req.amount is not None and draft.amount_cents and draft.error:
+        if any(key in draft.error for key in ("未配置 AI", "手动填写", "金额")):
+            draft.error = None
     db.commit()
     return draft_payload(draft)
 
