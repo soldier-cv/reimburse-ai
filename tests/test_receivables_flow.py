@@ -254,3 +254,12 @@ def test_user_isolation_and_admin_boundary(client, auth):
     assert client.get("/api/receivables", headers=other_headers).json()["total"] == 0
     assert client.get("/api/companies", headers=other_headers).json() == []
     assert client.delete(f"/api/companies/{company['id']}", headers=other_headers).status_code == 404
+
+    # 非管理员不能维护用户
+    assert client.get("/api/admin/users", headers=other_headers).status_code == 403
+    assert client.post(
+        "/api/admin/users",
+        json={"username": "hacker", "password": "{{SECRET_9km2v4aa}}"},
+        headers=other_headers,
+    ).status_code == 403
+    assert client.delete("/api/admin/users/1", headers=other_headers).status_code == 403
