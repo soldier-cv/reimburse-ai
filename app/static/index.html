@@ -6,7 +6,6 @@
   <title>个人应收与报销管理台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Cpath d='M20 18h24v28l-6-4-6 4-6-4-6 4z' fill='%23fff'/%3E%3Cpath d='M26 27h12M26 34h12' stroke='%230f172a' stroke-width='3'/%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script>
     tailwind.config = {
@@ -40,6 +39,7 @@
     .fade-enter-from, .fade-leave-to { opacity: 0; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .num { font-variant-numeric: tabular-nums; }
+    .app-icon { display: inline-block; vertical-align: -0.125em; flex: none; }
     .drag-over { outline: 2px dashed #2563eb; outline-offset: -8px; background: #eff6ff; }
   </style>
 </head>
@@ -51,7 +51,7 @@
     <div class="w-full max-w-md">
       <div class="flex items-center gap-3 mb-6">
         <div class="w-11 h-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center">
-          <i class="fa-solid fa-file-invoice-dollar"></i>
+          <app-icon name="file-invoice" class="w-5 h-5"></app-icon>
         </div>
         <div>
           <div class="text-lg font-bold tracking-tight text-slate-900">个人应收与报销管理台</div>
@@ -61,25 +61,28 @@
 
       <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div class="mb-5">
-          <div class="text-base font-semibold text-slate-900">{{ authMode === 'init' ? '首次部署初始化' : '登录' }}</div>
-          <div class="text-xs text-slate-500 mt-1">{{ authMode === 'init' ? '设置超级管理员账号，之后可在设置里添加成员' : '使用管理员分配的账号登录' }}</div>
+          <div class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center"><app-icon name="lock" class="text-xs"></app-icon></span>
+            <div class="text-base font-semibold text-slate-900">{{ authMode === 'init' ? '首次部署：创建管理员' : '登录' }}</div>
+          </div>
+          <div class="text-xs text-slate-500 mt-2 leading-relaxed">{{ authMode === 'init' ? '设置初始管理员用户名和密码。系统不预置默认密码，只有管理员能维护成员账号。' : '使用管理员分配的账号登录。成员账号由管理员在设置中创建。' }}</div>
         </div>
         <form @submit.prevent="submitAuth" class="space-y-4">
           <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1.5">用户名</label>
-            <input v-model="authForm.username" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="至少 3 位" autocomplete="username">
+            <label class="block text-xs font-medium text-slate-500 mb-1.5">{{ authMode === 'init' ? '管理员用户名' : '用户名' }}</label>
+            <input v-model="authForm.username" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="至少 3 位" :autocomplete="authMode === 'init' ? 'new-username' : 'username'">
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1.5">密码</label>
-            <input v-model="authForm.password" type="password" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="至少 6 位" autocomplete="current-password">
+            <label class="block text-xs font-medium text-slate-500 mb-1.5">{{ authMode === 'init' ? '管理员密码' : '密码' }}</label>
+            <input v-model="authForm.password" type="password" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="至少 6 位，建议 12 位以上" :autocomplete="authMode === 'init' ? 'new-password' : 'current-password'">
           </div>
           <div v-if="authMode === 'init'">
             <label class="block text-xs font-medium text-slate-500 mb-1.5">确认密码</label>
-            <input v-model="authForm.confirm" type="password" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="再次输入密码">
+            <input v-model="authForm.confirm" type="password" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="再次输入管理员密码" autocomplete="new-password">
           </div>
           <div v-if="authError" class="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">{{ authError }}</div>
           <button type="submit" :disabled="authLoading" class="w-full py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-60">
-            {{ authLoading ? '处理中...' : (authMode === 'init' ? '初始化并进入' : '登录') }}
+            {{ authLoading ? '处理中...' : (authMode === 'init' ? '创建管理员并进入' : '登录') }}
           </button>
         </form>
       </div>
@@ -93,7 +96,7 @@
     <aside class="hidden lg:flex w-60 xl:w-64 flex-col bg-white border-r border-slate-200/80 fixed inset-y-0 left-0 z-30">
       <div class="h-16 px-5 flex items-center gap-3 border-b border-slate-100">
         <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center text-sm">
-          <i class="fa-solid fa-file-invoice-dollar"></i>
+          <app-icon name="file-invoice" class="w-4 h-4"></app-icon>
         </div>
         <div class="min-w-0">
           <div class="text-sm font-bold text-slate-900 truncate">应收管理台</div>
@@ -103,7 +106,7 @@
       <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
         <button v-for="item in navItems" :key="item.key" @click="go(item.key)"
           :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition', view === item.key ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50']">
-          <i :class="['fa-solid', item.icon, 'w-4 text-center text-[13px]']"></i>
+          <app-icon :name="item.icon" class="w-4 h-4 flex-none"></app-icon>
           <span class="flex-1 text-left">{{ item.label }}</span>
           <span v-if="item.key==='inbox' && readyDraftCount" class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500 text-white">{{ readyDraftCount }}</span>
         </button>
@@ -115,7 +118,7 @@
             <div class="text-xs font-semibold text-slate-800 truncate">{{ user.username }}</div>
             <div class="text-[10px] text-slate-400">{{ user.role === 'admin' ? '管理员' : '成员' }}</div>
           </div>
-          <button @click="logout" class="text-slate-400 hover:text-rose-600 p-1.5" title="退出登录"><i class="fa-solid fa-arrow-right-from-bracket text-xs"></i></button>
+          <button @click="logout" class="text-slate-400 hover:text-rose-600 p-1.5" title="退出登录"><app-icon name="logout" class="text-xs"></app-icon></button>
         </div>
       </div>
     </aside>
@@ -125,7 +128,7 @@
       <header class="h-16 bg-white/90 backdrop-blur border-b border-slate-200/80 sticky top-0 z-20">
         <div class="h-full px-4 lg:px-8 flex items-center justify-between gap-3">
           <div class="flex items-center gap-3 min-w-0">
-            <div class="lg:hidden w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center text-xs"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+            <div class="lg:hidden w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center text-xs"><app-icon name="file-invoice" class="w-4 h-4"></app-icon></div>
             <div class="min-w-0">
               <div class="text-sm font-bold text-slate-900 truncate">{{ currentTitle }}</div>
               <div class="text-[11px] text-slate-400 hidden sm:block">{{ currentSubtitle }}</div>
@@ -133,10 +136,10 @@
           </div>
           <div class="flex items-center gap-2">
             <button @click="openQuickUpload" class="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50">
-              <i class="fa-solid fa-paperclip"></i>上传凭证
+              <app-icon name="paperclip" class="mr-1"></app-icon>上传凭证
             </button>
             <button @click="openReceivableModal()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800">
-              <i class="fa-solid fa-plus"></i>新增应收
+              <app-icon name="plus" class="mr-1"></app-icon>新增应收
             </button>
           </div>
         </div>
@@ -154,7 +157,7 @@
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-slate-500">待收总额</span>
-                <span class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fa-solid fa-hand-holding-dollar text-xs"></i></span>
+                <span class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><app-icon name="hand-coins" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-slate-900 mt-3 num">¥{{ money(dashboard?.kpis.outstanding) }}</div>
               <div class="text-[11px] text-slate-400 mt-1">{{ dashboard?.kpis.outstanding_count || 0 }} 笔未结清</div>
@@ -162,7 +165,7 @@
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-slate-500">逾期未收</span>
-                <span class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><i class="fa-solid fa-clock text-xs"></i></span>
+                <span class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><app-icon name="clock" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-rose-600 mt-3 num">¥{{ money(dashboard?.kpis.overdue) }}</div>
               <div class="text-[11px] text-slate-400 mt-1">{{ dashboard?.kpis.overdue_count || 0 }} 笔已超过预计到账日</div>
@@ -170,7 +173,7 @@
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-slate-500">本月已到账</span>
-                <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-check text-xs"></i></span>
+                <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><app-icon name="check" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-emerald-700 mt-3 num">¥{{ money(dashboard?.kpis.paid_this_month) }}</div>
               <div class="text-[11px] text-slate-400 mt-1">按实际到账日期统计</div>
@@ -178,7 +181,7 @@
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-slate-500">平均回款天数</span>
-                <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center"><i class="fa-solid fa-gauge-high text-xs"></i></span>
+                <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center"><app-icon name="gauge" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-slate-900 mt-3 num">{{ dashboard?.kpis.avg_days || 0 }}<span class="text-sm font-medium text-slate-400 ml-1">天</span></div>
               <div class="text-[11px] text-slate-400 mt-1">从提交到到账的平均值</div>
@@ -309,12 +312,12 @@
                   <option :value="null">上传时先不选公司</option>
                   <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
-                <button @click="openQuickUpload" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><i class="fa-solid fa-upload mr-1.5"></i>选择文件</button>
+                <button @click="openQuickUpload" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="upload" class="mr-1.5"></app-icon>选择文件</button>
               </div>
             </div>
             <div class="border-2 border-dashed border-slate-200 rounded-2xl p-6 lg:p-8 text-center bg-slate-50/60 hover:bg-slate-50 transition"
               :class="{'drag-over': dragging}" @click="openQuickUpload">
-              <div class="w-12 h-12 rounded-2xl bg-white border border-slate-200 text-blue-600 flex items-center justify-center mx-auto mb-3"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+              <div class="w-12 h-12 rounded-2xl bg-white border border-slate-200 text-blue-600 flex items-center justify-center mx-auto mb-3"><app-icon name="cloud-upload" class="w-5 h-5"></app-icon></div>
               <div class="text-sm font-semibold text-slate-700">拖入截图、发票、工资条，或按 Ctrl+V 粘贴</div>
               <div class="text-[11px] text-slate-400 mt-1">支持一次多张、PDF、ZIP；图片会由 AI 识别金额和日期</div>
             </div>
@@ -337,7 +340,7 @@
             </div>
 
             <div v-if="!drafts.length" class="py-16 text-center">
-              <div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3"><i class="fa-regular fa-images"></i></div>
+              <div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3"><app-icon name="images" class="w-5 h-5"></app-icon></div>
               <div class="text-sm text-slate-500">收件箱是空的，上传一张截图试试</div>
             </div>
 
@@ -346,7 +349,7 @@
                 <div class="flex gap-3">
                   <div class="relative w-24 h-28 rounded-lg bg-slate-100 overflow-hidden flex-none cursor-pointer" @click="openDraftFile(d)">
                     <img v-if="thumbCache['draft-'+d.id]" :src="thumbCache['draft-'+d.id]" class="w-full h-full object-cover" alt="">
-                    <div v-else class="w-full h-full flex items-center justify-center text-slate-300"><i class="fa-regular fa-image text-xl"></i></div>
+                    <div v-else class="w-full h-full flex items-center justify-center text-slate-300"><app-icon name="image" class="text-xl"></app-icon></div>
                     <span class="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-black/60 text-white">{{ docTypeLabel(d.doc_type) }}</span>
                   </div>
                   <div class="min-w-0 flex-1">
@@ -420,9 +423,9 @@
                 <span v-if="selectedReceivableIds.length" class="text-blue-600">已选 {{ selectedReceivableIds.length }} 笔</span>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <button @click="openBatchModal()" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"><i class="fa-solid fa-layer-group mr-1"></i>归集批次</button>
-                <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"><i class="fa-solid fa-file-pdf mr-1"></i>合并 PDF</button>
-                <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><i class="fa-solid fa-box-archive mr-1"></i>财务包</button>
+                <button @click="openBatchModal()" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"><app-icon name="layers" class="mr-1"></app-icon>归集批次</button>
+                <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"><app-icon name="file-pdf" class="mr-1"></app-icon>合并 PDF</button>
+                <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><app-icon name="archive" class="mr-1"></app-icon>财务包</button>
               </div>
             </div>
             <div class="overflow-x-auto">
@@ -472,7 +475,7 @@
         <section v-if="view==='batches'" class="space-y-4">
           <div class="flex items-center justify-between">
             <div><div class="text-sm font-bold text-slate-900">提交批次</div><div class="text-[11px] text-slate-400">按公司归集、提交、跟踪到账</div></div>
-            <button @click="go('receivables')" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><i class="fa-solid fa-list-check mr-1.5"></i>去台账勾选</button>
+            <button @click="go('receivables')" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="list-check" class="mr-1.5"></app-icon>去台账勾选</button>
           </div>
           <div v-if="!batches.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">还没有批次，去应收台账勾选几笔归集</div>
           <div v-else class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -508,7 +511,7 @@
         <section v-if="view==='payments'" class="space-y-4">
           <div class="flex items-center justify-between">
             <div><div class="text-sm font-bold text-slate-900">到账记录</div><div class="text-[11px] text-slate-400">公司实际打过来的每一笔钱</div></div>
-            <button @click="openPaymentModal()" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><i class="fa-solid fa-plus mr-1.5"></i>记录到账</button>
+            <button @click="openPaymentModal()" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="plus" class="mr-1.5"></app-icon>记录到账</button>
           </div>
           <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
             <table class="w-full text-sm">
@@ -543,7 +546,7 @@
                 <input v-model="exportFilters.period_from" type="month" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
                 <input v-model="exportFilters.period_to" type="month" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
               </div>
-              <button @click="exportExcel" class="mt-3 w-full py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold"><i class="fa-solid fa-file-excel mr-1.5"></i>导出 Excel 明细</button>
+              <button @click="exportExcel" class="mt-3 w-full py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="file-excel" class="mr-1.5"></app-icon>导出 Excel 明细</button>
             </div>
 
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
@@ -585,7 +588,7 @@
         <!-- 设置 -->
         <section v-if="view==='settings'" class="space-y-4">
           <div class="flex flex-wrap gap-1.5">
-            <button v-for="t in settingTabs" :key="t.key" @click="settingTab=t.key" :class="['px-3.5 py-2 rounded-lg text-xs font-semibold', settingTab===t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600']">{{ t.label }}</button>
+            <button v-for="t in visibleSettingTabs" :key="t.key" @click="settingTab=t.key" :class="['px-3.5 py-2 rounded-lg text-xs font-semibold', settingTab===t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600']">{{ t.label }}</button>
           </div>
 
           <div v-if="settingTab==='companies'" class="bg-white border border-slate-200 rounded-2xl p-5">
@@ -619,7 +622,7 @@
             <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
               <div v-for="c in categories" :key="c.id" class="border border-slate-200 rounded-xl px-3 py-2.5 flex items-center justify-between">
                 <div><div class="text-xs font-semibold">{{ c.name }}</div><div class="text-[10px] text-slate-400">{{ c.kind==='payroll' ? '薪资' : (c.kind==='other' ? '其他' : '报销') }} · {{ c.requires_invoice ? '需要发票' : '无需发票' }}</div></div>
-                <button @click="openCategoryModal(c)" class="text-slate-400 hover:text-slate-900"><i class="fa-solid fa-pen text-[11px]"></i></button>
+                <button @click="openCategoryModal(c)" class="text-slate-400 hover:text-slate-900"><app-icon name="pen" class="text-[11px]"></app-icon></button>
               </div>
             </div>
           </div>
@@ -682,7 +685,7 @@
   <!-- 拖拽遮罩 -->
   <div v-if="dragging" class="fixed inset-0 z-[80] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center pointer-events-none">
     <div class="bg-white rounded-2xl px-10 py-8 text-center shadow-xl border border-slate-200">
-      <div class="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-3"><i class="fa-solid fa-cloud-arrow-up text-xl"></i></div>
+      <div class="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-3"><app-icon name="cloud-upload" class="w-6 h-6"></app-icon></div>
       <div class="text-sm font-bold">松手即可上传</div>
       <div class="text-xs text-slate-400 mt-1">支持图片、PDF 和 ZIP</div>
     </div>
@@ -708,7 +711,7 @@
   <!-- 新增/编辑应收 -->
   <div v-if="modal.name==='receivable'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
     <div class="bg-white rounded-2xl w-full max-w-lg border border-slate-200 shadow-xl">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">{{ receivableForm.id ? '编辑应收' : '新增应收' }}</div><button @click="closeModal" class="text-slate-400 hover:text-slate-900"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">{{ receivableForm.id ? '编辑应收' : '新增应收' }}</div><button @click="closeModal" class="text-slate-400 hover:text-slate-900"><app-icon name="close"></app-icon></button></div>
       <div class="p-5 space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">公司 *</label><select v-model.number="receivableForm.company_id" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">请选择</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
@@ -734,7 +737,7 @@
     <div class="bg-white rounded-2xl w-full max-w-3xl border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
       <div class="px-5 py-4 border-b border-slate-100 flex items-start justify-between">
         <div><div class="text-sm font-bold">{{ detail?.title }}</div><div class="text-[11px] text-slate-400 mt-0.5">{{ detail?.company_name }} · {{ detail?.category_name || '未分类' }} · {{ detail?.occurred_on }}</div></div>
-        <button @click="closeModal" class="text-slate-400 hover:text-slate-900"><i class="fa-solid fa-xmark"></i></button>
+        <button @click="closeModal" class="text-slate-400 hover:text-slate-900"><app-icon name="close"></app-icon></button>
       </div>
       <div class="p-5 overflow-y-auto space-y-4">
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -755,10 +758,10 @@
             <div v-for="a in detail.attachments" :key="a.id" class="border border-slate-200 rounded-lg p-2 flex items-center gap-2">
               <div class="w-12 h-12 rounded bg-slate-100 overflow-hidden flex-none cursor-pointer" @click="openAttachment(a)">
                 <img v-if="thumbCache['att-'+a.id]" :src="thumbCache['att-'+a.id]" class="w-full h-full object-cover" alt="">
-                <div v-else class="w-full h-full flex items-center justify-center text-slate-300"><i class="fa-regular fa-file"></i></div>
+                <div v-else class="w-full h-full flex items-center justify-center text-slate-300"><app-icon name="file"></app-icon></div>
               </div>
               <div class="min-w-0 flex-1"><div class="text-[11px] font-medium truncate">{{ a.filename }}</div><div class="text-[10px] text-slate-400">{{ a.kind }} · {{ fileSize(a.file_size) }}<span v-if="a.invoice_no"> · {{ a.invoice_no }}</span></div></div>
-              <button @click="deleteAttachment(a)" class="text-slate-300 hover:text-rose-500"><i class="fa-solid fa-trash text-[11px]"></i></button>
+              <button @click="deleteAttachment(a)" class="text-slate-300 hover:text-rose-500"><app-icon name="trash" class="text-[11px]"></app-icon></button>
             </div>
           </div>
         </div>
@@ -781,7 +784,7 @@
   <!-- 新建批次 -->
   <div v-if="modal.name==='batch'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
     <div class="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-xl">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">归集为提交批次</div><button @click="closeModal" class="text-slate-400"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">归集为提交批次</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
       <div class="p-5 space-y-3">
         <div class="text-xs text-slate-500">已选 {{ selectedReceivableIds.length }} 笔，合计 <b class="text-slate-900">¥{{ money(selectedAmount) }}</b></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><div class="px-3 py-2 rounded-lg bg-slate-50 text-xs font-medium">{{ selectedCompanyName || '请在台账中选择同一家公司的应收' }}</div></div>
@@ -797,7 +800,7 @@
     <div class="bg-white rounded-2xl w-full max-w-3xl border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
       <div class="px-5 py-4 border-b border-slate-100 flex items-start justify-between">
         <div><div class="text-sm font-bold">{{ batchDetail?.title }}</div><div class="text-[11px] text-slate-400 mt-0.5">{{ batchDetail?.company_name }} · {{ batchDetail?.period }} · {{ batchDetail?.status }}</div></div>
-        <button @click="closeModal" class="text-slate-400"><i class="fa-solid fa-xmark"></i></button>
+        <button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button>
       </div>
       <div class="p-5 overflow-y-auto">
         <div class="flex items-center justify-between mb-3"><div class="text-xs text-slate-500">{{ batchDetail?.items.length }} 笔 · 提交 {{ batchDetail?.submitted_on || '-' }} · 预计 {{ batchDetail?.expected_on || '-' }}</div><div class="text-lg font-bold num">¥{{ money(batchDetail?.amount) }}</div></div>
@@ -832,7 +835,7 @@
   <!-- 记录到账 -->
   <div v-if="modal.name==='payment'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
     <div class="bg-white rounded-2xl w-full max-w-2xl border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">记录到账</div><button @click="closeModal" class="text-slate-400"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">记录到账</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
       <div class="p-5 overflow-y-auto space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><select v-model.number="paymentForm.company_id" @change="loadPaymentCandidates" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">请选择</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
@@ -917,7 +920,47 @@
 <script>
 const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
 
-createApp({
+const ICONS = {
+  'file-invoice': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m7 15 3-4 3 2 4-6"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  'list-check': '<path d="M10 6h11M10 12h11M10 18h11"/><path d="m3 6 1.5 1.5L7 5"/><path d="m3 12 1.5 1.5L7 11"/><path d="m3 18 1.5 1.5L7 17"/>',
+  layers: '<path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+  banknote: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+  export: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.11 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.4.7.73.94.3.2.66.31 1.03.31H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.75z"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  'hand-coins': '<path d="M11 15h2a2 2 0 1 0 0-4h-2"/><path d="M3 12h2l2.5-2.5a2 2 0 0 1 1.4-.6H12a2 2 0 0 1 0 4h-1"/><circle cx="17" cy="7" r="3"/><path d="M3 12v6a2 2 0 0 0 2 2h10"/><path d="m17 14 2 2 4-4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  check: '<path d="m20 6-11 11-5-5"/>',
+  gauge: '<path d="M12 14l4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/><circle cx="12" cy="14" r="1"/>',
+  upload: '<path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  'cloud-upload': '<path d="M12 13v8"/><path d="m8 17 4-4 4 4"/><path d="M20 16.7A4.5 4.5 0 0 0 18 8h-1.3A7 7 0 1 0 5 15"/>',
+  images: '<rect x="3" y="7" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/><circle cx="9" cy="12" r="1.5"/><path d="m5 18 4-4 3 3 2-2 3 3"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',
+  'file-pdf': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1.5a1.5 1.5 0 0 0 0-3H9v6"/><path d="M14 18v-6h2"/>',
+  archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  'file-excel': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 13 6 6M15 13l-6 6"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  close: '<path d="M18 6 6 18M6 6l12 12"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+  'user-plus': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  dot: '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>'
+};
+
+const AppIcon = {
+  props: { name: { type: String, default: 'dot' } },
+  computed: { path() { return ICONS[this.name] || ICONS.dot; } },
+  template: '<svg class="app-icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="path"></svg>'
+};
+
+
+const app = createApp({
   setup() {
     const token = ref(localStorage.getItem('reimburse_token') || '');
     const user = ref(null);
@@ -936,13 +979,13 @@ createApp({
       { key: 'audit', label: '审计' },
     ];
     const navItems = [
-      { key: 'dashboard', label: '总览', icon: 'fa-chart-simple' },
-      { key: 'inbox', label: '收件箱', icon: 'fa-inbox' },
-      { key: 'receivables', label: '应收台账', icon: 'fa-list-check' },
-      { key: 'batches', label: '提交批次', icon: 'fa-layer-group' },
-      { key: 'payments', label: '到账记录', icon: 'fa-money-bill-wave' },
-      { key: 'export', label: '导出中心', icon: 'fa-file-export' },
-      { key: 'settings', label: '设置', icon: 'fa-gear' },
+      { key: 'dashboard', label: '总览', icon: 'chart' },
+      { key: 'inbox', label: '收件箱', icon: 'inbox' },
+      { key: 'receivables', label: '应收台账', icon: 'list-check' },
+      { key: 'batches', label: '提交批次', icon: 'layers' },
+      { key: 'payments', label: '到账记录', icon: 'banknote' },
+      { key: 'export', label: '导出中心', icon: 'export' },
+      { key: 'settings', label: '设置', icon: 'settings' },
     ];
     const titles = {
       dashboard: ['总览', '公司欠我的钱、逾期和回款进度'],
@@ -1079,6 +1122,7 @@ createApp({
 
     const readyDraftCount = computed(() => drafts.value.filter(d => d.status === 'ready' || d.status === 'failed').length);
     const activeCompanies = computed(() => companies.value.filter(c => c.is_active));
+    const visibleSettingTabs = computed(() => user.value?.role === 'admin' ? settingTabs : settingTabs.filter(tab => tab.key !== 'users'));
     const allSelected = computed(() => receivables.value.length > 0 && receivables.value.every(r => selectedReceivableIds.value.includes(r.id)));
     const selectedAmount = computed(() => receivables.value.filter(r => selectedReceivableIds.value.includes(r.id)).reduce((sum, r) => sum + Number(r.amount || 0), 0));
     const selectedCompanyName = computed(() => {
@@ -1165,6 +1209,9 @@ createApp({
     function loadAttachmentThumb(attachment) { fetchThumb('att-' + attachment.id, `/api/attachments/${attachment.id}/thumb`); }
 
     watch(drafts, (list) => { list.forEach(loadDraftThumb); }, { deep: false });
+    watch(() => user.value?.role, (role) => {
+      if (role !== 'admin' && settingTab.value === 'users') settingTab.value = 'companies';
+    });
 
     let pollTimer = null;
     function startPolling() {
@@ -1696,7 +1743,7 @@ createApp({
 
     return {
       token, user, authMode, authForm, authError, authLoading,
-      view, settingTab, settingTabs, navItems, currentTitle, currentSubtitle,
+      view, settingTab, settingTabs, visibleSettingTabs, navItems, currentTitle, currentSubtitle,
       companies, activeCompanies, categories, dashboard, receivables, receivableTotal, receivableSummary,
       batches, payments, drafts, exportRecords, auditLogs, users,
       selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput,
@@ -1720,7 +1767,9 @@ createApp({
       thumbCache,
     };
   }
-}).mount('#app');
+});
+app.component('AppIcon', AppIcon);
+app.mount('#app');
 </script>
 </body>
 </html>
