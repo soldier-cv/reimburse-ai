@@ -1,0 +1,21 @@
+# 本地测试专用：源码构建，数据落在当前目录的 data/ 与 uploads/
+# 启动：docker compose -f docker-compose.local.yml up -d --build
+# 停止：docker compose -f docker-compose.local.yml down
+# 端口被占用时：PORT=8095 docker compose -f docker-compose.local.yml up -d --build
+services:
+  reimburse-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reimburse-ai:local
+    container_name: reimburse-ai-local
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8092}:8090"
+    environment:
+      - PORT=8090
+      # 本地测试需要自主注册时打开；正式使用建议保持关闭，由管理员建号
+      # - ALLOW_REGISTRATION=1
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
