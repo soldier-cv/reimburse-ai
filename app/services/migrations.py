@@ -20,3 +20,35 @@ def ensure_auth_schema(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0"))
             conn.commit()
             print("[AUTH MIGRATE] users.session_version 已添加")
+
+
+def ensure_receivable_schema(engine: Engine) -> None:
+    """为已有库补齐部分到账所需字段（幂等）。"""
+    with engine.connect() as conn:
+        def columns_of(table: str) -> set[str]:
+            exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name=:t"), {"t": table}
+            ).fetchone()
+            if not exists:
+                return set()
+            return {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+
+        receivable_cols = columns_of("receivables")
+        if receivable_cols and "received_cents" not in receivable_cols:
+            conn.execute(text("ALTER TABLE receivables ADD COLUMN received_cents INTEGER NOT NULL DEFAULT 0"))
+            # 历史已全额结清的应收，视为已收全款
+            conn.execute(text("UPDATE receivables SET received_cents = amount_cents WHERE status = 'paid'"))
+            conn.commit()
+            print("[RECEIVABLE MIGRATE] receivables.received_cents 已添加")
+
+        item_cols = columns_of("payment_items")
+        if item_cols and "amount_cents" not in item_cols:
+            conn.execute(text("ALTER TABLE payment_items ADD COLUMN amount_cents INTEGER NOT NULL DEFAULT 0"))
+            # 旧记录都是全额核销，按对应应收金额回填
+            conn.execute(text(
+                "UPDATE payment_items SET amount_cents = ("
+                "  SELECT amount_cents FROM receivables WHERE receivables.id = payment_items.receivable_id"
+                ") WHERE amount_cents = 0"
+            ))
+            conn.commit()
+            print("[RECEIVABLE MIGRATE] payment_items.amount_cents 已添加")
