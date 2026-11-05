@@ -49,6 +49,35 @@
 | `CJK_FONT_PATH` | 指定导出 PDF 使用的中文字体 | 自动查找 |
 | `CAPTURE_SYNC` | 仅测试用，同步识别 | 关闭 |
 
+## 本地测试部署
+
+使用本地源码构建，数据落在当前目录的 `data/` 与 `uploads/`：
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+打开 `http://localhost:8092`，首次访问会要求设置管理员用户名和密码。
+
+端口冲突时：
+
+```bash
+# Windows PowerShell
+$env:PORT=8095; docker compose -f docker-compose.local.yml up -d --build
+# Linux / macOS
+PORT=8095 docker compose -f docker-compose.local.yml up -d --build
+```
+
+常用命令：
+
+```bash
+docker compose -f docker-compose.local.yml logs -f
+docker compose -f docker-compose.local.yml down
+docker exec reimburse-ai-local python scripts/backup.py
+```
+
+测试数据只影响当前目录的 `data/` 与 `uploads/`，不会触碰服务器上的 `/data/reimburse-ai`。
+
 ## 快速启动
 
 ### Docker Compose
