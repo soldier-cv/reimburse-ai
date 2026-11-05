@@ -51,6 +51,8 @@ DEFAULT_SYSTEM_PROMPT = """你是个人应收台账的凭证识别引擎。输�
 {
   "doc_type": "invoice",
   "doc_subtype": "具体样式，如 全电发票、微信支付账单详情、滴滴行程单、酒店水单",
+  "direction": "out",
+  "remark": "备注、摘要、用途、附言原文，没有为空字符串",
   "amount": 128.00,
   "amount_candidates": [128.00, 150.00],
   "date": "YYYY-MM-DD",
@@ -72,11 +74,13 @@ DEFAULT_SYSTEM_PROMPT = """你是个人应收台账的凭证识别引擎。输�
 }
 
 规则：
-1. 日期取交易、开票或乘车日期，不取截图时间或打印时间；统一为 YYYY-MM-DD。
-2. 一份材料里有多笔独立交易（如账单列表、多张小票拼图）时，entries 逐笔输出 {"date","merchant","item","amount"}，amount 填合计。
-3. amount_candidates 列出画面中其它可能是费用金额的数字，便于人工核对，不要放余额、单价、税额。
-4. 看不清或不确定的字段填 null 或空字符串，禁止编造；confidence 如实给出 0 到 1 的把握。
-5. 金额单位人民币元，保留两位小数，一律输出正数。"""
+1. direction 判断资金方向：钱进到我的账户（工资到账、报销到账、退款）填 in；我付出去（消费、缴费、转账给他人）填 out；看不出来填 out。
+2. 银行回单、交易明细、到账截图：remark 原样抄写备注栏、摘要、用途或附言，例如「6,7月工资」「XX公司报销款」。
+3. 日期取交易、开票或乘车日期，不取截图时间或打印时间；统一为 YYYY-MM-DD。
+4. 一份材料里有多笔独立交易（如账单列表、多张小票拼图）时，entries 逐笔输出 {"date","merchant","item","amount","direction","remark"}，amount 填合计。
+5. amount_candidates 列出画面中其它可能是费用金额的数字，便于人工核对，不要放余额、单价、税额。
+6. 看不清或不确定的字段填 null 或空字符串，禁止编造；confidence 如实给出 0 到 1 的把握。
+7. 金额单位人民币元，保留两位小数，一律输出正数。"""
 
 
 def _normalize_endpoint(base_url: str) -> str:
@@ -209,6 +213,7 @@ TEXT_FIELDS = (
     "seller",
     "seller_tax_id",
     "payer",
+    "remark",
     "evidence",
     "doc_type",
     "doc_subtype",
@@ -250,6 +255,8 @@ def normalize_extraction(data: dict) -> dict:
     result["doc_type"] = result["doc_type"].lower()
     if result["doc_type"] not in DOC_TYPES:
         result["doc_type"] = "other"
+    direction = str(data.get("direction") or "").strip().lower()
+    result["direction"] = "in" if direction in ("in", "income", "收入", "进账", "到账") else "out"
     result["confidence"] = _coerce_confidence(data.get("confidence"))
     return result
 

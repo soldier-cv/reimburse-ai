@@ -166,6 +166,13 @@ class CaptureConfirm(BaseModel):
     force: bool = False
 
 
+class CapturePaymentApply(BaseModel):
+    """工资到账截图：把到账核销到已有应收。"""
+
+    allocations: List[PaymentAllocation] = Field(default_factory=list)
+    note: Optional[str] = ""
+
+
 class FinancePackRequest(BaseModel):
     receivable_ids: List[int] = Field(default_factory=list)
     batch_id: Optional[int] = None
