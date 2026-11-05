@@ -57,7 +57,7 @@
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-打开 `http://localhost:8092`，首次访问会要求设置管理员用户名和密码。
+打开 `http://localhost:8092`，首次访问会要求设置管理员用户名和密码。本地 compose 只绑定 `127.0.0.1`，不会暴露到局域网。
 
 端口冲突时：
 

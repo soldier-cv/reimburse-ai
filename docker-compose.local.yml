@@ -11,7 +11,7 @@ services:
     container_name: reimburse-ai-local
     restart: unless-stopped
     ports:
-      - "${PORT:-8092}:8090"
+      - "127.0.0.1:${PORT:-8092}:8090"
     environment:
       - PORT=8090
       # 本地测试需要自主注册时打开；正式使用建议保持关闭，由管理员建号
