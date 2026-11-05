@@ -372,12 +372,19 @@
                 </div>
                 <div v-if="d.error" class="mt-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 line-clamp-2">{{ d.error }}</div>
                 <div v-for="h in (d.hints || [])" :key="h" class="mt-1 text-[10px] text-amber-700">{{ h }}</div>
+                <div v-if="d.payroll_match" class="mt-2 text-[10px] text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1">
+                  <div>{{ d.payroll_match.reason }}</div>
+                  <div v-if="d.payroll_match.allocations.length" class="text-slate-400 mt-0.5">
+                    {{ d.payroll_match.allocations.map(a => a.period + ' ¥' + a.amount).join('，') }}
+                  </div>
+                </div>
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                   <div class="flex items-center gap-2 text-[10px]">
                     <button v-if="d.status==='failed' || d.status==='ready'" @click="retryDraft(d)" class="text-slate-500 hover:text-slate-900">重新识别</button>
                     <button @click="discardDraft(d)" class="text-slate-400 hover:text-rose-600">丢弃</button>
                   </div>
-                  <button @click="confirmDrafts([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-semibold disabled:opacity-30">确认入账</button>
+                  <button v-if="canApplyPayment(d)" @click="applyDraftPayment(d)" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-semibold">核销到账</button>
+                  <button v-else @click="confirmDrafts([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-semibold disabled:opacity-30">确认入账</button>
                 </div>
               </div>
             </div>
@@ -1353,6 +1360,19 @@ const app = createApp({
       notify(`已应用到 ${targets.length} 张草稿`);
     }
     function openDraftFile(draft) { openBlob(`/api/capture/drafts/${draft.id}/file`); }
+    function canApplyPayment(draft) {
+      const match = draft.payroll_match;
+      return !!(draft.is_inflow && match && match.allocations.length && !match.remaining_cents && draft.company_id);
+    }
+    async function applyDraftPayment(draft) {
+      try {
+        await api(`/api/capture/drafts/${draft.id}/apply-payment`, { method: 'POST', body: {} });
+        notify('已按推断月份核销到账');
+        await Promise.all([loadDrafts(), loadPayments(), loadReceivables(), loadDashboard()]);
+      } catch (error) {
+        notify(errMsg(error), 'error');
+      }
+    }
 
     async function confirmDrafts(ids = null, targetId = null) {
       const chosenIds = ids || selectedDraftIds.value.slice();
@@ -1795,7 +1815,7 @@ const app = createApp({
       companies, activeCompanies, categories, dashboard, receivables, receivableTotal, receivableSummary,
       batches, payments, drafts, exportRecords, auditLogs, users,
       selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput,
-      filters, exportFilters, toast, notify, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount,
+      filters, exportFilters, toast, notify, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount, canApplyPayment, applyDraftPayment,
       readyDraftCount, allSelected, selectedAmount, selectedCompanyName, toggleSelectAll,
       modal, openModal, closeModal, confirmDialog, askConfirm, resolveConfirm,
       loadReceivables, loadBatches, loadPayments, loadExportRecords, loadAudit, loadUsers, loadAI,
