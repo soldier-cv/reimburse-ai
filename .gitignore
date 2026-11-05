@@ -46,6 +46,7 @@ uploads/single/*
 .idea/
 .vscode/
 .playwright-mcp/
+.openchamber/
 *.swp
 *.swo
 *~
