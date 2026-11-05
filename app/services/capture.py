@@ -17,6 +17,7 @@ from .ai_config import get_ai_config
 from .ai_service import DOC_TYPES, extract_document_with_ai, normalize_extraction
 from .extractor import extract_pdf_text, filename_hints, has_usable_text, parse_pdf_text
 from .money import normalize_date, parse_date, period_from_date, today_str, yuan_to_cents
+from .payroll_match import propose_allocation
 
 try:
     from PIL import Image, ImageOps
@@ -654,7 +655,7 @@ def find_duplicates(db: Session, user_id: int, sha256: str, invoice_no: str, inv
     return warnings
 
 
-def draft_payload(draft: CaptureDraft) -> dict:
+def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
     extracted = _read_extracted(draft)
     confidence = extracted.get("confidence") if isinstance(extracted.get("confidence"), dict) else {}
     amount_confidence = confidence.get("amount")
@@ -666,6 +667,17 @@ def draft_payload(draft: CaptureDraft) -> dict:
             continue
         if cents > 0 and cents != draft.amount_cents and cents not in candidates:
             candidates.append(cents)
+    is_inflow = extracted.get("direction") == "in"
+    payroll_match = None
+    if is_inflow and db is not None and draft.company_id and draft.amount_cents:
+        payroll_match = propose_allocation(
+            db,
+            draft.user_id,
+            draft.company_id,
+            draft.amount_cents,
+            draft.occurred_on or "",
+            str(extracted.get("remark") or ""),
+        )
     hints = []
     if draft.amount_cents and not extracted.get("amount_confirmed") and (
         extracted.get("method") == "filename"
@@ -687,6 +699,9 @@ def draft_payload(draft: CaptureDraft) -> dict:
         "doc_subtype": str(extracted.get("doc_subtype") or "")[:40],
         "method": str(extracted.get("method") or ""),
         "evidence": str(extracted.get("evidence") or "")[:120],
+        "remark": str(extracted.get("remark") or "")[:120],
+        "is_inflow": is_inflow,
+        "payroll_match": payroll_match,
         "amount_candidates_cents": candidates[:4],
         "hints": hints,
         "amount": round((draft.amount_cents or 0) / 100, 2) if draft.amount_cents else None,

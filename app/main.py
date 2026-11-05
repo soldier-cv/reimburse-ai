@@ -54,6 +54,7 @@ from .schemas import (
     BatchSubmit,
     BatchUpdate,
     CaptureConfirm,
+    CapturePaymentApply,
     CategoryCreate,
     CategoryUpdate,
     CompanyCreate,
@@ -112,6 +113,7 @@ from .services.exporter import (
     build_merged_pdf,
 )
 from .services.migrations import ensure_auth_schema, ensure_receivable_schema
+from .services.payroll_match import propose_allocation
 from .services.money import (
     add_days,
     cents_to_text,
@@ -892,7 +894,7 @@ async def capture_files(
         background_tasks.add_task(process_drafts_async, [draft.id for draft in drafts])
     for draft in drafts:
         db.refresh(draft)
-    return {"success": True, "count": len(drafts), "drafts": [draft_payload(item) for item in drafts]}
+    return {"success": True, "count": len(drafts), "drafts": [draft_payload(item, db) for item in drafts]}
 
 
 @app.get("/api/capture/drafts")
@@ -908,7 +910,7 @@ def list_drafts(
     else:
         query = query.filter(CaptureDraft.status.in_(("pending", "processing", "ready", "failed")))
     drafts = query.order_by(CaptureDraft.id.desc()).limit(min(limit, 200)).all()
-    return [draft_payload(item) for item in drafts]
+    return [draft_payload(item, db) for item in drafts]
 
 
 @app.patch("/api/capture/drafts/{draft_id}")
@@ -959,7 +961,7 @@ def update_draft(draft_id: int, req: DraftUpdate, user: User = Depends(get_curre
         if any(key in draft.error for key in ("未配置 AI", "手动填写", "金额")):
             draft.error = None
     db.commit()
-    return draft_payload(draft)
+    return draft_payload(draft, db)
 
 
 @app.post("/api/capture/drafts/{draft_id}/retry")
@@ -982,7 +984,7 @@ async def retry_draft(
     else:
         background_tasks.add_task(process_drafts_async, [draft.id], False)
     db.refresh(draft)
-    return draft_payload(draft)
+    return draft_payload(draft, db)
 
 
 @app.delete("/api/capture/drafts/{draft_id}")
@@ -1176,6 +1178,146 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
         f"确认 {len(active)} 份凭证入账",
     )
     return {"success": True, "created": created, "warnings": warnings, "already_confirmed": [item.receivable_id for item in already]}
+
+
+@app.post("/api/capture/drafts/{draft_id}/apply-payment")
+def apply_draft_payment(
+    draft_id: int,
+    req: CapturePaymentApply,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """把工资到账截图核销到已有工资应收。
+
+    不传 allocations 时用推断结果（备注月份 → 最早欠发顺序）；分摊合计必须等于到账金额。
+    """
+    draft = db.query(CaptureDraft).filter(CaptureDraft.id == draft_id, CaptureDraft.user_id == user.id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    if draft.status == "confirmed":
+        raise HTTPException(status_code=400, detail="草稿已入账")
+    if not draft.company_id:
+        raise HTTPException(status_code=400, detail="请先选择公司")
+    if not draft.amount_cents:
+        raise HTTPException(status_code=400, detail="请先填写到账金额")
+    _company_or_404(db, user, draft.company_id)
+    try:
+        extracted = json.loads(draft.extracted_json or "{}")
+        if not isinstance(extracted, dict):
+            extracted = {}
+    except Exception:
+        extracted = {}
+    remark = str(extracted.get("remark") or "").strip()
+
+    if req.allocations:
+        allocations = req.allocations
+        try:
+            allocated = sum(yuan_to_cents(item.amount) for item in allocations)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="分摊金额格式不正确") from exc
+    else:
+        proposal = propose_allocation(
+            db,
+            user.id,
+            draft.company_id,
+            draft.amount_cents,
+            draft.occurred_on or "",
+            remark,
+        )
+        if not proposal["allocations"]:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": "没有可核销的工资应收，请先建好对应月份的应收", "proposal": proposal},
+            )
+        allocations = [
+            PaymentAllocation(receivable_id=item["receivable_id"], amount=item["amount"])
+            for item in proposal["allocations"]
+        ]
+        allocated = sum(yuan_to_cents(item.amount) for item in allocations)
+        if allocated != draft.amount_cents:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "推断结果与到账金额不一致，请手动选择要核销的应收",
+                    "proposal": proposal,
+                },
+            )
+
+    payment = _record_payment(
+        db,
+        user,
+        PaymentCreate(
+            company_id=draft.company_id,
+            amount=cents_to_yuan(draft.amount_cents),
+            paid_on=normalize_date(draft.occurred_on or today_str()),
+            allocations=allocations,
+            note=(req.note or draft.note or remark).strip(),
+            idempotency_key=f"capture-draft-{draft.id}",
+        ),
+    )
+
+    receivable_ids = sorted({item.receivable_id for item in allocations})
+    receivable = (
+        db.query(Receivable)
+        .filter(Receivable.user_id == user.id, Receivable.id == receivable_ids[0], Receivable.deleted_at.is_(None))
+        .first()
+    )
+    if receivable:
+        db.add(
+            Attachment(
+                user_id=user.id,
+                receivable_id=receivable.id,
+                kind=ATTACHMENT_KIND_BY_DOC_TYPE.get(draft.doc_type, "payment_proof"),
+                filename=draft.original_filename,
+                stored_path=draft.stored_path,
+                content_type=draft.content_type,
+                file_size=draft.file_size,
+                sha256=draft.sha256,
+                invoice_code=draft.invoice_code or "",
+                invoice_no=draft.invoice_no or "",
+                amount_cents=draft.amount_cents,
+                note=draft.note or "",
+                sort_order=len(receivable.attachments),
+                ocr_json=draft.extracted_json,
+            )
+        )
+        for extra_index, extra in enumerate(get_extra_files(draft), start=1):
+            db.add(
+                Attachment(
+                    user_id=user.id,
+                    receivable_id=receivable.id,
+                    kind=extra.get("kind") or "other",
+                    filename=extra.get("original_filename") or "附件",
+                    stored_path=extra.get("stored_path"),
+                    content_type=extra.get("content_type") or "",
+                    file_size=extra.get("file_size") or 0,
+                    sha256=extra.get("sha256") or "",
+                    note=extra.get("note") or "",
+                    sort_order=len(receivable.attachments) + extra_index,
+                )
+            )
+    draft.status = "confirmed"
+    draft.receivable_id = receivable_ids[0]
+    draft.error = None
+    db.commit()
+    record_audit(
+        db,
+        user.id,
+        "到账截图核销",
+        "payment",
+        payment.id,
+        f"核销 {len(allocations)} 笔工资应收，共 ¥{cents_to_text(draft.amount_cents)}",
+    )
+    db.refresh(draft)
+    return {
+        "success": True,
+        "payment_id": payment.id,
+        "allocations": [
+            {"receivable_id": item.receivable_id, "amount": cents_to_yuan(yuan_to_cents(item.amount))}
+            for item in allocations
+        ],
+        "draft": draft_payload(draft, db),
+    }
 
 
 # ---------------------------------------------------------------------------
