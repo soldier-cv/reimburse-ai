@@ -69,8 +69,14 @@ from .schemas import (
     ReceivableUpdate,
     RegisterRequest,
 )
-from .services.ai_config import get_ai_config, get_setting, set_user_setting
-from .services.ai_service import DEFAULT_SYSTEM_PROMPT, fetch_available_models, test_ai_connection
+from .services.ai_config import get_ai_config, get_setting, is_default_prompt, set_user_setting
+from .services.ai_service import (
+    DEFAULT_SYSTEM_PROMPT,
+    DOC_TYPES,
+    close_http_clients,
+    fetch_available_models,
+    test_ai_connection,
+)
 from .services.audit import record_audit
 from .services.auth import (
     create_access_token,
@@ -82,6 +88,7 @@ from .services.auth import (
 )
 from .services.auth_guard import check_auth_banned, clear_auth_failures, record_auth_failure
 from .services.capture import (
+    ATTACHMENT_KIND_BY_DOC_TYPE,
     IMAGE_EXTS,
     UPLOAD_ROOT,
     _process_draft,
@@ -91,7 +98,7 @@ from .services.capture import (
     file_ext,
     find_duplicates,
     get_extra_files,
-    process_draft_async,
+    process_drafts_async,
     rebuild_draft_from_file,
     safe_filename,
     save_upload_bytes,
@@ -409,7 +416,7 @@ def _resolve_export_receivables(db: Session, user: User, ids: list[int], batch_i
 
 
 @app.on_event("startup")
-def startup_event():
+async def startup_event():
     ensure_auth_schema(engine)
     ensure_receivable_schema(engine)
     db = next(get_db())
@@ -418,13 +425,19 @@ def startup_event():
         admin = db.query(User).filter(User.role == "admin").first()
         if admin:
             seed_user_defaults(db, admin.id)
-        # 重启后把卡在识别中的草稿复位
-        db.query(CaptureDraft).filter(CaptureDraft.status == "processing").update(
-            {"status": "pending", "error": "上次识别被中断，已自动重试"}
-        )
+        # 重启后把卡在识别中、排队中的草稿重新排队
+        db.query(CaptureDraft).filter(CaptureDraft.status == "processing").update({"status": "pending"})
         db.commit()
+        pending_ids = [row.id for row in db.query(CaptureDraft.id).filter(CaptureDraft.status == "pending").all()]
     finally:
         db.close()
+    if pending_ids:
+        app.state.capture_requeue = asyncio.create_task(process_drafts_async(pending_ids))
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await close_http_clients()
 
 
 # ---------------------------------------------------------------------------
@@ -857,6 +870,8 @@ async def capture_files(
             saved_zip = save_upload_bytes(user.id, upload.filename, data)
             try:
                 drafts.extend(create_drafts_from_zip(db, user.id, saved_zip["stored_path"], company_id, category_id))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
             finally:
                 try:
                     os.remove(saved_zip["stored_path"])
@@ -870,11 +885,11 @@ async def capture_files(
         raise HTTPException(status_code=400, detail="压缩包内没有可识别的文件")
 
     sync_mode = os.environ.get("CAPTURE_SYNC", "").strip().lower() in ("1", "true", "yes")
-    for draft in drafts:
-        if sync_mode:
+    if sync_mode:
+        for draft in drafts:
             await _process_draft(db, draft.id)
-        else:
-            background_tasks.add_task(process_draft_async, draft.id)
+    else:
+        background_tasks.add_task(process_drafts_async, [draft.id for draft in drafts])
     for draft in drafts:
         db.refresh(draft)
     return {"success": True, "count": len(drafts), "drafts": [draft_payload(item) for item in drafts]}
@@ -920,7 +935,7 @@ def update_draft(draft_id: int, req: DraftUpdate, user: User = Depends(get_curre
         draft.title = req.title.strip()[:200]
     if req.merchant is not None:
         draft.merchant = req.merchant.strip()[:150]
-    if req.doc_type is not None and req.doc_type in ("invoice", "payment", "salary", "chat", "other"):
+    if req.doc_type is not None and req.doc_type in DOC_TYPES:
         draft.doc_type = req.doc_type
     if req.invoice_code is not None:
         draft.invoice_code = req.invoice_code.strip()[:50]
@@ -928,6 +943,18 @@ def update_draft(draft_id: int, req: DraftUpdate, user: User = Depends(get_curre
         draft.invoice_no = req.invoice_no.strip()[:100]
     if req.note is not None:
         draft.note = req.note.strip()[:300]
+    if req.amount is not None or req.occurred_on is not None:
+        # 用户核对过的字段不再提示低置信
+        try:
+            extracted = json.loads(draft.extracted_json or "{}")
+        except Exception:
+            extracted = {}
+        if isinstance(extracted, dict):
+            if req.amount is not None:
+                extracted["amount_confirmed"] = True
+            if req.occurred_on is not None:
+                extracted["date_missing"] = False
+            draft.extracted_json = json.dumps(extracted, ensure_ascii=False)
     if req.amount is not None and draft.amount_cents and draft.error:
         if any(key in draft.error for key in ("未配置 AI", "手动填写", "金额")):
             draft.error = None
@@ -948,11 +975,12 @@ async def retry_draft(
     if draft.status == "confirmed":
         raise HTTPException(status_code=400, detail="草稿已入账")
     rebuild_draft_from_file(db, draft)
+    # 用户主动重试说明上次结果不对，不复用同文件的历史结果
     sync_mode = os.environ.get("CAPTURE_SYNC", "").strip().lower() in ("1", "true", "yes")
     if sync_mode:
-        await _process_draft(db, draft.id)
+        await _process_draft(db, draft.id, reuse=False)
     else:
-        background_tasks.add_task(process_draft_async, draft.id)
+        background_tasks.add_task(process_drafts_async, [draft.id], False)
     db.refresh(draft)
     return draft_payload(draft)
 
@@ -1104,7 +1132,7 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
         attachment = Attachment(
             user_id=user.id,
             receivable_id=receivable.id,
-            kind="invoice" if draft.doc_type == "invoice" else ("screenshot" if draft.doc_type in ("payment", "salary") else "other"),
+            kind=ATTACHMENT_KIND_BY_DOC_TYPE.get(draft.doc_type, "other"),
             filename=draft.original_filename,
             stored_path=draft.stored_path,
             content_type=draft.content_type,
@@ -1117,8 +1145,6 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
             sort_order=len(receivable.attachments),
             ocr_json=draft.extracted_json,
         )
-        if draft.doc_type == "invoice" and not attachment.kind:
-            attachment.kind = "invoice"
         db.add(attachment)
         for extra_index, extra in enumerate(get_extra_files(draft), start=1):
             db.add(
@@ -2187,7 +2213,8 @@ def save_ai_settings(req: AISettingRequest, user: User = Depends(get_current_use
     if req.api_key and req.api_key.strip():
         set_user_setting(db, user.id, "ai_api_key", req.api_key.strip())
     set_user_setting(db, user.id, "ai_model_name", req.model_name.strip())
-    set_user_setting(db, user.id, "ai_system_prompt", (req.system_prompt or "").strip())
+    prompt = (req.system_prompt or "").strip()
+    set_user_setting(db, user.id, "ai_system_prompt", "" if is_default_prompt(prompt) else prompt)
     return {"success": True, "message": "AI 配置已保存"}
 
 
