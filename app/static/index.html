@@ -345,12 +345,17 @@
                       <span :class="['text-[10px] px-1.5 py-0.5 rounded-full', draftStatusClass(d.status)]">{{ draftStatusLabel(d.status) }}</span>
                     </div>
                     <div class="text-[11px] text-slate-500 truncate mt-1" :title="d.original_filename">{{ d.original_filename }}</div>
+                    <div v-if="d.doc_subtype" class="text-[10px] text-slate-400 truncate">{{ d.doc_subtype }}</div>
                     <div class="mt-2">
                       <div class="text-[10px] text-slate-400 mb-0.5">金额</div>
                       <div class="flex items-center gap-1">
                         <span class="text-slate-400 text-sm">¥</span>
                         <input v-model="d.amount" @change="saveDraft(d,{amount:d.amount})" type="number" step="0.01" class="w-full text-lg font-bold num bg-transparent border-b border-slate-200 focus:outline-none focus:border-slate-500 py-0.5" placeholder="待填写">
                       </div>
+                      <div v-if="d.amount_candidates_cents && d.amount_candidates_cents.length" class="flex flex-wrap gap-1 mt-1">
+                        <button v-for="c in d.amount_candidates_cents" :key="c" @click="pickDraftAmount(d, c)" type="button" class="text-[10px] num px-1.5 py-0.5 rounded border border-slate-200 text-slate-600 hover:border-slate-500 hover:text-slate-900">{{ (c / 100).toFixed(2) }}</button>
+                      </div>
+                      <div v-if="d.evidence" class="text-[10px] text-slate-400 truncate mt-1" :title="d.evidence">{{ d.evidence }}</div>
                     </div>
                     <div class="grid grid-cols-2 gap-1.5 mt-2">
                       <input v-model="d.occurred_on" @change="saveDraft(d,{occurred_on:d.occurred_on})" type="date" class="text-[11px] px-1.5 py-1 rounded border border-slate-200 bg-white">
@@ -366,6 +371,7 @@
                   </div>
                 </div>
                 <div v-if="d.error" class="mt-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 line-clamp-2">{{ d.error }}</div>
+                <div v-for="h in (d.hints || [])" :key="h" class="mt-1 text-[10px] text-amber-700">{{ h }}</div>
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                   <div class="flex items-center gap-2 text-[10px]">
                     <button v-if="d.status==='failed' || d.status==='ready'" @click="retryDraft(d)" class="text-slate-500 hover:text-slate-900">重新识别</button>
@@ -1109,7 +1115,11 @@ const app = createApp({
       return { pending: '排队中', processing: '识别中', ready: '待确认', failed: '识别失败', confirmed: '已入账' }[status] || status;
     }
     function docTypeLabel(type) {
-      return { invoice: '发票', payment: '支付', salary: '工资', chat: '聊天', other: '凭证' }[type] || '凭证';
+      return { invoice: '发票', ticket: '客票', receipt: '小票', payment: '支付', order: '订单', bank: '回单', salary: '工资', chat: '聊天', other: '凭证' }[type] || '凭证';
+    }
+    function pickDraftAmount(draft, cents) {
+      draft.amount = (cents / 100).toFixed(2);
+      saveDraft(draft, { amount: draft.amount });
     }
 
     const readyDraftCount = computed(() => drafts.value.filter(d => d.status === 'ready' || d.status === 'failed').length);
@@ -1785,7 +1795,7 @@ const app = createApp({
       companies, activeCompanies, categories, dashboard, receivables, receivableTotal, receivableSummary,
       batches, payments, drafts, exportRecords, auditLogs, users,
       selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput,
-      filters, exportFilters, toast, notify, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel,
+      filters, exportFilters, toast, notify, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount,
       readyDraftCount, allSelected, selectedAmount, selectedCompanyName, toggleSelectAll,
       modal, openModal, closeModal, confirmDialog, askConfirm, resolveConfirm,
       loadReceivables, loadBatches, loadPayments, loadExportRecords, loadAudit, loadUsers, loadAI,
