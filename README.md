@@ -50,6 +50,7 @@
 | `ENABLE_API_DOCS` | 是否开放 `/docs` | 关闭 |
 | `CJK_FONT_PATH` | 指定导出 PDF 使用的中文字体 | 自动查找 |
 | `CAPTURE_SYNC` | 仅测试用，同步识别 | 关闭 |
+| `CAPTURE_CONCURRENCY` | 后台同时识别的草稿数 | `4` |
 
 ## 本地测试部署
 
