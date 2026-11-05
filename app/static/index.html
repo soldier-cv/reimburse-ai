@@ -386,7 +386,7 @@
                 <select v-model.number="filters.company_id" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">全部</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select>
               </div>
               <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">状态</label>
-                <select v-model="filters.status_value" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部</option><option value="pending">待提交</option><option value="submitted">已提交</option><option value="paid">已到账</option><option value="rejected">被驳回</option><option value="abandoned">已放弃</option></select>
+                <select v-model="filters.status_value" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部</option><option value="pending">待提交</option><option value="submitted">已提交</option><option value="partial">部分到账</option><option value="paid">已到账</option><option value="rejected">被驳回</option><option value="abandoned">已放弃</option></select>
               </div>
               <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">类型</label>
                 <select v-model="filters.kind" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部</option><option value="reimbursement">报销</option><option value="payroll">薪资</option><option value="other">其他</option></select>
@@ -435,10 +435,11 @@
                     <td class="px-2 py-3"><span class="inline-flex items-center gap-1.5 text-xs"><span class="w-1.5 h-1.5 rounded-full" :style="{background:r.company_color}"></span>{{ r.company_name }}</span></td>
                     <td class="px-2 py-3 text-xs text-slate-500">{{ r.category_name || '-' }}</td>
                     <td class="px-2 py-3"><button @click="openReceivableDetail(r.id)" class="text-left font-medium text-slate-800 hover:text-blue-600">{{ r.title }}</button><div v-if="r.batch_title" class="text-[10px] text-slate-400">{{ r.batch_title }}</div></td>
-                    <td class="px-2 py-3 text-right font-semibold num whitespace-nowrap">¥{{ money(r.amount) }}</td>
+                    <td class="px-2 py-3 text-right font-semibold num whitespace-nowrap">¥{{ money(r.amount) }}<div v-if="r.status==='partial'" class="text-[10px] font-normal text-amber-600">已收 ¥{{ money(r.received) }} · 待收 ¥{{ money(r.remaining) }}</div></td>
                     <td class="px-2 py-3 text-center"><span :class="['text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap', statusClass(r.status)]">{{ r.status_label }}</span></td>
                     <td class="px-2 py-3 text-xs whitespace-nowrap">
                       <span v-if="r.status==='paid'" class="text-emerald-600">{{ r.paid_on }} 到账</span>
+                      <span v-else-if="r.status==='partial'" class="text-amber-600">待收 ¥{{ money(r.remaining) }}</span>
                       <span v-else-if="r.days_overdue" class="text-rose-600 font-medium">逾期 {{ r.days_overdue }} 天</span>
                       <span v-else class="text-slate-500">{{ r.expected_on || '-' }}</span>
                     </td>
@@ -725,6 +726,10 @@
           <div class="bg-slate-50 rounded-xl p-3"><div class="text-[10px] text-slate-400">提交日</div><div class="text-sm font-semibold mt-1">{{ detail?.submitted_on || '-' }}</div></div>
           <div class="bg-slate-50 rounded-xl p-3"><div class="text-[10px] text-slate-400">预计到账</div><div class="text-sm font-semibold mt-1" :class="detail?.days_overdue ? 'text-rose-600' : ''">{{ detail?.expected_on || '-' }}</div></div>
         </div>
+        <div v-if="detail?.received_cents" class="grid grid-cols-2 gap-3">
+          <div class="bg-emerald-50 rounded-xl p-3"><div class="text-[10px] text-slate-500">已收</div><div class="text-lg font-bold num text-emerald-700">¥{{ money(detail.received) }}</div></div>
+          <div class="bg-amber-50 rounded-xl p-3"><div class="text-[10px] text-slate-500">待收</div><div class="text-lg font-bold num text-amber-700">¥{{ money(detail.remaining) }}</div></div>
+        </div>
         <div v-if="detail?.note" class="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">{{ detail.note }}</div>
 
         <div>
@@ -754,6 +759,7 @@
         <div class="flex gap-2">
           <button @click="openReceivableModal(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">编辑</button>
           <button @click="duplicateReceivable(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">复制为新月</button>
+          <button v-if="detail?.remaining_cents" @click="openPaymentModal(detail)" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">记录到账</button>
         </div>
         <div class="flex gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">关闭</button></div>
       </div>
@@ -816,28 +822,36 @@
     <div class="bg-white rounded-2xl w-full max-w-2xl border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
       <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">记录到账</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
       <div class="p-5 overflow-y-auto space-y-3">
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-3 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><select v-model.number="paymentForm.company_id" @change="loadPaymentCandidates" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">请选择</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
           <div><label class="block text-[11px] text-slate-500 mb-1">到账日期</label><input v-model="paymentForm.paid_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">到账金额</label><input v-model.number="paymentForm.amount" type="number" step="0.01" min="0" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs num" placeholder="0.00"></div>
         </div>
         <div>
-          <div class="flex items-center justify-between mb-1"><label class="text-[11px] text-slate-500">选择应收</label><button v-if="paymentCandidates.length" @click="toggleAllPaymentCandidates" class="text-[10px] text-blue-600">全选/取消</button></div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-[11px] text-slate-500">选择应收 / 本次核销</label>
+            <div class="flex items-center gap-2">
+              <button v-if="paymentForm.receivable_ids.length" @click="autoAllocate" class="text-[10px] text-blue-600 font-medium">按到账金额分摊</button>
+              <button v-if="paymentCandidates.length" @click="toggleAllPaymentCandidates" class="text-[10px] text-blue-600">全选/取消</button>
+            </div>
+          </div>
           <div class="border border-slate-200 rounded-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
-            <label v-for="r in paymentCandidates" :key="r.id" class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50">
-              <input type="checkbox" :value="r.id" v-model="paymentForm.receivable_ids" class="rounded border-slate-300">
-              <span class="flex-1 min-w-0"><span class="font-medium">{{ r.title }}</span><span class="text-slate-400 ml-1">{{ r.occurred_on }}</span></span>
-              <span class="num font-semibold">¥{{ money(r.amount) }}</span>
-            </label>
+            <div v-for="r in paymentCandidates" :key="r.id" class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50">
+              <input type="checkbox" :value="r.id" v-model="paymentForm.receivable_ids" @change="onPaymentCandidateToggle(r)" class="rounded border-slate-300">
+              <span class="flex-1 min-w-0"><span class="font-medium">{{ r.title }}</span><span class="text-slate-400 ml-1">待收 ¥{{ money(r.remaining) }}</span></span>
+              <input v-if="paymentForm.receivable_ids.includes(r.id)" v-model.number="paymentForm.allocations[r.id]" type="number" step="0.01" min="0" class="w-24 px-2 py-1 rounded border border-slate-200 text-xs num text-right">
+              <span v-else class="num font-semibold">¥{{ money(r.remaining) }}</span>
+            </div>
             <div v-if="!paymentCandidates.length" class="px-3 py-8 text-center text-xs text-slate-400">{{ paymentForm.company_id ? '该公司没有待结清的应收' : '先选择公司' }}</div>
           </div>
         </div>
-        <div class="bg-slate-50 rounded-xl px-4 py-3 flex items-center justify-between">
-          <span class="text-xs text-slate-500">到账金额</span>
-          <span class="text-xl font-bold num">¥{{ money(paymentTotal) }}</span>
+        <div class="flex items-center justify-between text-xs px-1">
+          <span class="text-slate-500">分摊合计 <b :class="allocationMatches ? 'text-emerald-600' : 'text-rose-600'">¥{{ money(paymentAllocatedTotal) }}</b> / 到账 ¥{{ money(paymentForm.amount) }}</span>
+          <span v-if="!allocationMatches" class="text-rose-600">金额不一致</span>
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="paymentForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销一批到账"></div>
       </div>
-      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="savePayment" :disabled="!paymentForm.receivable_ids.length" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">保存到账</button></div>
+      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="savePayment" :disabled="!canSavePayment" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">保存到账</button></div>
     </div>
   </div>
 
@@ -1083,7 +1097,7 @@ const app = createApp({
       return (size / 1024 / 1024).toFixed(1) + ' MB';
     }
     function statusClass(status) {
-      return { pending: 'bg-slate-100 text-slate-600', submitted: 'bg-blue-50 text-blue-700', paid: 'bg-emerald-50 text-emerald-700', rejected: 'bg-rose-50 text-rose-700', abandoned: 'bg-slate-100 text-slate-400' }[status] || 'bg-slate-100 text-slate-500';
+      return { pending: 'bg-slate-100 text-slate-600', submitted: 'bg-blue-50 text-blue-700', partial: 'bg-amber-50 text-amber-700', paid: 'bg-emerald-50 text-emerald-700', rejected: 'bg-rose-50 text-rose-700', abandoned: 'bg-slate-100 text-slate-400' }[status] || 'bg-slate-100 text-slate-500';
     }
     function batchStatusClass(status) {
       return { draft: 'bg-slate-100 text-slate-600', submitted: 'bg-blue-50 text-blue-700', paid: 'bg-emerald-50 text-emerald-700', cancelled: 'bg-slate-100 text-slate-400' }[status] || 'bg-slate-100';
@@ -1526,35 +1540,81 @@ const app = createApp({
       } catch (error) { notify(errMsg(error), 'error'); }
     }
 
-    const paymentForm = reactive({ company_id: null, paid_on: new Date().toISOString().slice(0, 10), note: '', receivable_ids: [], idempotency_key: '' });
+    const paymentForm = reactive({ company_id: null, paid_on: new Date().toISOString().slice(0, 10), amount: 0, note: '', receivable_ids: [], allocations: {}, idempotency_key: '' });
     const paymentCandidates = ref([]);
-    const paymentTotal = computed(() => paymentCandidates.value.filter(r => paymentForm.receivable_ids.includes(r.id)).reduce((sum, r) => sum + Number(r.amount || 0), 0));
-    function openPaymentModal() {
-      paymentForm.company_id = activeCompanies.value[0]?.id || null;
+    const paymentAllocatedTotal = computed(() => paymentForm.receivable_ids.reduce((sum, id) => sum + (Number(paymentForm.allocations[id]) || 0), 0));
+    const allocationMatches = computed(() => paymentAllocatedTotal.value > 0 && Math.abs(paymentAllocatedTotal.value - (Number(paymentForm.amount) || 0)) < 0.005);
+    const canSavePayment = computed(() => allocationMatches.value && paymentForm.receivable_ids.length > 0 && Number(paymentForm.amount) > 0);
+    function onPaymentCandidateToggle(receivable) {
+      if (paymentForm.receivable_ids.includes(receivable.id)) {
+        paymentForm.allocations[receivable.id] = Number(receivable.remaining);
+      } else {
+        delete paymentForm.allocations[receivable.id];
+      }
+      if (!paymentForm.amount) paymentForm.amount = paymentAllocatedTotal.value;
+    }
+    function autoAllocate() {
+      let left = Number(paymentForm.amount) || 0;
+      for (const id of paymentForm.receivable_ids.slice().sort((a, b) => a - b)) {
+        const receivable = paymentCandidates.value.find(r => r.id === id);
+        const cap = receivable ? Number(receivable.remaining) : 0;
+        const value = Math.min(left, cap);
+        paymentForm.allocations[id] = Math.round(value * 100) / 100;
+        left -= value;
+      }
+      if (left > 0.005) notify('到账金额超过所选应收待收合计', 'error');
+    }
+    async function openPaymentModal(preset = null) {
+      paymentForm.company_id = preset?.company_id || activeCompanies.value[0]?.id || null;
       paymentForm.paid_on = new Date().toISOString().slice(0, 10);
       paymentForm.note = '';
+      paymentForm.amount = 0;
       paymentForm.receivable_ids = [];
+      paymentForm.allocations = {};
       paymentForm.idempotency_key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
       paymentCandidates.value = [];
       openModal('payment');
-      if (paymentForm.company_id) loadPaymentCandidates();
+      if (paymentForm.company_id) await loadPaymentCandidates();
+      if (preset && paymentCandidates.value.some(r => r.id === preset.id)) {
+        paymentForm.receivable_ids = [preset.id];
+        paymentForm.allocations[preset.id] = Number(preset.remaining);
+        paymentForm.amount = Number(preset.remaining);
+      }
     }
     async function loadPaymentCandidates() {
       paymentForm.receivable_ids = [];
+      paymentForm.allocations = {};
+      paymentForm.amount = 0;
       if (!paymentForm.company_id) { paymentCandidates.value = []; return; }
       const data = await api(`/api/receivables?company_id=${paymentForm.company_id}&page_size=200`);
-      paymentCandidates.value = data.items.filter(r => r.status === 'pending' || r.status === 'submitted');
+      paymentCandidates.value = data.items.filter(r => r.remaining_cents > 0 && ['pending', 'submitted', 'partial'].includes(r.status));
     }
     function toggleAllPaymentCandidates() {
-      paymentForm.receivable_ids = paymentForm.receivable_ids.length ? [] : paymentCandidates.value.map(r => r.id);
+      if (paymentForm.receivable_ids.length) {
+        paymentForm.receivable_ids = [];
+        paymentForm.allocations = {};
+      } else {
+        paymentForm.receivable_ids = paymentCandidates.value.map(r => r.id);
+        paymentForm.allocations = {};
+        for (const r of paymentCandidates.value) paymentForm.allocations[r.id] = Number(r.remaining);
+        paymentForm.amount = paymentAllocatedTotal.value;
+      }
     }
     async function savePayment() {
       if (!paymentForm.company_id || !paymentForm.receivable_ids.length) return notify('请选择公司和应收', 'error');
+      if (!allocationMatches.value) return notify('分摊合计与到账金额不一致', 'error');
+      const allocations = paymentForm.receivable_ids.map(id => ({
+        receivable_id: id,
+        amount: Number(paymentForm.allocations[id]) || 0,
+      }));
       try {
-        await api('/api/payments', { method: 'POST', body: { company_id: paymentForm.company_id, amount: paymentTotal.value, paid_on: paymentForm.paid_on, receivable_ids: paymentForm.receivable_ids, note: paymentForm.note, idempotency_key: paymentForm.idempotency_key } });
+        await api('/api/payments', { method: 'POST', body: { company_id: paymentForm.company_id, amount: Number(paymentForm.amount), paid_on: paymentForm.paid_on, allocations, note: paymentForm.note, idempotency_key: paymentForm.idempotency_key } });
         notify('到账记录已保存');
         closeModal();
         await loadPayments(); await loadReceivables(); await loadDashboard(); await loadCompanies(); await loadBatches();
+        if (detail.value) {
+          try { detail.value = await api(`/api/receivables/${detail.value.id}`); } catch (e) {}
+        }
       } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function deletePayment(payment) {
@@ -1735,7 +1795,7 @@ const app = createApp({
       uploadAttachments, deleteAttachment, openAttachment,
       batchForm, openBatchModal, createBatch, batchDetail, openBatchDetail, submitBatch, doSubmitBatch,
       batchSubmitTarget, batchSubmitForm, payBatch, exportBatchPack,
-      paymentForm, paymentCandidates, paymentTotal, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
+      paymentForm, paymentCandidates, paymentAllocatedTotal, allocationMatches, canSavePayment, onPaymentCandidateToggle, autoAllocate, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
       exportExcel, exportSelectedPdf, exportSelectedPack, exportSelectedAttachments, downloadExportRecord,
       companyBarWidth, agingBarWidth, categoryBarWidth, trendHeight,
       companyForm, openCompanyModal, saveCompany, deleteCompany,

@@ -337,7 +337,7 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
     summary.column_dimensions["C"].width = 16
 
     detail = workbook.create_sheet("明细")
-    headers = ["序号", "公司", "归属月", "发生日期", "类别", "事项", "金额", "状态", "发票号", "附件数", "备注"]
+    headers = ["序号", "公司", "归属月", "发生日期", "类别", "事项", "金额", "已收", "待收", "状态", "发票号", "附件数", "备注"]
     detail.append(headers)
     for col in range(1, len(headers) + 1):
         cell = detail.cell(row=1, column=col)
@@ -348,6 +348,7 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
     status_labels = {
         "pending": "待提交",
         "submitted": "已提交",
+        "partial": "部分到账",
         "paid": "已到账",
         "rejected": "被驳回",
         "abandoned": "已放弃",
@@ -355,6 +356,7 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
     for index, item in enumerate(ordered, start=1):
         attachments = _attachments(item)
         invoice_no = next((a.invoice_no for a in attachments if a.invoice_no), "")
+        received = item.received_cents or 0
         values = [
             index,
             item.company.name if item.company else "",
@@ -363,6 +365,8 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
             item.category.name if item.category else "",
             item.title,
             float((item.amount_cents or 0) / 100),
+            float(received / 100),
+            float(max(0, (item.amount_cents or 0) - received) / 100),
             status_labels.get(item.status, item.status),
             invoice_no,
             len(attachments),
@@ -375,9 +379,10 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
             cell.border = border
             if index % 2 == 0:
                 cell.fill = fill_alt
-        detail.cell(row=index + 1, column=7).number_format = '#,##0.00'
-        detail.cell(row=index + 1, column=7).alignment = Alignment(horizontal="right")
-    widths = [7, 24, 10, 13, 14, 32, 14, 10, 22, 8, 30]
+        for col in (7, 8, 9):
+            detail.cell(row=index + 1, column=col).number_format = '#,##0.00'
+            detail.cell(row=index + 1, column=col).alignment = Alignment(horizontal="right")
+    widths = [7, 24, 10, 13, 14, 32, 14, 14, 14, 12, 22, 8, 30]
     for index, width in enumerate(widths, start=1):
         detail.column_dimensions[get_column_letter(index)].width = width
     detail.freeze_panes = "A2"

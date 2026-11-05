@@ -5,6 +5,25 @@
 本日志格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并且本项目遵循 [语义化版本 (Semantic Versioning)](https://semver.org/lang/zh-CN/)。
 
+## [3.1.0] - 2026-11-05
+
+### 新增 (Added)
+- **部分到账**：应收金额 1000、公司先打 500 时，可核销 500，状态变为「部分到账」，待收 500 继续挂账；后续到账再补足。
+- `Receivable.received_cents` 记录已收金额，`PaymentItem.amount_cents` 记录每笔到账分摊到各应收的金额。
+- 「记录到账」弹窗支持多选应收、逐笔填写本次核销金额、按到账金额自动分摊，并实时校验分摊合计。
+- 应收详情新增「记录到账」快捷入口，并展示已收、待收和每次到账明细。
+
+### 变更 (Changed)
+- 待收口径改为「应收金额 - 已收金额」；看板、公司统计、账龄、类别占比、批次剩余全部按待收余额计算。
+- 逾期范围包含「部分到账」。
+- `POST /api/payments` 支持 `allocations` 显式分摊；只传 `receivable_ids` 时按顺序自动分摊。
+- Excel 明细新增「已收」「待收」两列。
+
+### 迁移 (Migration)
+- 启动时自动为已有库补充 `receivables.received_cents` 与 `payment_items.amount_cents`；历史已到账记录按全额回填。
+
+---
+
 ## [3.0.0] - 2026-11-04
 
 ### 重构 (Changed)

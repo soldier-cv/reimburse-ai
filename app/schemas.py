@@ -124,11 +124,17 @@ class BatchSubmit(BaseModel):
     expected_on: Optional[str] = ""
 
 
+class PaymentAllocation(BaseModel):
+    receivable_id: int
+    amount: Union[float, str]
+
+
 class PaymentCreate(BaseModel):
     company_id: int
     amount: Union[float, str]
     paid_on: Optional[str] = ""
     receivable_ids: List[int] = Field(default_factory=list)
+    allocations: List[PaymentAllocation] = Field(default_factory=list)
     note: Optional[str] = ""
     idempotency_key: Optional[str] = None
 

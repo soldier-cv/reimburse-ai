@@ -144,9 +144,11 @@ class Receivable(Base):
     period = Column(String(7), default="", index=True)  # YYYY-MM 归属月
     occurred_on = Column(String(10), default="", index=True)
     amount_cents = Column(Integer, nullable=False, default=0)
+    received_cents = Column(Integer, nullable=False, default=0)  # 已到账金额，支持部分到账
 
     status = Column(String(20), default="pending", index=True)
-    # pending 待提交 / submitted 已提交 / paid 已到账 / rejected 被驳回 / abandoned 已放弃
+    # pending 待提交 / submitted 已提交 / partial 部分到账 / paid 已到账
+    # rejected 被驳回 / abandoned 已放弃
 
     expected_on = Column(String(10), default="")
     submitted_on = Column(String(10), default="")
@@ -190,13 +192,14 @@ class Payment(Base):
 
 
 class PaymentItem(Base):
-    """到账记录结清的应收事项（全额核销，不分摊金额）"""
+    """到账记录与应收事项的分摊明细，支持一笔应收被多次到账核销。"""
 
     __tablename__ = "payment_items"
 
     id = Column(Integer, primary_key=True, index=True)
     payment_id = Column(Integer, ForeignKey("payments.id"), index=True, nullable=False)
     receivable_id = Column(Integer, ForeignKey("receivables.id"), index=True, nullable=False)
+    amount_cents = Column(Integer, nullable=False, default=0)  # 本次到账分配给该应收的金额
 
     payment = relationship("Payment", back_populates="items")
     receivable = relationship("Receivable", back_populates="payment_items")

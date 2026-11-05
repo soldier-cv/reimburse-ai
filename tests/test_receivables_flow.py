@@ -83,12 +83,12 @@ def test_full_receivable_batch_payment_export_flow(client, auth):
     assert detail["amount"] == 608.0
     assert all(item["status"] == "submitted" for item in detail["items"])
 
-    # 金额不一致必须拒绝
+    # 到账金额超过待收合计仍然拒绝
     mismatch = client.post(
         "/api/payments",
         json={
             "company_id": company["id"],
-            "amount": 600.0,
+            "amount": 700.0,
             "paid_on": "2026-11-15",
             "receivable_ids": [first["id"], second["id"]],
         },
