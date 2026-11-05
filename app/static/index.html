@@ -55,7 +55,6 @@
         </div>
         <div>
           <div class="text-lg font-bold tracking-tight text-slate-900">个人应收与报销管理台</div>
-          <div class="text-xs text-slate-500">公司欠我的每一笔，都有据可查</div>
         </div>
       </div>
 
@@ -65,7 +64,6 @@
             <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center"><app-icon name="lock" class="text-xs"></app-icon></span>
             <div class="text-base font-semibold text-slate-900">{{ authMode === 'init' ? '首次部署：创建管理员' : '登录' }}</div>
           </div>
-          <div class="text-xs text-slate-500 mt-2 leading-relaxed">{{ authMode === 'init' ? '设置初始管理员用户名和密码。系统不预置默认密码，只有管理员能维护成员账号。' : '使用管理员分配的账号登录。成员账号由管理员在设置中创建。' }}</div>
         </div>
         <form @submit.prevent="submitAuth" class="space-y-4">
           <div>
@@ -86,7 +84,6 @@
           </button>
         </form>
       </div>
-      <div class="text-center text-[11px] text-slate-400 mt-4">数据保存在你自己的服务器，管理员也无法查看其他成员的账本</div>
     </div>
   </div>
 
@@ -100,7 +97,6 @@
         </div>
         <div class="min-w-0">
           <div class="text-sm font-bold text-slate-900 truncate">应收管理台</div>
-          <div class="text-[10px] text-slate-400">对公应收与材料归档</div>
         </div>
       </div>
       <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
@@ -129,10 +125,7 @@
         <div class="h-full px-4 lg:px-8 flex items-center justify-between gap-3">
           <div class="flex items-center gap-3 min-w-0">
             <div class="lg:hidden w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center text-xs"><app-icon name="file-invoice" class="w-4 h-4"></app-icon></div>
-            <div class="min-w-0">
-              <div class="text-sm font-bold text-slate-900 truncate">{{ currentTitle }}</div>
-              <div class="text-[11px] text-slate-400 hidden sm:block">{{ currentSubtitle }}</div>
-            </div>
+            <div class="min-w-0"><div class="text-sm font-bold text-slate-900 truncate">{{ currentTitle }}</div></div>
           </div>
           <div class="flex items-center gap-2">
             <button @click="openQuickUpload" class="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50">
@@ -160,7 +153,6 @@
                 <span class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><app-icon name="hand-coins" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-slate-900 mt-3 num">¥{{ money(dashboard?.kpis.outstanding) }}</div>
-              <div class="text-[11px] text-slate-400 mt-1">{{ dashboard?.kpis.outstanding_count || 0 }} 笔未结清</div>
             </div>
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
@@ -168,7 +160,6 @@
                 <span class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><app-icon name="clock" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-rose-600 mt-3 num">¥{{ money(dashboard?.kpis.overdue) }}</div>
-              <div class="text-[11px] text-slate-400 mt-1">{{ dashboard?.kpis.overdue_count || 0 }} 笔已超过预计到账日</div>
             </div>
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
@@ -176,7 +167,6 @@
                 <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><app-icon name="check" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-emerald-700 mt-3 num">¥{{ money(dashboard?.kpis.paid_this_month) }}</div>
-              <div class="text-[11px] text-slate-400 mt-1">按实际到账日期统计</div>
             </div>
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
@@ -184,7 +174,6 @@
                 <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center"><app-icon name="gauge" class="text-xs"></app-icon></span>
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-slate-900 mt-3 num">{{ dashboard?.kpis.avg_days || 0 }}<span class="text-sm font-medium text-slate-400 ml-1">天</span></div>
-              <div class="text-[11px] text-slate-400 mt-1">从提交到到账的平均值</div>
             </div>
           </div>
 
@@ -195,11 +184,9 @@
             </div>
             <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <div><div class="text-[11px] text-slate-500">工资未发</div><div class="text-lg font-bold num">¥{{ money(dashboard?.kpis.salary_outstanding) }}</div></div>
-              <span class="text-xs text-slate-400">薪资类</span>
             </div>
             <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <div><div class="text-[11px] text-slate-500">缺附件</div><div class="text-lg font-bold num">{{ dashboard?.kpis.missing_attachment_count || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">笔</span></div></div>
-              <span class="text-xs text-slate-400">需补材料</span>
             </div>
             <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <div><div class="text-[11px] text-slate-500">待确认草稿</div><div class="text-lg font-bold num">{{ dashboard?.kpis.drafts_ready || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">张</span></div></div>
@@ -210,10 +197,10 @@
           <div class="grid lg:grid-cols-3 gap-4">
             <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-5">
               <div class="flex items-center justify-between mb-4">
-                <div><div class="text-sm font-bold text-slate-900">各公司待收</div><div class="text-[11px] text-slate-400">按未收余额排序</div></div>
+                <div class="text-sm font-bold text-slate-900">各公司待收</div>
                 <button @click="go('receivables')" class="text-xs text-slate-500 hover:text-slate-900">查看台账</button>
               </div>
-              <div v-if="!dashboard?.companies.length" class="text-sm text-slate-400 py-8 text-center">还没有公司，先去设置里添加</div>
+              <div v-if="!dashboard?.companies.length" class="text-sm text-slate-400 py-8 text-center">暂无公司</div>
               <div v-else class="space-y-4">
                 <div v-for="c in dashboard.companies" :key="c.id">
                   <div class="flex items-center justify-between mb-1.5">
@@ -233,7 +220,6 @@
 
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
               <div class="text-sm font-bold text-slate-900">账龄分布</div>
-              <div class="text-[11px] text-slate-400 mb-4">未收金额按逾期天数分桶</div>
               <div class="space-y-4">
                 <div v-for="(a,idx) in dashboard?.aging || []" :key="a.bucket">
                   <div class="flex justify-between text-xs mb-1"><span class="text-slate-500">{{ a.bucket }} 天</span><span class="font-semibold num">¥{{ money(a.amount) }}</span></div>
@@ -264,7 +250,7 @@
             </div>
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
               <div class="text-sm font-bold text-slate-900 mb-4">类别占比</div>
-              <div v-if="!dashboard?.categories.length" class="text-sm text-slate-400 py-8 text-center">暂无未收数据</div>
+              <div v-if="!dashboard?.categories.length" class="text-sm text-slate-400 py-8 text-center">暂无数据</div>
               <div v-else class="space-y-4">
                 <div v-for="c in dashboard.categories" :key="c.name">
                   <div class="flex justify-between text-xs mb-1"><span class="text-slate-600">{{ c.name }}</span><span class="font-semibold num">¥{{ money(c.amount) }}</span></div>
@@ -276,10 +262,10 @@
 
           <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
             <div class="px-5 py-4 flex items-center justify-between border-b border-slate-100">
-              <div><div class="text-sm font-bold text-slate-900">逾期清单</div><div class="text-[11px] text-slate-400">按逾期天数倒序，优先处理</div></div>
+              <div class="text-sm font-bold text-slate-900">逾期清单</div>
               <button @click="go('receivables')" class="text-xs text-slate-500 hover:text-slate-900">全部应收</button>
             </div>
-            <div v-if="!dashboard?.overdue.length" class="px-5 py-10 text-center text-sm text-slate-400">没有逾期，很好</div>
+            <div v-if="!dashboard?.overdue.length" class="px-5 py-10 text-center text-sm text-slate-400">暂无逾期</div>
             <div v-else class="overflow-x-auto">
               <table class="w-full text-sm">
                 <thead class="bg-slate-50 text-[11px] text-slate-500">
@@ -305,7 +291,6 @@
             <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
               <div>
                 <div class="text-sm font-bold text-slate-900">采集收件箱</div>
-                <div class="text-[11px] text-slate-400">上传即完成，AI 在后台识别，确认时只需要选公司</div>
               </div>
               <div class="flex items-center gap-2">
                 <select v-model.number="uploadCompanyId" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
@@ -318,8 +303,7 @@
             <div class="border-2 border-dashed border-slate-200 rounded-2xl p-6 lg:p-8 text-center bg-slate-50/60 hover:bg-slate-50 transition"
               :class="{'drag-over': dragging}" @click="openQuickUpload">
               <div class="w-12 h-12 rounded-2xl bg-white border border-slate-200 text-blue-600 flex items-center justify-center mx-auto mb-3"><app-icon name="cloud-upload" class="w-5 h-5"></app-icon></div>
-              <div class="text-sm font-semibold text-slate-700">拖入截图、发票、工资条，或按 Ctrl+V 粘贴</div>
-              <div class="text-[11px] text-slate-400 mt-1">支持一次多张、PDF、ZIP；图片会由 AI 识别金额和日期</div>
+              <div class="text-sm font-semibold text-slate-700">拖入或粘贴发票、截图、PDF、ZIP</div>
             </div>
           </div>
 
@@ -341,7 +325,7 @@
 
             <div v-if="!drafts.length" class="py-16 text-center">
               <div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3"><app-icon name="images" class="w-5 h-5"></app-icon></div>
-              <div class="text-sm text-slate-500">收件箱是空的，上传一张截图试试</div>
+              <div class="text-sm text-slate-500">暂无草稿</div>
             </div>
 
             <div v-else class="p-4 grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -464,7 +448,7 @@
                       <button @click="deleteReceivable(r)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">删除</button>
                     </td>
                   </tr>
-                  <tr v-if="!receivables.length"><td colspan="10" class="py-12 text-center text-sm text-slate-400">没有符合条件的应收</td></tr>
+                  <tr v-if="!receivables.length"><td colspan="10" class="py-12 text-center text-sm text-slate-400">暂无数据</td></tr>
                 </tbody>
               </table>
             </div>
@@ -474,10 +458,10 @@
         <!-- 批次 -->
         <section v-if="view==='batches'" class="space-y-4">
           <div class="flex items-center justify-between">
-            <div><div class="text-sm font-bold text-slate-900">提交批次</div><div class="text-[11px] text-slate-400">按公司归集、提交、跟踪到账</div></div>
+            <div class="text-sm font-bold text-slate-900">提交批次</div>
             <button @click="go('receivables')" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="list-check" class="mr-1.5"></app-icon>去台账勾选</button>
           </div>
-          <div v-if="!batches.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">还没有批次，去应收台账勾选几笔归集</div>
+          <div v-if="!batches.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">暂无批次</div>
           <div v-else class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
             <div v-for="b in batches" :key="b.id" class="bg-white border border-slate-200 rounded-2xl p-4 hover:border-slate-300 transition">
               <div class="flex items-start justify-between gap-2">
@@ -510,7 +494,7 @@
         <!-- 到账 -->
         <section v-if="view==='payments'" class="space-y-4">
           <div class="flex items-center justify-between">
-            <div><div class="text-sm font-bold text-slate-900">到账记录</div><div class="text-[11px] text-slate-400">公司实际打过来的每一笔钱</div></div>
+            <div class="text-sm font-bold text-slate-900">到账记录</div>
             <button @click="openPaymentModal()" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="plus" class="mr-1.5"></app-icon>记录到账</button>
           </div>
           <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -528,7 +512,7 @@
                   <td class="px-3 py-3 text-xs text-slate-500 max-w-[220px] truncate">{{ p.note || '-' }}</td>
                   <td class="px-5 py-3 text-right"><button @click="deletePayment(p)" class="text-xs text-slate-400 hover:text-rose-600">删除</button></td>
                 </tr>
-                <tr v-if="!payments.length"><td colspan="7" class="py-12 text-center text-sm text-slate-400">还没有到账记录</td></tr>
+                <tr v-if="!payments.length"><td colspan="7" class="py-12 text-center text-sm text-slate-400">暂无记录</td></tr>
               </tbody>
             </table>
           </div>
@@ -539,7 +523,6 @@
           <div class="grid lg:grid-cols-2 gap-4">
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
               <div class="text-sm font-bold text-slate-900">导出当前台账</div>
-              <div class="text-[11px] text-slate-400 mt-1">按筛选条件导出 Excel，财务对账和年度汇总都能用</div>
               <div class="grid grid-cols-2 gap-2 mt-4">
                 <select v-model.number="exportFilters.company_id" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">全部公司</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select>
                 <select v-model="exportFilters.kind" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部类型</option><option value="reimbursement">报销</option><option value="payroll">薪资</option><option value="other">其他</option></select>
@@ -551,20 +534,17 @@
 
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
               <div class="text-sm font-bold text-slate-900">财务报销包</div>
-              <div class="text-[11px] text-slate-400 mt-1">封面、Excel、合并 PDF、原件和截图，一次打包</div>
-              <div class="mt-4 text-xs text-slate-500">先在应收台账勾选事项，或选择一个批次。</div>
               <div class="mt-3 flex gap-2">
                 <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="flex-1 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">导出已选 {{ selectedReceivableIds.length }} 笔</button>
                 <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-4 py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">合并 PDF</button>
               </div>
               <button @click="exportSelectedAttachments" :disabled="!selectedReceivableIds.length" class="mt-2 w-full py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">只导出原始截图与发票（ZIP）</button>
-              <div class="mt-2 text-[10px] text-slate-400">导出前会检查缺附件、金额为空、发票号重复。已到账的也可以导出留档。</div>
             </div>
           </div>
 
           <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
             <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <div><div class="text-sm font-bold text-slate-900">导出记录</div><div class="text-[11px] text-slate-400">每次财务包都留快照，可追溯、可重新下载</div></div>
+              <div class="text-sm font-bold text-slate-900">导出记录</div>
               <button @click="loadExportRecords" class="text-xs text-slate-500 hover:text-slate-900">刷新</button>
             </div>
             <div class="overflow-x-auto">
@@ -578,7 +558,7 @@
                     <td class="px-3 py-3 text-right text-xs text-slate-400">{{ fileSize(r.file_size) }}</td>
                     <td class="px-5 py-3 text-right"><button @click="downloadExportRecord(r)" class="text-xs text-blue-600 font-medium">下载</button></td>
                   </tr>
-                  <tr v-if="!exportRecords.length"><td colspan="5" class="py-10 text-center text-sm text-slate-400">还没有导出记录</td></tr>
+                  <tr v-if="!exportRecords.length"><td colspan="5" class="py-10 text-center text-sm text-slate-400">暂无记录</td></tr>
                 </tbody>
               </table>
             </div>
@@ -593,7 +573,7 @@
 
           <div v-if="settingTab==='companies'" class="bg-white border border-slate-200 rounded-2xl p-5">
             <div class="flex items-center justify-between mb-4">
-              <div><div class="text-sm font-bold text-slate-900">公司主体</div><div class="text-[11px] text-slate-400">发票抬头和账期用于自动计算预计到账日</div></div>
+              <div class="text-sm font-bold text-slate-900">公司主体</div>
               <button @click="openCompanyModal()" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">新建公司</button>
             </div>
             <div class="overflow-x-auto">
@@ -608,7 +588,7 @@
                     <td class="px-3 py-3 text-center text-xs">{{ c.payment_days }} 天</td>
                     <td class="px-3 py-3 text-right"><button @click="openCompanyModal(c)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">编辑</button><button @click="deleteCompany(c)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">停用</button></td>
                   </tr>
-                  <tr v-if="!companies.length"><td colspan="6" class="py-10 text-center text-sm text-slate-400">还没有公司，先新建一个</td></tr>
+                  <tr v-if="!companies.length"><td colspan="6" class="py-10 text-center text-sm text-slate-400">暂无公司</td></tr>
                 </tbody>
               </table>
             </div>
@@ -616,7 +596,7 @@
 
           <div v-if="settingTab==='categories'" class="bg-white border border-slate-200 rounded-2xl p-5">
             <div class="flex items-center justify-between mb-4">
-              <div><div class="text-sm font-bold text-slate-900">应收类别</div><div class="text-[11px] text-slate-400">报销类和薪资类分开统计</div></div>
+              <div class="text-sm font-bold text-slate-900">应收类别</div>
               <button @click="openCategoryModal()" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">新建类别</button>
             </div>
             <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -629,7 +609,7 @@
 
           <div v-if="settingTab==='ai'" class="bg-white border border-slate-200 rounded-2xl p-5">
             <div class="flex items-center justify-between mb-4">
-              <div><div class="text-sm font-bold text-slate-900">AI 视觉识别</div><div class="text-[11px] text-slate-400"> OpenAI 兼容接口，截图和发票由模型提取金额、日期、商户</div></div>
+              <div class="text-sm font-bold text-slate-900">AI 视觉识别</div>
               <label class="flex items-center gap-2 text-xs"><input type="checkbox" v-model="aiForm.enabled" class="rounded border-slate-300">启用</label>
             </div>
             <div class="grid md:grid-cols-2 gap-3">
@@ -641,14 +621,13 @@
             <div v-if="modelOptions.length" class="mt-2 flex flex-wrap gap-1.5">
               <button v-for="m in modelOptions.slice(0,20)" :key="m" @click="aiForm.model_name=m" class="text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">{{ m }}</button>
             </div>
-            <div class="mt-3"><label class="block text-[11px] text-slate-500 mb-1">识别提示词（可留空使用默认）</label><textarea v-model="aiForm.system_prompt" rows="5" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono"></textarea></div>
+            <div class="mt-3"><label class="block text-[11px] text-slate-500 mb-1">识别提示词</label><textarea v-model="aiForm.system_prompt" rows="5" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono"></textarea></div>
             <button @click="saveAI" class="mt-3 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">保存配置</button>
-            <div class="mt-3 text-[10px] text-slate-400">截图会发送到你配置的模型服务商。若不希望外发，关闭 AI 后仍可手动填写金额。</div>
           </div>
 
           <div v-if="settingTab==='users' && user.role==='admin'" class="bg-white border border-slate-200 rounded-2xl p-5">
             <div class="flex items-center justify-between mb-4">
-              <div><div class="text-sm font-bold text-slate-900">成员账号</div><div class="text-[11px] text-slate-400">管理员只能管理账号，不能查看成员账本</div></div>
+              <div class="text-sm font-bold text-slate-900">成员账号</div>
               <button @click="openUserModal()" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">新建成员</button>
             </div>
             <table class="w-full text-sm">
@@ -673,7 +652,7 @@
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 flex-none">{{ log.action }}</span>
                 <span class="text-xs text-slate-600">{{ log.summary }}</span>
               </div>
-              <div v-if="!auditLogs.length" class="py-10 text-center text-sm text-slate-400">暂无审计记录</div>
+              <div v-if="!auditLogs.length" class="py-10 text-center text-sm text-slate-400">暂无记录</div>
             </div>
           </div>
         </section>
@@ -753,7 +732,7 @@
             <div class="text-xs font-bold text-slate-700">附件</div>
             <label class="text-[11px] text-blue-600 font-medium cursor-pointer">上传附件<input type="file" multiple class="hidden" @change="uploadAttachments($event)"></label>
           </div>
-          <div v-if="!detail?.attachments.length" class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">这笔应收还没有附件，导出时会提示缺材料。</div>
+          <div v-if="!detail?.attachments.length" class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">暂无附件</div>
           <div v-else class="grid sm:grid-cols-2 gap-2">
             <div v-for="a in detail.attachments" :key="a.id" class="border border-slate-200 rounded-lg p-2 flex items-center gap-2">
               <div class="w-12 h-12 rounded bg-slate-100 overflow-hidden flex-none cursor-pointer" @click="openAttachment(a)">
@@ -787,7 +766,7 @@
       <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">归集为提交批次</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
       <div class="p-5 space-y-3">
         <div class="text-xs text-slate-500">已选 {{ selectedReceivableIds.length }} 笔，合计 <b class="text-slate-900">¥{{ money(selectedAmount) }}</b></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><div class="px-3 py-2 rounded-lg bg-slate-50 text-xs font-medium">{{ selectedCompanyName || '请在台账中选择同一家公司的应收' }}</div></div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><div class="px-3 py-2 rounded-lg bg-slate-50 text-xs font-medium">{{ selectedCompanyName || '-' }}</div></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">批次名称</label><input v-model="batchForm.title" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销"></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">归属月</label><input v-model="batchForm.period" type="month" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
       </div>
@@ -826,7 +805,7 @@
       <div class="text-[11px] text-slate-400 mt-1">{{ batchSubmitTarget?.title }}</div>
       <div class="mt-4 space-y-3">
         <div><label class="block text-[11px] text-slate-500 mb-1">提交日期</label><input v-model="batchSubmitForm.submitted_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">预计到账日（留空按公司账期自动算）</label><input v-model="batchSubmitForm.expected_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">预计到账日</label><input v-model="batchSubmitForm.expected_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
       </div>
       <div class="flex justify-end gap-2 mt-5"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="doSubmitBatch" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">确认提交</button></div>
     </div>
@@ -842,7 +821,7 @@
           <div><label class="block text-[11px] text-slate-500 mb-1">到账日期</label><input v-model="paymentForm.paid_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
         </div>
         <div>
-          <div class="flex items-center justify-between mb-1"><label class="text-[11px] text-slate-500">选择这笔到账结清的应收</label><button v-if="paymentCandidates.length" @click="toggleAllPaymentCandidates" class="text-[10px] text-blue-600">全选/取消</button></div>
+          <div class="flex items-center justify-between mb-1"><label class="text-[11px] text-slate-500">选择应收</label><button v-if="paymentCandidates.length" @click="toggleAllPaymentCandidates" class="text-[10px] text-blue-600">全选/取消</button></div>
           <div class="border border-slate-200 rounded-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
             <label v-for="r in paymentCandidates" :key="r.id" class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50">
               <input type="checkbox" :value="r.id" v-model="paymentForm.receivable_ids" class="rounded border-slate-300">
@@ -853,7 +832,7 @@
           </div>
         </div>
         <div class="bg-slate-50 rounded-xl px-4 py-3 flex items-center justify-between">
-          <span class="text-xs text-slate-500">到账金额（必须与选中合计一致）</span>
+          <span class="text-xs text-slate-500">到账金额</span>
           <span class="text-xl font-bold num">¥{{ money(paymentTotal) }}</span>
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="paymentForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销一批到账"></div>
@@ -988,16 +967,15 @@ const app = createApp({
       { key: 'settings', label: '设置', icon: 'settings' },
     ];
     const titles = {
-      dashboard: ['总览', '公司欠我的钱、逾期和回款进度'],
-      inbox: ['收件箱', '上传即完成，AI 识别后确认入账'],
-      receivables: ['应收台账', '所有公司应付给我的钱'],
-      batches: ['提交批次', '按公司归集、提交和跟踪'],
-      payments: ['到账记录', '每笔实际到账与核销明细'],
-      export: ['导出中心', 'Excel、合并 PDF 和财务报销包'],
-      settings: ['设置', '公司、类别、AI、成员与审计'],
+      dashboard: '总览',
+      inbox: '收件箱',
+      receivables: '应收台账',
+      batches: '提交批次',
+      payments: '到账记录',
+      export: '导出中心',
+      settings: '设置',
     };
-    const currentTitle = computed(() => (titles[view.value] || ['', ''])[0]);
-    const currentSubtitle = computed(() => (titles[view.value] || ['', ''])[1]);
+    const currentTitle = computed(() => titles[view.value] || '');
 
     const companies = ref([]);
     const categories = ref([]);
@@ -1299,7 +1277,7 @@ const app = createApp({
       if (companyForUpload) form.append('company_id', companyForUpload);
       try {
         const result = await api('/api/capture', { method: 'POST', body: form });
-        notify(`已上传 ${result.count} 个文件，AI 正在识别`);
+        notify(`已上传 ${result.count} 个文件`);
         await loadDrafts();
         await loadDashboard();
         go('inbox');
@@ -1450,7 +1428,7 @@ const app = createApp({
         note: item.note,
         status: 'pending',
       });
-      notify('已复制上月信息，确认日期和金额后保存');
+      notify('已复制');
     }
 
     const detail = ref(null);
@@ -1532,7 +1510,7 @@ const app = createApp({
       } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function payBatch(batch) {
-      if (!(await askConfirm('记录到账', `确认 ${batch.company_name || batch.company_name || ''} 的这笔款项已全额到账？将结清 ${batch.unpaid_count || batch.items?.length || 0} 笔。`))) return;
+      if (!(await askConfirm('记录到账', `确认这笔款项已全额到账？`))) return;
       try {
         await api(`/api/batches/${batch.id}/payment`, { method: 'POST', body: { paid_on: new Date().toISOString().slice(0, 10), note: '批次到账' } });
         notify('已记录到账');
@@ -1743,7 +1721,7 @@ const app = createApp({
 
     return {
       token, user, authMode, authForm, authError, authLoading,
-      view, settingTab, settingTabs, visibleSettingTabs, navItems, currentTitle, currentSubtitle,
+      view, settingTab, settingTabs, visibleSettingTabs, navItems, currentTitle,
       companies, activeCompanies, categories, dashboard, receivables, receivableTotal, receivableSummary,
       batches, payments, drafts, exportRecords, auditLogs, users,
       selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput,
