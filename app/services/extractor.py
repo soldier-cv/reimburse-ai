@@ -1,8 +1,24 @@
-import re
-import fnmatch
-from pypdf import PdfReader
+"""PDF 文本层本地解析。
 
+只处理标签稳定、能精确定位金额的版式（增值税/全电发票、铁路电子客票、通行费汇总单）。
+其它版式（支付截图导出、银行回单、行程单、各类小票）一律返回空，交给 AI 识别。
+"""
+
+import fnmatch
 import json
+import re
+
+try:
+    import pymupdf as fitz  # PyMuPDF
+except Exception:  # pragma: no cover
+    try:
+        import fitz
+    except Exception:
+        fitz = None
+
+MAX_TEXT_PAGES = 5
+LOCAL_CONFIDENCE = 0.99
+
 
 def is_valid_file_by_pattern(filename: str, patterns_str: str) -> bool:
     """
@@ -12,7 +28,7 @@ def is_valid_file_by_pattern(filename: str, patterns_str: str) -> bool:
     """
     if not patterns_str or not str(patterns_str).strip():
         return True
-    
+
     filename_lower = filename.lower()
     patterns = []
     text = str(patterns_str).strip()
@@ -33,188 +49,239 @@ def is_valid_file_by_pattern(filename: str, patterns_str: str) -> bool:
             return True
     return False
 
-def extract_pdf_text(pdf_path: str) -> str:
-    """提取 PDF 文件的全部纯文本"""
+
+def extract_pdf_text(pdf_path: str, max_pages: int = MAX_TEXT_PAGES) -> str:
+    """按版面坐标排序提取文本层，左右并排的栏目会留在同一行并以多个空格分隔。"""
+    if fitz is None:
+        return ""
     try:
-        reader = PdfReader(pdf_path)
-        all_text = []
-        for page in reader.pages:
-            t = page.extract_text()
-            if t:
-                all_text.append(t)
-        return "\n".join(all_text)
-    except Exception as e:
+        with fitz.open(pdf_path) as document:
+            parts = []
+            for index in range(min(len(document), max_pages)):
+                text = document.load_page(index).get_text("text", sort=True)
+                if text and text.strip():
+                    parts.append(text)
+            return "\n".join(parts)
+    except Exception:
         return ""
 
+
+def has_usable_text(text: str) -> bool:
+    """文本层是否足以直接交给模型（扫描件通常没有文本层或只有零星字符）。"""
+    compact = re.sub(r"\s+", "", text or "")
+    return len(compact) >= 30 and bool(re.search(r"\d", compact))
+
+
 def parse_clean_amount(val_str: str) -> float:
-    """安全清洗金额字符串（去除货币符号、千分位逗号与空格）并转换为浮点数"""
+    """清洗金额字符串（去除货币符号、千分位逗号与空格）并转换为浮点数"""
     if not val_str:
         return 0.0
-    cleaned = re.sub(r'[^\d\.]', '', str(val_str).replace(',', '').strip())
+    cleaned = re.sub(r"[^\d.]", "", str(val_str).replace(",", "").strip())
     try:
         return float(cleaned)
     except Exception:
         return 0.0
 
-def extract_toll_summary(pdf_path: str, filename: str) -> dict:
-    """
-    提取收费公路通行费电子票据汇总单
-    汇总单通常包含：车牌号、汇总单号、汇总开票起止日期、行程数量及交易金额
-    支持识别是否为“按行程索引”附带清单，并生成确定性单号以保障精确防重
-    """
-    txt = extract_pdf_text(pdf_path)
-    res = {
+
+AMOUNT = r"([\d,]+(?:\.\d{1,2})?)"
+NAME_STOP = r"(?=\s{2,}|\s*名\s*称\s*[：:]|\s*(?:统一社会信用代码|纳税人识别号)|\s*$)"
+TAX_ID_PATTERN = (
+    r"(?:统一社会信用代码\s*/\s*纳税人识别号|纳税人识别号|统一社会信用代码)\s*[：:]\s*([0-9A-Z]{15,20})"
+)
+
+
+def _search(pattern: str, text: str, flags: int = 0):
+    return re.search(pattern, text, flags)
+
+
+def _first(pattern: str, text: str, flags: int = 0) -> str:
+    match = re.search(pattern, text, flags)
+    return match.group(1).strip() if match else ""
+
+
+def _parties(text: str) -> tuple[list[str], list[str]]:
+    """名称与税号按出现顺序排列：购买方在前，销售方在后（竖排与左右并排两种版式都成立）。"""
+    names = [
+        item.strip(" ：:")
+        for item in re.findall(r"名\s*称\s*[：:]\s*(.+?)" + NAME_STOP, text, re.M)
+        if item.strip(" ：:")
+    ]
+    tax_ids = re.findall(TAX_ID_PATTERN, text)
+    return names, tax_ids
+
+
+def _issue_date(text: str) -> str:
+    raw = _first(
+        r"开\s*票\s*日\s*期\s*[：:]?\s*(\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日|\d{4}-\d{1,2}-\d{1,2})",
+        text,
+    )
+    return raw.replace(" ", "")
+
+
+def _invoice_no(text: str) -> str:
+    return _first(r"发\s*票\s*号\s*码\s*[：:]?\s*(\d{8,20})", text)
+
+
+def _base(template: str, doc_type: str, subtype: str) -> dict:
+    return {
+        "doc_type": doc_type,
+        "doc_subtype": subtype,
+        "template": template,
+        "amount": None,
+        "date": "",
+        "merchant": "",
+        "item": "",
+        "title": "",
+        "invoice_code": "",
         "invoice_no": "",
-        "invoice_date": "",
-        "amount": 0.0,
-        "net_amount": 0.0,
-        "tax_amount": 0.0,
-        "seller": "全国收费公路通行费",
         "buyer": "",
-        "item_name": "通行费电子票据汇总",
-        "quantity": 0.0,
-        "unit_price": 0.0,
-        "method": "native_pdf",
-        "is_trip_detail": False
-    }
-
-    if not txt:
-        return res
-
-    # 标记是否为（按行程索引）清单
-    if "（按行程索引）" in txt or "(行程)" in filename or "按行程索引" in filename:
-        res["is_trip_detail"] = True
-
-    # 交易金额（兼容千分位逗号，如 ¥1,005.60）
-    amt_m = re.search(r'交易金额\s*[¥￥]?\s*([\d,]+\.?\d*)', txt)
-    if amt_m:
-        res["amount"] = parse_clean_amount(amt_m.group(1))
-    else:
-        # fallback 查找 （小写）¥818.63
-        tot_m = re.search(r'（小写）[¥￥]?\s*([\d,]+\.?\d*)', txt)
-        if tot_m:
-            res["amount"] = parse_clean_amount(tot_m.group(1))
-
-    # 开票申请日期
-    d_m = re.search(r'开票申请日期[：:\s]*([\d\-]+)', txt)
-    if d_m:
-        res["invoice_date"] = d_m.group(1).strip()
-
-    # 购买方
-    b_m = re.search(r'购买方名称\s*([^\n\r\s]+)', txt)
-    if b_m:
-        res["buyer"] = b_m.group(1).strip()
-
-    # 税额（兼容千分位逗号）
-    tax_m = re.search(r'税额[^\n\r]*?[¥￥]?\s*([\d,]+\.?\d*)', txt)
-    if tax_m:
-        res["tax_amount"] = parse_clean_amount(tax_m.group(1))
-
-    # 行程数量
-    trip_m = re.search(r'行程数量\s*(\d+)', txt) or re.search(r'共(\d+)段行程', txt)
-    if trip_m:
-        res["quantity"] = float(trip_m.group(1))
-
-    # 票据数量
-    ticket_m = re.search(r'票据数量\s*(\d+)', txt)
-    ticket_cnt = int(ticket_m.group(1)) if ticket_m else 0
-
-    # 车牌
-    plate_m = re.search(r'车牌号码\s*([^\s]+)', txt)
-    plate = plate_m.group(1).strip() if plate_m else ""
-    res["plate"] = plate
-    trip_cnt = int(res["quantity"])
-    res["item_name"] = f"通行费 (车牌:{plate}, 行程:{trip_cnt}段, 票据:{ticket_cnt}张)"
-
-    # 提取汇总单号，若无则使用稳定确定性特征单号（确保票据单与行程单具有完全相同的唯一编号，彻底防止重复录入）
-    hz_m = re.search(r'汇总单号[：:\s]*([A-Za-z0-9]+)', txt)
-    if hz_m and hz_m.group(1).strip():
-        res["invoice_no"] = hz_m.group(1).strip()
-    elif plate and res["invoice_date"] and res["amount"] > 0:
-        date_clean = res["invoice_date"].replace("-", "")
-        amt_clean = int(round(res["amount"] * 100))
-        res["invoice_no"] = f"TOLL_{plate}_{date_clean}_{amt_clean}"
-    elif plate and res["invoice_date"]:
-        date_clean = res["invoice_date"].replace("-", "")
-        res["invoice_no"] = f"TOLL_{plate}_{date_clean}"
-
-    return res
-
-def extract_standard_invoice(pdf_path: str, filename: str) -> dict:
-    """
-    提取增值税普通发票 / 电子发票 / 成品油发票（支持千分位金额与规范清洗）
-    """
-    txt = extract_pdf_text(pdf_path)
-    res = {
-        "invoice_no": "",
-        "invoice_date": "",
-        "amount": 0.0,
-        "net_amount": 0.0,
-        "tax_amount": 0.0,
+        "buyer_tax_id": "",
         "seller": "",
-        "buyer": "",
-        "item_name": "燃油/商品服务",
-        "quantity": 0.0,
-        "unit_price": 0.0,
-        "method": "native_pdf"
+        "seller_tax_id": "",
+        "net_amount": None,
+        "tax_amount": None,
+        "confidence": {"amount": LOCAL_CONFIDENCE},
+        "evidence": "",
+        "method": "native_pdf",
     }
 
-    # 1. 尝试从文件名直接提取发票号与金额（很多发票文件名自带）
-    # 如: 发票_26327000000801686170_328.61元.pdf 或 dzfp_26327000001041284306_...
-    fn_no_m = re.search(r'(\d{20}|\d{18}|\d{12}|\d{8})', filename)
-    if fn_no_m:
-        res["invoice_no"] = fn_no_m.group(1)
-    
-    fn_amt_m = re.search(r'_([\d,]+\.?\d*)元', filename)
-    if fn_amt_m:
-        res["amount"] = parse_clean_amount(fn_amt_m.group(1))
 
-    if not txt:
-        return res
+def parse_toll_summary(text: str, filename: str = "") -> dict:
+    """收费公路通行费电子票据汇总单。"""
+    if "通行费" not in text or not ("汇总单" in text or "交易金额" in text):
+        return {}
+    match = _search(r"交\s*易\s*金\s*额\s*[：:]?\s*[¥￥]?\s*" + AMOUNT, text)
+    if not match:
+        match = _search(r"[（(]\s*小\s*写\s*[）)]\s*[¥￥]?\s*" + AMOUNT, text)
+    if not match:
+        return {}
+    amount = parse_clean_amount(match.group(1))
+    if amount <= 0:
+        return {}
 
-    # 2. 从文本提取发票号码
-    fp_m = re.search(r'发票号码[：:\s]*(\d+)', txt)
-    if fp_m:
-        res["invoice_no"] = fp_m.group(1)
+    result = _base("toll_summary", "invoice", "通行费电子票据汇总单")
+    result["amount"] = amount
+    result["evidence"] = match.group(0).strip()
+    result["date"] = _first(r"开票申请日期\s*[：:]?\s*([\d\-]+)", text)
+    result["buyer"] = _first(r"购买方名称\s*[：:]?\s*(\S+)", text)
+    tax = _first(r"税\s*额[^\n\r]*?[¥￥]\s*" + AMOUNT, text)
+    result["tax_amount"] = parse_clean_amount(tax) if tax else None
 
-    # 3. 开票日期
-    date_m = re.search(r'开票日期[：:\s]*(\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日|\d{4}-\d{2}-\d{2})', txt)
-    if date_m:
-        res["invoice_date"] = date_m.group(1).replace(" ", "")
+    trips = _first(r"行程数量\s*[：:]?\s*(\d+)", text) or _first(r"共(\d+)段行程", text)
+    tickets = _first(r"票据数量\s*[：:]?\s*(\d+)", text)
+    plate = _first(r"车牌号码\s*[：:]?\s*(\S+)", text)
+    result["plate"] = plate
+    result["is_trip_detail"] = "按行程索引" in text or "(行程)" in filename or "（行程）" in filename
+    result["seller"] = "全国收费公路通行费"
+    result["merchant"] = result["seller"]
+    result["item"] = f"通行费 (车牌:{plate}, 行程:{trips or 0}段, 票据:{tickets or 0}张)"
+    result["title"] = "通行费"
 
-    # 4. 价税合计（小写）——支持千分位逗号
-    total_m = re.search(r'（小写）[¥￥]?\s*([\d,]+\.?\d*)', txt)
-    if not total_m:
-        total_m = re.search(r'\(小写\)[¥￥]?\s*([\d,]+\.?\d*)', txt)
-    if not total_m:
-        total_m = re.search(r'小写[）\)]\s*[¥￥]?\s*([\d,]+\.?\d*)', txt)
-    if total_m:
-        res["amount"] = parse_clean_amount(total_m.group(1))
+    summary_no = _first(r"汇总单号\s*[：:]?\s*([A-Za-z0-9]+)", text)
+    if summary_no:
+        result["invoice_no"] = summary_no
+    elif plate and result["date"]:
+        # 票据单与行程单生成相同的确定性编号，用于防重
+        result["invoice_no"] = f"TOLL_{plate}_{result['date'].replace('-', '')}_{int(round(amount * 100))}"
+    return result
 
-    # 5. 不含税金额与税额——支持千分位逗号
-    sum_m = re.search(r'合\s*计\s*[¥￥]?\s*([\d,]+\.?\d*)\s*[¥￥]?\s*([\d,]+\.?\d*)', txt)
-    if sum_m:
-        res["net_amount"] = parse_clean_amount(sum_m.group(1))
-        res["tax_amount"] = parse_clean_amount(sum_m.group(2))
 
-    # 6. 购买方与销售方
-    buyer_m = re.search(r'购\s*买\s*方[\s\S]*?名\s*称[：:\s]*([^\n\r]+)', txt)
-    if buyer_m:
-        res["buyer"] = buyer_m.group(1).strip()
+def parse_railway_ticket(text: str) -> dict:
+    """电子发票（铁路电子客票）。"""
+    if "铁路电子客票" not in text:
+        return {}
+    match = _search(r"票\s*价\s*[：:]?\s*[¥￥]\s*" + AMOUNT, text)
+    if not match:
+        return {}
+    amount = parse_clean_amount(match.group(1))
+    if amount <= 0:
+        return {}
 
-    seller_m = re.search(r'销\s*售\s*方[\s\S]*?名\s*称[：:\s]*([^\n\r]+)', txt)
-    if seller_m:
-        res["seller"] = seller_m.group(1).strip()
+    result = _base("railway_ticket", "ticket", "铁路电子客票")
+    result["amount"] = amount
+    result["evidence"] = match.group(0).strip()
+    travel = _first(r"(\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日)\s*\d{1,2}:\d{2}\s*开", text)
+    result["date"] = travel.replace(" ", "") or _issue_date(text)
+    result["invoice_no"] = _invoice_no(text)
+    result["buyer"] = _first(r"购买方名称\s*[：:]\s*(\S+)", text)
+    result["buyer_tax_id"] = _first(r"统一社会信用代码\s*[：:]\s*([0-9A-Z]{15,20})", text)
+    result["seller"] = "中国国家铁路集团有限公司"
+    result["merchant"] = "铁路客票"
+    result["item"] = "火车票"
+    result["title"] = "火车票"
+    return result
 
-    # 7. 货物名称与规格 (如 *汽油*92号车用汽油)
-    lines = [l.strip() for l in txt.split("\n") if l.strip()]
-    for l in lines:
-        if "*" in l:
-            res["item_name"] = l
-            nums = re.findall(r'(\d+\.\d+)', l)
-            if len(nums) >= 2:
-                res["quantity"] = parse_clean_amount(nums[0])
-                res["unit_price"] = parse_clean_amount(nums[1])
-            break
 
-    return res
+def parse_vat_invoice(text: str) -> dict:
+    """增值税发票与全电发票（含价税合计小写）。"""
+    match = _search(r"[（(]\s*小\s*写\s*[）)]\s*[¥￥]?\s*" + AMOUNT, text)
+    if not match:
+        return {}
+    amount = parse_clean_amount(match.group(1))
+    if amount <= 0:
+        return {}
+
+    subtype = _first(
+        r"(电子发票\s*[（(][^）)\n]{2,16}[）)]|增值税电子(?:普通|专用)发票|增值税(?:普通|专用)发票)",
+        text,
+    )
+    result = _base("vat_invoice", "invoice", re.sub(r"\s+", "", subtype) or "发票")
+    result["amount"] = amount
+    result["evidence"] = match.group(0).strip()
+    result["date"] = _issue_date(text)
+    result["invoice_no"] = _invoice_no(text)
+    result["invoice_code"] = _first(r"发\s*票\s*代\s*码\s*[：:]?\s*(\d{10,12})", text)
+
+    names, tax_ids = _parties(text)
+    if names:
+        result["buyer"] = names[0]
+    if len(names) > 1:
+        result["seller"] = names[1]
+    if tax_ids:
+        result["buyer_tax_id"] = tax_ids[0]
+    if len(tax_ids) > 1:
+        result["seller_tax_id"] = tax_ids[1]
+    result["merchant"] = result["seller"]
+
+    totals = _search(r"合\s*计\s*[¥￥]?\s*([\d,]+\.\d{2})\s+[¥￥]?\s*([\d,]+\.\d{2})", text)
+    if totals:
+        result["net_amount"] = parse_clean_amount(totals.group(1))
+        result["tax_amount"] = parse_clean_amount(totals.group(2))
+
+    item = _search(r"\*[^*\s]{1,20}\*[^\s]*", text)
+    if item:
+        result["item"] = item.group(0)
+    result["title"] = result["item"] or result["seller"] or "发票"
+    return result
+
+
+TEMPLATES = (parse_toll_summary, parse_railway_ticket, parse_vat_invoice)
+
+
+def parse_pdf_text(text: str, filename: str = "") -> dict:
+    """按模板顺序匹配；都不命中返回空字典。"""
+    if not text:
+        return {}
+    for template in TEMPLATES:
+        try:
+            result = template(text, filename) if template is parse_toll_summary else template(text)
+        except Exception:
+            result = {}
+        if result and result.get("amount"):
+            return result
+    return {}
+
+
+def filename_hints(filename: str) -> dict:
+    """文件名里的金额与 20 位全电发票号，只作为低置信候选。"""
+    name = filename or ""
+    hints = {}
+    amount = re.search(r"[_\-\s]([\d,]+\.\d{1,2})元", name)
+    if amount:
+        value = parse_clean_amount(amount.group(1))
+        if value > 0:
+            hints["amount"] = value
+    number = re.search(r"(?<!\d)(\d{20})(?!\d)", name)
+    if number:
+        hints["invoice_no"] = number.group(1)
+    return hints

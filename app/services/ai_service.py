@@ -1,5 +1,6 @@
-"""多模态视觉识别：把发票、支付截图、工资条、聊天记录转成结构化草稿。"""
+"""视觉与文本识别：把发票、客票、小票、支付截图、订单、银行回单、工资条、聊天记录转成结构化草稿。"""
 
+import asyncio
 import base64
 import io
 import json
@@ -31,21 +32,38 @@ except Exception:  # pragma: no cover
         fitz = None
 
 
-DEFAULT_SYSTEM_PROMPT = """你是个人应收台账的票据识别引擎。请从图片或 PDF 中提取财务信息，并且只输出一个标准 JSON 对象，不要输出 markdown、解释或多余文字。
+DOC_TYPES = ("invoice", "ticket", "receipt", "payment", "order", "bank", "salary", "chat", "other")
+
+DEFAULT_SYSTEM_PROMPT = """你是个人应收台账的凭证识别引擎。输入可能是各种样式的单据图片、截图或 PDF 文本，不一定是发票。只输出一个 JSON 对象，不要输出 markdown、解释或多余文字。
+
+先判断单据类型 doc_type（只能取下列值之一），再按该类型的口径取金额：
+- invoice：各类发票。增值税发票、全电发票（电子发票（普通发票）/（增值税专用发票））、定额发票、机打卷票、通行费电子票据、出租车票。金额取价税合计（小写）；定额发票取面额；出租车票取金额栏。
+- ticket：交通客票与行程单。铁路电子客票取票价；航空电子客票行程单取合计（票价+民航发展基金+燃油附加费）；网约车/滴滴行程单取合计金额。
+- receipt：小票、收据、POS 签购单、酒店水单、医院收费票据。取实收/合计/应付金额，不取找零、积分、会员价差。
+- payment：微信、支付宝、云闪付、银行 App 的支付成功页或账单详情。取实付金额，不取原价、优惠、红包、余额；截图中常带负号，金额输出正数。
+- order：外卖、电商、酒店、机票等平台的订单详情截图。取实付款，不取商品原价合计。
+- bank：银行转账回单、电子回单、交易流水。取交易金额，payer 填付款方户名。
+- salary：工资条、薪资通知、代发工资到账短信。amount 取实发金额，gross_amount 取应发金额，payer 填发薪单位。
+- chat：聊天记录。只取明确约定要报销或支付的金额，不确定时 amount 为 null。
+- other：以上都不是。
 
 输出字段：
 {
-  "doc_type": "invoice | payment | salary | chat | other",
+  "doc_type": "invoice",
+  "doc_subtype": "具体样式，如 全电发票、微信支付账单详情、滴滴行程单、酒店水单",
   "amount": 128.00,
-  "amount_candidates": [128.00, 1280.00],
-  "date": "2026-11-03",
+  "amount_candidates": [128.00, 150.00],
+  "date": "YYYY-MM-DD",
   "merchant": "收款方或商户名称",
   "item": "费用项目或商品服务名称",
-  "title": "一句话摘要",
-  "invoice_code": "发票代码，没有则为空字符串",
-  "invoice_no": "发票号码，没有则为空字符串",
-  "buyer": "发票购买方名称",
+  "title": "不超过 20 字的摘要，如 滴滴打车 机场-公司",
+  "invoice_code": "仅发票填写发票代码，否则为空字符串",
+  "invoice_no": "仅发票或客票填写票号，否则为空字符串",
+  "order_no": "交易单号、订单号或流水号，没有为空字符串",
+  "buyer": "发票购买方名称（抬头）",
+  "buyer_tax_id": "购买方纳税人识别号",
   "seller": "销售方名称",
+  "payer": "付款方或发薪单位",
   "gross_amount": null,
   "net_amount": null,
   "confidence": {"amount": 0.0, "date": 0.0},
@@ -53,15 +71,12 @@ DEFAULT_SYSTEM_PROMPT = """你是个人应收台账的票据识别引擎。请�
   "entries": []
 }
 
-识别规则：
-1. 微信/支付宝支付截图：amount 取实付金额，不要取优惠前金额、余额或红包金额。
-2. 电子发票：amount 取价税合计；同时提取发票代码、号码、购买方、销售方。
-3. 工资条：amount 取实发金额，gross_amount 取应发金额。
-4. 聊天记录：只提取明确提到的金额；无法确定时 amount 为 null，置信度给低。
-5. 一张图里有多笔独立交易时，entries 输出每笔的对象数组，amount 为这些交易的合计。
-6. 看不清或不确定的字段必须填 null 或空字符串，禁止编造。
-7. 日期统一为 YYYY-MM-DD。
-8. 金额单位是人民币元，保留两位小数。"""
+规则：
+1. 日期取交易、开票或乘车日期，不取截图时间或打印时间；统一为 YYYY-MM-DD。
+2. 一份材料里有多笔独立交易（如账单列表、多张小票拼图）时，entries 逐笔输出 {"date","merchant","item","amount"}，amount 填合计。
+3. amount_candidates 列出画面中其它可能是费用金额的数字，便于人工核对，不要放余额、单价、税额。
+4. 看不清或不确定的字段填 null 或空字符串，禁止编造；confidence 如实给出 0 到 1 的把握。
+5. 金额单位人民币元，保留两位小数，一律输出正数。"""
 
 
 def _normalize_endpoint(base_url: str) -> str:
@@ -115,20 +130,26 @@ def _load_image_segments(file_path: str) -> list[bytes]:
 
 
 def _load_pdf_segments(file_path: str) -> list[bytes]:
-    if fitz is None:
+    if fitz is None or Image is None:
         return []
     segments = []
     try:
-        document = fitz.open(file_path)
-        for page_index in range(min(len(document), 3)):
-            page = document.load_page(page_index)
-            pixmap = page.get_pixmap(dpi=150, alpha=False)
-            image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
-            segments.append(_image_to_jpeg_bytes(image, max_edge=1800))
-        document.close()
+        with fitz.open(file_path) as document:
+            for page_index in range(min(len(document), 3)):
+                page = document.load_page(page_index)
+                pixmap = page.get_pixmap(dpi=150, alpha=False)
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                segments.append(_image_to_jpeg_bytes(image, max_edge=1800))
     except Exception:
         return segments
     return segments
+
+
+def _load_segments(file_path: str, mime_hint: str = "") -> list[bytes]:
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".pdf" or "pdf" in (mime_hint or ""):
+        return _load_pdf_segments(file_path)
+    return _load_image_segments(file_path)
 
 
 def _extract_json(content: str) -> dict:
@@ -148,18 +169,50 @@ def _extract_json(content: str) -> dict:
 
 
 def _coerce_amount(value) -> Optional[float]:
-    if value is None or value == "":
+    """金额统一为正数：支付截图常带负号表示支出。"""
+    if value is None or value == "" or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        return abs(float(value))
     text = str(value).replace(",", "").replace("￥", "").replace("¥", "")
-    text = re.sub(r"[^\d.\-]", "", text)
+    text = re.sub(r"[^\d.]", "", text)
     if not text:
         return None
     try:
-        return float(text)
+        return abs(float(text))
     except ValueError:
         return None
+
+
+def _coerce_confidence(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for key, raw in value.items():
+        try:
+            result[str(key)] = max(0.0, min(1.0, float(raw)))
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+TEXT_FIELDS = (
+    "date",
+    "merchant",
+    "item",
+    "title",
+    "invoice_code",
+    "invoice_no",
+    "order_no",
+    "buyer",
+    "buyer_tax_id",
+    "seller",
+    "seller_tax_id",
+    "payer",
+    "evidence",
+    "doc_type",
+    "doc_subtype",
+)
 
 
 def normalize_extraction(data: dict) -> dict:
@@ -190,28 +243,61 @@ def normalize_extraction(data: dict) -> dict:
             entries.append(normalized)
     result["entries"] = entries
 
-    for key in (
-        "date",
-        "merchant",
-        "item",
-        "title",
-        "invoice_code",
-        "invoice_no",
-        "buyer",
-        "seller",
-        "evidence",
-        "doc_type",
-    ):
+    for key in TEXT_FIELDS:
         value = data.get(key)
         result[key] = "" if value is None else str(value).strip()
 
-    if not result.get("doc_type"):
+    result["doc_type"] = result["doc_type"].lower()
+    if result["doc_type"] not in DOC_TYPES:
         result["doc_type"] = "other"
-    if result["doc_type"] not in ("invoice", "payment", "salary", "chat", "other"):
-        result["doc_type"] = "other"
-    if not isinstance(result.get("confidence"), dict):
-        result["confidence"] = {}
+    result["confidence"] = _coerce_confidence(data.get("confidence"))
     return result
+
+
+_clients: dict = {}
+
+
+def _http_client() -> httpx.AsyncClient:
+    """复用连接池；按事件循环区分，避免跨循环复用连接。"""
+    loop = asyncio.get_running_loop()
+    client = _clients.get(id(loop))
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=10.0))
+        _clients[id(loop)] = client
+    return client
+
+
+async def close_http_clients() -> None:
+    for client in list(_clients.values()):
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+    _clients.clear()
+
+
+async def _chat_json(base_url: str, api_key: str, model_name: str, system_prompt: str, user_content) -> dict:
+    payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 1500,
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        response = await _http_client().post(_normalize_endpoint(base_url), json=payload, headers=headers)
+        if response.status_code != 200:
+            return {"_error": f"AI 接口返回 HTTP {response.status_code}: {response.text[:300]}"}
+        body = response.json()
+        data = _extract_json(body["choices"][0]["message"]["content"])
+        if not data:
+            return {"_error": "AI 未返回可解析的 JSON"}
+        return normalize_extraction(data)
+    except Exception as exc:
+        return {"_error": f"AI 识别失败: {exc}"}
 
 
 async def extract_document_with_ai(
@@ -221,60 +307,49 @@ async def extract_document_with_ai(
     model_name: str,
     system_prompt: Optional[str] = None,
     mime_hint: str = "",
+    text: str = "",
 ) -> dict:
-    """调用 OpenAI 兼容的多模态接口，返回规范化后的结构化结果。"""
+    """调用 OpenAI 兼容接口识别凭证。
+
+    传入 text（PDF 文本层）时先只发文本，便宜且快；文本里认不出金额再渲染成图片走视觉识别。
+    """
     if not (base_url and api_key and model_name):
         return {}
-
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext == ".pdf" or "pdf" in (mime_hint or ""):
-        segments = _load_pdf_segments(file_path)
-    else:
-        segments = _load_image_segments(file_path)
-    if not segments:
-        return {"_error": "无法读取文件内容，请确认是有效的图片或 PDF"}
-
     effective_prompt = (system_prompt or "").strip() or DEFAULT_SYSTEM_PROMPT
+
+    text_error = ""
+    if text and text.strip():
+        result = await _chat_json(
+            base_url,
+            api_key,
+            model_name,
+            effective_prompt,
+            "下面是一份 PDF 凭证的文本层，已按版面从上到下、从左到右排序，左右并排的栏目用多个空格分隔。请识别并按约定 JSON 输出。\n\n"
+            + text[:8000],
+        )
+        if result.get("amount"):
+            result["method"] = "ai_text"
+            return result
+        text_error = result.get("_error", "")
+
+    segments = await asyncio.to_thread(_load_segments, file_path, mime_hint)
+    if not segments:
+        return {"_error": text_error or "无法读取文件内容，请确认是有效的图片或 PDF"}
+
     content = [
         {
             "type": "text",
-            "text": "请识别这些图片中的财务单据，并按约定 JSON 输出。多张图片属于同一份单据的不同页或不同片段。",
+            "text": "请识别图片中的凭证并按约定 JSON 输出。多张图片属于同一份材料的不同页或不同片段。",
         }
     ]
     for segment in segments:
         encoded = base64.b64encode(segment).decode("utf-8")
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
-            }
-        )
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
 
-    payload = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": effective_prompt},
-            {"role": "user", "content": content},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 1200,
-    }
-
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            response = await client.post(_normalize_endpoint(base_url), json=payload, headers=headers)
-            if response.status_code != 200:
-                return {"_error": f"AI 接口返回 HTTP {response.status_code}: {response.text[:300]}"}
-            body = response.json()
-            text = body["choices"][0]["message"]["content"]
-            data = _extract_json(text)
-            if not data:
-                return {"_error": "AI 未返回可解析的 JSON"}
-            data["method"] = "ai_ocr"
-            return normalize_extraction(data)
-    except Exception as exc:
-        return {"_error": f"AI 识别失败: {exc}"}
+    result = await _chat_json(base_url, api_key, model_name, effective_prompt, content)
+    if not result.get("_error"):
+        result["method"] = "ai_vision"
+    return result
 
 
 async def test_ai_connection(base_url: str, api_key: str, model_name: str) -> dict:
