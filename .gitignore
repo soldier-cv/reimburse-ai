@@ -29,6 +29,8 @@ ENV/
 # Data & Uploads (保持目录结构，忽略生成的数据库与具体文件)
 data/*.db
 data/*.db-journal
+data/*.db-shm
+data/*.db-wal
 data/*.sqlite
 data/*.sqlite3
 data/*.key
