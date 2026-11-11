@@ -185,9 +185,10 @@
             <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <div><div class="text-[11px] text-slate-500">工资未发</div><div class="text-lg font-bold num">¥{{ money(dashboard?.kpis.salary_outstanding) }}</div></div>
             </div>
-            <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-              <div><div class="text-[11px] text-slate-500">缺附件</div><div class="text-lg font-bold num">{{ dashboard?.kpis.missing_attachment_count || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">笔</span></div></div>
-            </div>
+            <button @click="goMissingMaterials" class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between text-left">
+              <div><div class="text-[11px] text-slate-500">材料不全</div><div class="text-lg font-bold num" :class="dashboard?.kpis.missing_materials_count ? 'text-amber-700' : ''">{{ dashboard?.kpis.missing_materials_count || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">笔</span></div></div>
+              <span class="text-xs text-blue-600 font-semibold">去查看</span>
+            </button>
             <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <div><div class="text-[11px] text-slate-500">待确认草稿</div><div class="text-lg font-bold num">{{ dashboard?.kpis.drafts_ready || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">张</span></div></div>
               <button @click="go('inbox')" class="text-xs text-blue-600 font-semibold">去处理</button>
@@ -319,6 +320,7 @@
                   <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
                 <button @click="applyDraftCompany" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">应用到已选</button>
+                <button @click="openAppendModal()" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40" :disabled="!selectedDraftIds.length">追加到已有应收</button>
                 <button @click="confirmDrafts()" class="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40" :disabled="!selectedDraftIds.length">确认入账（{{ selectedDraftIds.length }}）</button>
               </div>
             </div>
@@ -366,6 +368,7 @@
                   </div>
                 </div>
                 <div v-if="d.error" class="mt-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 line-clamp-2">{{ d.error }}</div>
+                <div v-if="draftTitleMismatch(d)" class="mt-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1">购买方「{{ d.buyer }}」与抬头「{{ draftTitleMismatch(d) }}」不一致</div>
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                   <div class="flex items-center gap-2 text-[10px]">
                     <button v-if="d.status==='failed' || d.status==='ready'" @click="retryDraft(d)" class="text-slate-500 hover:text-slate-900">重新识别</button>
@@ -395,6 +398,7 @@
               <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">结束月</label><input v-model="filters.period_to" @change="loadReceivables" type="month" class="w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs"></div>
               <div class="flex-1 min-w-[160px]"><label class="block text-[10px] text-slate-400 mb-1">搜索事项</label><input v-model="filters.q" @keyup.enter="loadReceivables" class="w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs" placeholder="事项名称或备注"></div>
               <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-2"><input type="checkbox" v-model="filters.overdue" @change="loadReceivables" class="rounded border-slate-300">只看逾期</label>
+              <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-2"><input type="checkbox" v-model="filters.missing_materials" @change="loadReceivables" class="rounded border-slate-300">只看材料不全</label>
               <button @click="resetFilters" class="px-3 py-2 rounded-lg border border-slate-200 text-xs text-slate-500 hover:bg-slate-50">重置</button>
             </div>
           </div>
@@ -443,7 +447,10 @@
                       <span v-else-if="r.days_overdue" class="text-rose-600 font-medium">逾期 {{ r.days_overdue }} 天</span>
                       <span v-else class="text-slate-500">{{ r.expected_on || '-' }}</span>
                     </td>
-                    <td class="px-2 py-3 text-center text-xs"><span :class="r.attachment_count ? 'text-slate-600' : 'text-amber-600'">{{ r.attachment_count }}</span></td>
+                    <td class="px-2 py-3 text-center text-xs">
+                      <span :class="r.missing_invoice ? 'text-amber-600' : (r.attachment_count ? 'text-slate-600' : 'text-amber-600')">{{ r.attachment_count }}</span>
+                      <div v-if="r.missing_invoice" class="text-[10px] text-amber-600">缺发票</div>
+                    </td>
                     <td class="px-3 py-3 text-right whitespace-nowrap">
                       <button @click="openReceivableModal(r)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">编辑</button>
                       <button @click="deleteReceivable(r)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">删除</button>
@@ -703,7 +710,18 @@
           <div><label class="block text-[11px] text-slate-500 mb-1">发生日期</label><input v-model="receivableForm.occurred_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
         </div>
         <div v-if="receivableForm.id" class="grid grid-cols-2 gap-3">
-          <div><label class="block text-[11px] text-slate-500 mb-1">状态</label><select v-model="receivableForm.status" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="pending">待提交</option><option value="submitted">已提交</option><option value="rejected">被驳回</option><option value="abandoned">已放弃</option><option v-if="receivableForm.status==='paid'" value="paid">已到账</option></select></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">状态</label>
+            <select v-if="receivableForm.status==='partial' || receivableForm.status==='paid'" v-model="receivableForm.status" disabled class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-slate-50 text-slate-500">
+              <option value="partial">部分到账</option>
+              <option value="paid">已到账</option>
+            </select>
+            <select v-else v-model="receivableForm.status" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
+              <option value="pending">待提交</option>
+              <option value="submitted">已提交</option>
+              <option value="rejected">被驳回</option>
+              <option value="abandoned">已放弃</option>
+            </select>
+          </div>
           <div><label class="block text-[11px] text-slate-500 mb-1">预计到账日</label><input v-model="receivableForm.expected_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><textarea v-model="receivableForm.note" rows="2" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></textarea></div>
@@ -731,6 +749,7 @@
           <div class="bg-amber-50 rounded-xl p-3"><div class="text-[10px] text-slate-500">待收</div><div class="text-lg font-bold num text-amber-700">¥{{ money(detail.remaining) }}</div></div>
         </div>
         <div v-if="detail?.note" class="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">{{ detail.note }}</div>
+        <div v-if="detail?.missing_invoice" class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">该类别需要发票，当前还没有发票附件。</div>
 
         <div>
           <div class="flex items-center justify-between mb-2">
@@ -759,6 +778,7 @@
         <div class="flex gap-2">
           <button @click="openReceivableModal(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">编辑</button>
           <button @click="duplicateReceivable(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">复制为新月</button>
+          <button v-if="detail && detail.status !== 'paid' && appendableDrafts(detail).length" @click="openAppendModal(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">从收件箱追加</button>
           <button v-if="detail?.remaining_cents" @click="openPaymentModal(detail)" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">记录到账</button>
         </div>
         <div class="flex gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">关闭</button></div>
@@ -852,6 +872,42 @@
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="paymentForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销一批到账"></div>
       </div>
       <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="savePayment" :disabled="!canSavePayment" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">保存到账</button></div>
+    </div>
+  </div>
+
+  <!-- 追加到已有应收 -->
+  <div v-if="modal.name==='appendDraft'" class="fixed inset-0 z-[75] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
+    <div class="bg-white rounded-2xl w-full max-w-lg border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">追加到已有应收</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
+      <div class="p-5 overflow-y-auto space-y-3">
+        <div class="text-xs text-slate-500">将 {{ appendForm.draft_ids.length }} 份草稿追加到同一笔应收，不会改动原金额。</div>
+        <div v-if="!appendForm.target_id">
+          <div class="text-[11px] text-slate-500 mb-1">选择目标应收</div>
+          <div class="border border-slate-200 rounded-lg max-h-64 overflow-y-auto divide-y divide-slate-100">
+            <button v-for="r in appendTargets" :key="r.id" @click="appendForm.target_id = r.id" class="w-full text-left px-3 py-2 text-xs hover:bg-slate-50">
+              <div class="font-medium text-slate-800">{{ r.title }}</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">{{ r.occurred_on || '-' }} · {{ r.status_label }} · ¥{{ money(r.amount) }}</div>
+            </button>
+            <div v-if="!appendTargets.length" class="px-3 py-8 text-center text-xs text-slate-400">该公司没有可追加的应收</div>
+          </div>
+        </div>
+        <div v-else class="text-xs bg-slate-50 rounded-lg px-3 py-2">
+          目标：{{ appendTargetTitle }}
+        </div>
+        <div v-if="appendForm.target_id && !appendForm.preset_target">
+          <div class="text-[11px] text-slate-500 mb-1">确认要追加的草稿</div>
+          <div class="space-y-1">
+            <label v-for="d in appendDrafts" :key="d.id" class="flex items-center gap-2 text-xs">
+              <input type="checkbox" :value="d.id" v-model="appendForm.draft_ids" class="rounded border-slate-300">
+              <span class="truncate">{{ d.original_filename }}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2">
+        <button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button>
+        <button @click="doAppendDrafts" :disabled="!appendForm.target_id || !appendForm.draft_ids.length" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">确认追加</button>
+      </div>
     </div>
   </div>
 
@@ -1011,7 +1067,7 @@ const app = createApp({
     const dragging = ref(false);
     const fileInput = ref(null);
 
-    const filters = reactive({ company_id: null, status_value: '', kind: '', category_id: null, period_from: '', period_to: '', q: '', overdue: false });
+    const filters = reactive({ company_id: null, status_value: '', kind: '', category_id: null, period_from: '', period_to: '', q: '', overdue: false, missing_materials: false });
     const exportFilters = reactive({ company_id: null, kind: '', period_from: '', period_to: '' });
 
     const toast = reactive({ show: false, msg: '', type: 'success' });
@@ -1166,6 +1222,7 @@ const app = createApp({
       if (filters.period_to) params.set('period_to', filters.period_to);
       if (filters.q) params.set('q', filters.q);
       if (filters.overdue) params.set('overdue', 'true');
+      if (filters.missing_materials) params.set('missing_materials', 'true');
       params.set('page_size', '200');
       const data = await api('/api/receivables?' + params.toString());
       receivables.value = data.items;
@@ -1274,7 +1331,7 @@ const app = createApp({
     }
 
     function resetFilters() {
-      Object.assign(filters, { company_id: null, status_value: '', kind: '', category_id: null, period_from: '', period_to: '', q: '', overdue: false });
+      Object.assign(filters, { company_id: null, status_value: '', kind: '', category_id: null, period_from: '', period_to: '', q: '', overdue: false, missing_materials: false });
       loadReceivables();
     }
 
@@ -1346,41 +1403,117 @@ const app = createApp({
 
     async function confirmDrafts(ids = null, targetId = null) {
       const chosenIds = ids || selectedDraftIds.value.slice();
-      if (!chosenIds.length) return notify('请先勾选草稿', 'error');
+      if (!chosenIds.length) { notify('请先勾选草稿', 'error'); return false; }
       const chosen = drafts.value.filter(d => chosenIds.includes(d.id));
       const missingCompany = chosen.filter(d => !d.company_id && !targetId);
-      if (missingCompany.length) return notify('还有草稿没有选择公司', 'error');
-      const missingAmount = chosen.filter(d => !d.amount_cents);
-      if (missingAmount.length) return notify('还有草稿金额为空，请先填写', 'error');
+      if (missingCompany.length) { notify('还有草稿没有选择公司', 'error'); return false; }
+      const missingAmount = targetId ? [] : chosen.filter(d => !d.amount_cents);
+      if (missingAmount.length) { notify('还有草稿金额为空，请先填写', 'error'); return false; }
       const companyIds = [...new Set(chosen.map(d => d.company_id))];
-      if (!targetId && companyIds.length > 1) return notify('一次确认只能属于同一家公司', 'error');
+      if (!targetId && companyIds.length > 1) { notify('一次确认只能属于同一家公司', 'error'); return false; }
       const body = { draft_ids: chosenIds, company_id: companyIds[0] || null };
       if (body.company_id) {
         lastCompanyId.value = body.company_id;
         localStorage.setItem('reimburse_last_company', String(body.company_id));
       }
       if (targetId) body.target_receivable_id = targetId;
-      try {
-        const result = await api('/api/capture/confirm', { method: 'POST', body });
-        notify(`已入账 ${result.created?.length || chosenIds.length} 笔`);
+      const afterSuccess = async (result) => {
+        notify(targetId ? '已追加到已有应收' : (`已入账 ${result?.created?.length || chosenIds.length} 笔`));
         selectedDraftIds.value = [];
         await loadDrafts(); await loadReceivables(); await loadDashboard(); await loadBatches();
+      };
+      try {
+        const result = await api('/api/capture/confirm', { method: 'POST', body });
+        await afterSuccess(result);
+        return true;
       } catch (error) {
         const detail = error?.detail?.detail;
         if (error.status === 409 && detail?.warnings) {
+          const onlyTitle = detail.warnings.every(w => w.type === 'buyer_mismatch');
+          const title = onlyTitle ? '发票抬头不一致' : '检测到疑似重复';
           const message = detail.warnings.map(w => w.message).join('\n') + '\n\n仍然入账吗？';
-          if (await askConfirm('检测到疑似重复', message)) {
+          if (await askConfirm(title, message)) {
             try {
-              await api('/api/capture/confirm', { method: 'POST', body: Object.assign({}, body, { force: true }) });
-              notify('已强制入账');
-              selectedDraftIds.value = [];
-              await loadDrafts(); await loadReceivables(); await loadDashboard();
-            } catch (inner) { notify(errMsg(inner), 'error'); }
+              const forced = await api('/api/capture/confirm', { method: 'POST', body: Object.assign({}, body, { force: true }) });
+              await afterSuccess(forced);
+              return true;
+            } catch (inner) { notify(errMsg(inner), 'error'); return false; }
           }
-        } else {
-          notify(errMsg(error), 'error');
+          return false;
         }
+        notify(errMsg(error), 'error');
+        return false;
       }
+    }
+
+
+    function draftTitleMismatch(draft) {
+      if ((draft.doc_type || '') !== 'invoice' || !draft.buyer || !draft.company_id) return '';
+      const company = companies.value.find(c => c.id === draft.company_id);
+      if (!company) return '';
+      const buyer = String(draft.buyer).replace(/\s+/g, '');
+      const candidates = [company.invoice_title, company.name, company.short_name].filter(v => v && String(v).length >= 2);
+      if (candidates.some(c => {
+        const norm = String(c).replace(/\s+/g, '');
+        return buyer.includes(norm) || norm.includes(buyer);
+      })) return '';
+      return company.invoice_title || company.name;
+    }
+
+    const appendForm = reactive({ draft_ids: [], target_id: null, company_id: null, preset_target: false });
+    const appendTargets = ref([]);
+    const appendDrafts = computed(() => drafts.value.filter(d => appendForm.draft_ids.includes(d.id) || selectedDraftIds.value.includes(d.id)));
+    const appendTargetTitle = computed(() => {
+      const item = appendTargets.value.find(r => r.id === appendForm.target_id);
+      if (!item) return '';
+      return `${item.title} · ${item.occurred_on || '-'} · ¥${money(item.amount)}`;
+    });
+    function appendableDrafts(receivable) {
+      if (!receivable || receivable.status === 'paid') return [];
+      return drafts.value.filter(d => (d.status === 'ready' || d.status === 'failed') && (!d.company_id || d.company_id === receivable.company_id));
+    }
+    async function openAppendModal(receivable = null) {
+      if (receivable) {
+        const ids = appendableDrafts(receivable).map(d => d.id);
+        if (!ids.length) return notify('收件箱里没有可追加到这笔应收的草稿', 'error');
+        appendForm.draft_ids = ids;
+        appendForm.target_id = receivable.id;
+        appendForm.company_id = receivable.company_id;
+        appendForm.preset_target = true;
+        appendTargets.value = [receivable];
+        openModal('appendDraft');
+        return;
+      }
+      const chosen = drafts.value.filter(d => selectedDraftIds.value.includes(d.id));
+      if (!chosen.length) return notify('请先勾选草稿', 'error');
+      const companyIds = [...new Set(chosen.map(d => d.company_id).filter(Boolean))];
+      if (companyIds.length > 1) return notify('一次只能追加到同一家公司的应收', 'error');
+      const companyId = companyIds[0] || lastCompanyId.value || (activeCompanies.value.length === 1 ? activeCompanies.value[0].id : null);
+      if (!companyId) return notify('请先为草稿选择公司', 'error');
+      try {
+        const data = await api('/api/receivables?company_id=' + companyId + '&page_size=200');
+        appendTargets.value = (data.items || []).filter(r => r.status !== 'paid' && r.status !== 'abandoned');
+      } catch (error) {
+        return notify(errMsg(error), 'error');
+      }
+      appendForm.draft_ids = chosen.map(d => d.id);
+      appendForm.target_id = null;
+      appendForm.company_id = companyId;
+      appendForm.preset_target = false;
+      openModal('appendDraft');
+    }
+    async function doAppendDrafts() {
+      if (!appendForm.target_id || !appendForm.draft_ids.length) return;
+      const targetId = appendForm.target_id;
+      const ok = await confirmDrafts(appendForm.draft_ids.slice(), targetId);
+      if (!ok) return;
+      closeModal();
+      if (detail.value?.id === targetId) await openReceivableDetail(targetId);
+    }
+    function goMissingMaterials() {
+      Object.assign(filters, { company_id: null, status_value: '', kind: '', category_id: null, period_from: '', period_to: '', q: '', overdue: false, missing_materials: true });
+      go('receivables');
+      loadReceivables().catch(() => {});
     }
 
     const receivableForm = reactive({ id: null, company_id: null, category_id: null, title: '', amount: '', occurred_on: '', expected_on: '', note: '', status: 'pending' });
@@ -1414,7 +1547,7 @@ const app = createApp({
       };
       try {
         if (receivableForm.id) {
-          if (receivableForm.status !== 'paid') body.status = receivableForm.status;
+          if (!['paid', 'partial'].includes(receivableForm.status)) body.status = receivableForm.status;
           await api(`/api/receivables/${receivableForm.id}`, { method: 'PUT', body });
         } else {
           await api('/api/receivables', { method: 'POST', body });
@@ -1516,6 +1649,12 @@ const app = createApp({
     }
     async function doSubmitBatch() {
       try {
+        const batch = batchDetail.value?.id === batchSubmitTarget.value.id ? batchDetail.value : await api(`/api/batches/${batchSubmitTarget.value.id}`);
+        const incomplete = (batch?.items || []).filter(item => item.missing_invoice);
+        if (incomplete.length) {
+          const names = incomplete.map(item => item.title).join('、');
+          if (!(await askConfirm('材料不全', `以下 ${incomplete.length} 笔还缺发票：${names}\n\n仍然提交吗？`))) return;
+        }
         const result = await api(`/api/batches/${batchSubmitTarget.value.id}/submit`, { method: 'POST', body: { submitted_on: batchSubmitForm.submitted_on, expected_on: batchSubmitForm.expected_on } });
         notify('批次已提交，预计 ' + result.expected_on + ' 到账');
         closeModal();
@@ -1787,6 +1926,7 @@ const app = createApp({
       selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput,
       filters, exportFilters, toast, notify, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel,
       readyDraftCount, allSelected, selectedAmount, selectedCompanyName, toggleSelectAll,
+      draftTitleMismatch, appendForm, appendTargets, appendDrafts, appendTargetTitle, appendableDrafts, openAppendModal, doAppendDrafts, goMissingMaterials,
       modal, openModal, closeModal, confirmDialog, askConfirm, resolveConfirm,
       loadReceivables, loadBatches, loadPayments, loadExportRecords, loadAudit, loadUsers, loadAI,
       submitAuth, logout, go, resetFilters, openQuickUpload, onFilePicked, uploadFiles, onDragOver, onDragLeave, onDrop,

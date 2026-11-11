@@ -518,6 +518,61 @@ def find_duplicates(db: Session, user_id: int, sha256: str, invoice_no: str, inv
     return warnings
 
 
+
+def extract_buyer(draft: CaptureDraft) -> str:
+    try:
+        data = json.loads(draft.extracted_json or "{}")
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("buyer") or "").strip()
+
+
+def _normalize_title(value: str) -> str:
+    return "".join((value or "").split())
+
+
+def company_title_matches(company: Company, buyer: str) -> bool:
+    buyer_norm = _normalize_title(buyer)
+    if not buyer_norm:
+        return True
+    for candidate in (company.invoice_title, company.name, company.short_name):
+        cand = _normalize_title(candidate or "")
+        if len(cand) >= 2 and (cand in buyer_norm or buyer_norm in cand):
+            return True
+    return False
+
+
+def find_buyer_mismatch(db: Session, user_id: int, draft: CaptureDraft, company_id: int | None = None) -> list[dict]:
+    """发票购买方与公司抬头不一致时给出提示，不自动拦截以外的删除。"""
+    if (draft.doc_type or "") != "invoice":
+        return []
+    buyer = extract_buyer(draft)
+    if not buyer:
+        return []
+    target_id = company_id or draft.company_id
+    if not target_id:
+        return []
+    company = (
+        db.query(Company)
+        .filter(Company.id == target_id, Company.user_id == user_id)
+        .first()
+    )
+    if not company or company_title_matches(company, buyer):
+        return []
+    expected = (company.invoice_title or company.name or "").strip()
+    return [
+        {
+            "type": "buyer_mismatch",
+            "message": f"发票「{draft.original_filename}」的购买方「{buyer}」与公司抬头「{expected}」不一致",
+            "buyer": buyer,
+            "invoice_title": expected,
+            "draft_id": draft.id,
+        }
+    ]
+
+
 def draft_payload(draft: CaptureDraft) -> dict:
     return {
         "id": draft.id,
@@ -533,6 +588,7 @@ def draft_payload(draft: CaptureDraft) -> dict:
         "occurred_on": draft.occurred_on or "",
         "title": draft.title or "",
         "merchant": draft.merchant or "",
+        "buyer": extract_buyer(draft),
         "invoice_code": draft.invoice_code or "",
         "invoice_no": draft.invoice_no or "",
         "note": draft.note or "",
