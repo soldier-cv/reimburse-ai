@@ -2,7 +2,7 @@
 name: reimburse-ai
 description: Use when 采集报销票据、维护个人对公应收台账、提交批次、核销到账或导出财务包。
 version: 1.0.0
-author: Hermes coding agent
+author: soldier-cv
 license: MIT
 metadata:
   hermes:
