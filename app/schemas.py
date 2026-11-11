@@ -42,8 +42,9 @@ class AISettingRequest(BaseModel):
 
 
 class AIModelFetchRequest(BaseModel):
-    base_url: str
-    api_key: str
+    base_url: str = ""
+    api_key: str = ""
+    model_name: str = ""
 
 
 class CompanyCreate(BaseModel):

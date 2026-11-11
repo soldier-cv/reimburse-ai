@@ -2374,6 +2374,7 @@ def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depend
         "model_name": config["model_name"],
         "has_key": bool(config["api_key"]),
         "system_prompt": config["system_prompt"] or DEFAULT_SYSTEM_PROMPT,
+        "default_system_prompt": DEFAULT_SYSTEM_PROMPT,
         "can_call": config["can_call"],
     }
 
@@ -2400,11 +2401,19 @@ async def get_models(req: AIModelFetchRequest, user: User = Depends(get_current_
 
 @app.post("/api/settings/ai/test")
 async def test_ai(req: AIModelFetchRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    api_key = req.api_key.strip()
+    api_key = (req.api_key or "").strip()
     if not api_key:
         api_key = get_setting(db, user.id, "ai_api_key", "")
-    model_name = get_setting(db, user.id, "ai_model_name", "gpt-4o-mini")
-    return await test_ai_connection(req.base_url, api_key, model_name)
+    # 优先使用当前表单中的模型，未传时才回退到用户已保存的值；不用内置默认模型冒充当前配置
+    model_name = (req.model_name or "").strip()
+    if not model_name:
+        saved = (
+            db.query(UserSetting)
+            .filter(UserSetting.user_id == user.id, UserSetting.key == "ai_model_name")
+            .first()
+        )
+        model_name = (saved.value or "").strip() if saved else ""
+    return await test_ai_connection((req.base_url or "").strip(), api_key, model_name)
 
 
 @app.get("/api/audit-logs")

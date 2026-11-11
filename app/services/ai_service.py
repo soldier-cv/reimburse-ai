@@ -369,7 +369,7 @@ async def extract_document_with_ai(
 
 async def test_ai_connection(base_url: str, api_key: str, model_name: str) -> dict:
     if not base_url or not api_key or not model_name:
-        return {"success": False, "message": "接口地址、密钥和模型名称都不能为空"}
+        return {"success": False, "message": "接口地址、密钥和模型名称都不能为空", "model": model_name or ""}
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": "Reply with pong only."}],
@@ -380,10 +380,40 @@ async def test_ai_connection(base_url: str, api_key: str, model_name: str) -> di
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.post(_normalize_endpoint(base_url), json=payload, headers=headers)
             if response.status_code == 200:
-                return {"success": True, "message": "连接成功，AI 接口正常响应"}
-            return {"success": False, "message": f"连接失败，HTTP {response.status_code}: {response.text[:200]}"}
+                return {"success": True, "message": f"连接成功，模型 {model_name} 响应正常", "model": model_name}
+            return {
+                "success": False,
+                "message": f"连接失败（模型 {model_name}），HTTP {response.status_code}: {response.text[:200]}",
+                "model": model_name,
+            }
     except Exception as exc:
-        return {"success": False, "message": f"连接异常: {exc}"}
+        return {"success": False, "message": f"连接异常（模型 {model_name}）: {exc}", "model": model_name}
+
+
+VISION_MODEL_HINTS = ("4o", "vl", "vision", "gemini", "claude", "flash")
+
+
+def sort_model_names(models, selected: str = "") -> list:
+    """视觉相关模型靠前；当前选中的模型置顶，避免被截断或淹没。"""
+    selected = (selected or "").strip()
+    unique = []
+    seen = set()
+    for name in models:
+        text_name = str(name).strip() if name is not None else ""
+        if not text_name or text_name in seen:
+            continue
+        seen.add(text_name)
+        unique.append(text_name)
+
+    def priority(name: str):
+        lower = name.lower()
+        if selected and name == selected:
+            return (0, lower)
+        if any(key in lower for key in VISION_MODEL_HINTS):
+            return (1, lower)
+        return (2, lower)
+
+    return sorted(unique, key=priority)
 
 
 async def fetch_available_models(base_url: str, api_key: str) -> dict:
@@ -408,13 +438,7 @@ async def fetch_available_models(base_url: str, api_key: str) -> dict:
                 elif isinstance(item, str):
                     models.append(item)
 
-            def priority(name: str):
-                lower = name.lower()
-                if any(key in lower for key in ("4o", "vl", "vision", "gemini", "claude")):
-                    return (0, lower)
-                return (1, lower)
-
-            models = sorted(set(models), key=priority)
+            models = sort_model_names(models)
             return {"success": True, "message": f"获取到 {len(models)} 个模型", "models": models}
     except Exception as exc:
         return {"success": False, "message": f"获取模型失败: {exc}", "models": []}
