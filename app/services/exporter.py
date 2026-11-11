@@ -14,7 +14,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
-from ..models import Attachment, Receivable
+from ..models import Attachment, Receivable, materials_status
 from .money import cents_to_yuan, days_overdue, period_from_date, today_str
 
 try:
@@ -221,6 +221,9 @@ def _cover_parts(receivables: list[Receivable]) -> tuple[list[tuple[str, str]], 
         ("笔数", f"{len(receivables)} 笔"),
         ("合计金额", f"¥ {total / 100:,.2f}"),
     ]
+    missing = [item for item in receivables if materials_status(item)["missing_invoice"]]
+    if missing:
+        lines.append(("材料", f"{len(missing)} 笔缺发票"))
     note_lines = []
     for index, item in enumerate(sorted(receivables, key=_receivable_sort_key)[:18], start=1):
         note_lines.append(
@@ -337,7 +340,7 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
     summary.column_dimensions["C"].width = 16
 
     detail = workbook.create_sheet("明细")
-    headers = ["序号", "公司", "归属月", "发生日期", "类别", "事项", "金额", "已收", "待收", "状态", "发票号", "附件数", "备注"]
+    headers = ["序号", "公司", "归属月", "发生日期", "类别", "事项", "金额", "已收", "待收", "状态", "发票号", "附件数", "材料", "备注"]
     detail.append(headers)
     for col in range(1, len(headers) + 1):
         cell = detail.cell(row=1, column=col)
@@ -370,6 +373,7 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
             status_labels.get(item.status, item.status),
             invoice_no,
             len(attachments),
+            "缺发票" if materials_status(item)["missing_invoice"] else "齐全",
             item.note or "",
         ]
         detail.append(values)
@@ -382,7 +386,7 @@ def build_excel(receivables: list[Receivable], title: str = "应收明细") -> i
         for col in (7, 8, 9):
             detail.cell(row=index + 1, column=col).number_format = '#,##0.00'
             detail.cell(row=index + 1, column=col).alignment = Alignment(horizontal="right")
-    widths = [7, 24, 10, 13, 14, 32, 14, 14, 14, 12, 22, 8, 30]
+    widths = [7, 24, 10, 13, 14, 32, 14, 14, 14, 12, 22, 8, 10, 30]
     for index, width in enumerate(widths, start=1):
         detail.column_dimensions[get_column_letter(index)].width = width
     detail.freeze_panes = "A2"

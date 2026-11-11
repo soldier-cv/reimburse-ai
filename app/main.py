@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from sqlalchemy import func, or_
+from sqlalchemy import exists, func, or_
 from sqlalchemy.orm import Session
 
 from .database import BASE_DIR, Base, engine, get_db
@@ -43,6 +43,7 @@ from .models import (
     SystemSetting,
     User,
     UserSetting,
+    materials_status,
 )
 from .schemas import (
     AdminCreateUserRequest,
@@ -97,6 +98,7 @@ from .services.capture import (
     create_drafts_from_zip,
     draft_payload,
     file_ext,
+    find_buyer_mismatch,
     find_duplicates,
     get_extra_files,
     process_drafts_async,
@@ -133,7 +135,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.0.0",
+    version="3.1.0",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -297,6 +299,7 @@ def _serialize_attachment(attachment: Attachment) -> dict:
 def _serialize_receivable(receivable: Receivable, detail: bool = False) -> dict:
     attachments = [a for a in receivable.attachments if a.deleted_at is None]
     invoices = [a for a in attachments if a.kind == "invoice"]
+    materials = materials_status(receivable)
     data = {
         "id": receivable.id,
         "company_id": receivable.company_id,
@@ -326,6 +329,10 @@ def _serialize_receivable(receivable: Receivable, detail: bool = False) -> dict:
         "source": receivable.source,
         "attachment_count": len(attachments),
         "invoice_no": invoices[0].invoice_no if invoices else "",
+        "requires_invoice": materials["requires_invoice"],
+        "has_invoice": materials["has_invoice"],
+        "missing_invoice": materials["missing_invoice"],
+        "materials_ok": materials["materials_ok"],
         "days_overdue": days_overdue(receivable.expected_on) if receivable.status in ("submitted", "partial") else 0,
         "created_at": receivable.created_at.strftime("%Y-%m-%d %H:%M:%S") if receivable.created_at else "",
     }
@@ -363,6 +370,7 @@ def _filter_receivables(
     period_to: Optional[str] = None,
     query_text: Optional[str] = None,
     only_overdue: bool = False,
+    only_missing_materials: bool = False,
 ):
     query = _receivable_query(db, user)
     if company_id:
@@ -391,6 +399,19 @@ def _filter_receivables(
             Receivable.status.in_(("submitted", "partial")),
             Receivable.expected_on != "",
             Receivable.expected_on < today,
+        )
+    if only_missing_materials:
+        query = query.filter(
+            Receivable.status.in_(("pending", "submitted", "partial")),
+            exists().where(
+                Category.id == Receivable.category_id,
+                Category.requires_invoice == True,  # noqa: E712
+            ),
+            ~exists().where(
+                Attachment.receivable_id == Receivable.id,
+                Attachment.deleted_at.is_(None),
+                Attachment.kind == "invoice",
+            ),
         )
     return query
 
@@ -1072,8 +1093,11 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
                     warnings.append({"type": "duplicate_in_batch", "message": f"本批里有重复文件 {draft.original_filename}"})
                 seen_hash.add(draft.sha256)
             warnings.extend(find_duplicates(db, user.id, draft.sha256, draft.invoice_no, draft.invoice_code))
+            warnings.extend(find_buyer_mismatch(db, user.id, draft, req.company_id or (target.company_id if target else None)))
         if warnings:
-            raise HTTPException(status_code=409, detail={"message": "检测到疑似重复，请确认后再入账", "warnings": warnings})
+            has_duplicate = any(item.get("type") != "buyer_mismatch" for item in warnings)
+            message = "检测到疑似重复或抬头不一致，请确认后再入账" if has_duplicate else "发票购买方与公司抬头不一致，请确认后再入账"
+            raise HTTPException(status_code=409, detail={"message": message, "warnings": warnings})
 
     company_id = req.company_id or (target.company_id if target else None)
     category_id = req.category_id
@@ -1093,7 +1117,7 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
 
     created: list[dict] = []
     for draft in active:
-        if draft.amount_cents is None or draft.amount_cents <= 0:
+        if not target and (draft.amount_cents is None or draft.amount_cents <= 0):
             raise HTTPException(status_code=400, detail=f"草稿「{draft.original_filename}」金额为空，请先填写金额")
         if not draft.occurred_on:
             draft.occurred_on = today_str()
@@ -1335,6 +1359,7 @@ def list_receivables(
     period_to: Optional[str] = None,
     q: Optional[str] = None,
     overdue: bool = False,
+    missing_materials: bool = False,
     page: int = 1,
     page_size: int = 50,
     user: User = Depends(get_current_user),
@@ -1351,6 +1376,7 @@ def list_receivables(
         period_to=period_to,
         query_text=q,
         only_overdue=overdue,
+        only_missing_materials=missing_materials,
     )
     total = query.count()
     total_amount = sum(item.amount_cents or 0 for item in query.all())
@@ -2159,6 +2185,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     missing_attachments = [
         item for item in outstanding if not any(a.deleted_at is None for a in item.attachments)
     ]
+    missing_materials = [item for item in outstanding if not materials_status(item)["materials_ok"]]
     salary_outstanding = [item for item in outstanding if item.kind == "payroll"]
     outstanding_cents = sum(remaining_cents(item) for item in outstanding)
     overdue_cents = sum(remaining_cents(item) for item in overdue)
@@ -2178,6 +2205,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             "pending_count": len([item for item in outstanding if item.status == "pending"]),
             "partial_count": len([item for item in outstanding if item.status == "partial"]),
             "missing_attachment_count": len(missing_attachments),
+            "missing_materials_count": len(missing_materials),
             "salary_outstanding_cents": sum(remaining_cents(item) for item in salary_outstanding),
             "salary_outstanding": cents_to_yuan(sum(remaining_cents(item) for item in salary_outstanding)),
             "drafts_ready": db.query(CaptureDraft).filter(CaptureDraft.user_id == user.id, CaptureDraft.status == "ready").count(),
