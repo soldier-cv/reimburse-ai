@@ -222,6 +222,26 @@ def test_apply_payment_rejects_when_nothing_to_allocate(client, auth, test_db, m
     assert "工资应收" in response.text
 
 
+def test_apply_payment_rejects_while_still_processing(client, auth, test_db, monkeypatch):
+    company = _company(client, auth)
+    _payroll(test_db, company["id"], "2025-06", 750000)
+    draft = _draft_from_screenshot(
+        client,
+        auth,
+        company["id"],
+        {"doc_type": "salary", "direction": "in", "amount": 7500.0, "date": "2025-11-05", "remark": "6月工资", "method": "ai_vision"},
+        monkeypatch,
+    )
+    from app.models import CaptureDraft
+
+    row = test_db.get(CaptureDraft, draft["id"])
+    row.status = "processing"
+    test_db.commit()
+
+    response = client.post(f"/api/capture/drafts/{draft['id']}/apply-payment", json={}, headers=auth)
+    assert response.status_code == 409
+
+
 def test_apply_payment_accepts_explicit_allocations(client, auth, test_db, monkeypatch):
     company = _company(client, auth)
     june = _payroll(test_db, company["id"], "2025-06", 750000)

@@ -1196,6 +1196,8 @@ def apply_draft_payment(
         raise HTTPException(status_code=404, detail="草稿不存在")
     if draft.status == "confirmed":
         raise HTTPException(status_code=400, detail="草稿已入账")
+    if draft.status == "processing":
+        raise HTTPException(status_code=409, detail="草稿还在识别中，请稍后再试")
     if not draft.company_id:
         raise HTTPException(status_code=400, detail="请先选择公司")
     if not draft.amount_cents:

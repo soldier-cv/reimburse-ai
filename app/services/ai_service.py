@@ -294,17 +294,25 @@ async def _chat_json(base_url: str, api_key: str, model_name: str, system_prompt
         "max_tokens": 1500,
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    try:
-        response = await _http_client().post(_normalize_endpoint(base_url), json=payload, headers=headers)
-        if response.status_code != 200:
-            return {"_error": f"AI 接口返回 HTTP {response.status_code}: {response.text[:300]}"}
-        body = response.json()
-        data = _extract_json(body["choices"][0]["message"]["content"])
-        if not data:
-            return {"_error": "AI 未返回可解析的 JSON"}
-        return normalize_extraction(data)
-    except Exception as exc:
-        return {"_error": f"AI 识别失败: {exc}"}
+    last_error = ""
+    # 批量识别时容易撞限流，429/5xx/网络异常各重试一次
+    for attempt in range(2):
+        try:
+            response = await _http_client().post(_normalize_endpoint(base_url), json=payload, headers=headers)
+            if response.status_code == 200:
+                body = response.json()
+                data = _extract_json(body["choices"][0]["message"]["content"])
+                if not data:
+                    return {"_error": "AI 未返回可解析的 JSON"}
+                return normalize_extraction(data)
+            last_error = f"AI 接口返回 HTTP {response.status_code}: {response.text[:300]}"
+            if response.status_code not in (429, 500, 502, 503, 504):
+                return {"_error": last_error}
+        except Exception as exc:
+            last_error = f"AI 识别失败: {exc}"
+        if attempt == 0:
+            await asyncio.sleep(1.5)
+    return {"_error": last_error}
 
 
 async def extract_document_with_ai(

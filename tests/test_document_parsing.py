@@ -274,3 +274,78 @@ def test_legacy_default_prompt_is_treated_as_default():
 
     assert is_default_prompt(DEFAULT_SYSTEM_PROMPT)
     assert not is_default_prompt("只识别发票")
+
+
+def test_missing_amount_is_not_silently_filled_from_candidates(client, auth, monkeypatch):
+    _company(client, auth)
+    _enable_ai(client, auth)
+
+    async def fake_ai(**kwargs):
+        return {
+            "doc_type": "payment",
+            "amount": None,
+            "amount_candidates": [128.0, 1280.0],
+            "date": "2025-11-03",
+            "method": "ai_text",
+        }
+
+    monkeypatch.setattr("app.services.capture.extract_document_with_ai", fake_ai)
+    draft = client.post("/api/capture", files=[("files", ("shot.png", make_png(), "image/png"))], headers=auth).json()["drafts"][0]
+    assert draft["amount_cents"] is None
+    assert "金额" in draft["error"]
+    assert draft["amount_candidates_cents"] == [12800, 128000]
+
+
+def test_entries_total_is_used_with_hint(client, auth, monkeypatch):
+    _company(client, auth)
+    _enable_ai(client, auth)
+
+    async def fake_ai(**kwargs):
+        return {
+            "doc_type": "payment",
+            "amount": None,
+            "entries": [{"date": "2025-11-01", "amount": 30.0}, {"date": "2025-11-02", "amount": 45.5}],
+            "date": "2025-11-02",
+            "method": "ai_vision",
+        }
+
+    monkeypatch.setattr("app.services.capture.extract_document_with_ai", fake_ai)
+    draft = client.post("/api/capture", files=[("files", ("bill.png", make_png(), "image/png"))], headers=auth).json()["drafts"][0]
+    assert draft["amount_cents"] == 7550
+    assert any("明细合计" in hint for hint in draft["hints"])
+
+
+def test_finished_recognition_does_not_reopen_confirmed_draft(client, auth, test_db):
+    from app.models import CaptureDraft, User
+    from app.services import capture
+
+    user = test_db.query(User).first()
+    draft = CaptureDraft(
+        user_id=user.id,
+        original_filename="a.png",
+        stored_path="a.png",
+        status="confirmed",
+        amount_cents=100,
+    )
+    test_db.add(draft)
+    test_db.commit()
+
+    capture._finish(
+        test_db,
+        draft.id,
+        {"ext": ".png", "data": {"doc_type": "payment", "amount": 999.0}, "hints": {}},
+        None,
+    )
+    test_db.refresh(draft)
+    assert draft.status == "confirmed"
+    assert draft.amount_cents == 100
+
+
+def test_garbled_text_layer_is_not_sent_to_model():
+    from app.services.extractor import has_usable_text
+
+    assert not has_usable_text("")
+    assert not has_usable_text("扫描件")
+    assert not has_usable_text("金额 128.00")
+    assert has_usable_text("中国工商银行 电子回单 交易金额 8,000.00 收款人 张三")
+    assert not has_usable_text("\ufffd" * 60 + "1234")
