@@ -635,17 +635,36 @@
               <div class="text-sm font-bold text-slate-900">AI 视觉识别</div>
               <label class="flex items-center gap-2 text-xs"><input type="checkbox" v-model="aiForm.enabled" class="rounded border-slate-300">启用</label>
             </div>
-            <div class="grid md:grid-cols-2 gap-3">
-              <div><label class="block text-[11px] text-slate-500 mb-1">接口地址</label><input v-model="aiForm.base_url" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="https://api.openai.com/v1"></div>
-              <div><label class="block text-[11px] text-slate-500 mb-1">模型名称</label><input v-model="aiForm.model_name" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="gpt-4o-mini / qwen-vl-max"></div>
-              <div><label class="block text-[11px] text-slate-500 mb-1">API Key {{ aiForm.has_key ? '（已保存，留空不修改）' : '' }}</label><input v-model="aiForm.api_key" type="password" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" :placeholder="aiForm.has_key ? '已保存，留空保持不变' : '输入密钥'"></div>
-              <div class="flex items-end gap-2"><button @click="fetchModels" class="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium">获取模型</button><button @click="testAI" class="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium">测试连接</button></div>
+            <p class="text-[11px] text-slate-400 mb-3">请按「接口地址 → API Key → 模型」填写。获取模型和测试连接会使用当前表单中的值，不必先保存。「启用」需点击保存后才会生效。</p>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-[11px] text-slate-500 mb-1">接口地址</label>
+                <input v-model="aiForm.base_url" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="https://api.openai.com/v1">
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-500 mb-1">API Key {{ aiForm.has_key ? '（已保存，留空不修改）' : '' }}</label>
+                <input v-model="aiForm.api_key" type="password" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" :placeholder="aiForm.has_key ? '已保存，留空保持不变' : '输入密钥'">
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-500 mb-1">模型名称</label>
+                <div class="flex items-center gap-2">
+                  <input v-model="aiForm.model_name" class="custom-input flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如 qwen-vl-max">
+                  <button type="button" @click="fetchModels" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">获取模型</button>
+                  <button type="button" @click="testAI" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">测试连接</button>
+                </div>
+              </div>
             </div>
-            <div v-if="modelOptions.length" class="mt-2 flex flex-wrap gap-1.5">
-              <button v-for="m in modelOptions.slice(0,20)" :key="m" @click="aiForm.model_name=m" class="text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">{{ m }}</button>
+            <div v-if="visibleModelOptions.length" class="mt-2 flex flex-wrap gap-1.5">
+              <button type="button" v-for="m in visibleModelOptions" :key="m" @click="aiForm.model_name=m" :class="['text-[10px] px-2 py-1 rounded border', aiForm.model_name===m ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 border-transparent text-slate-600 hover:bg-slate-200']">{{ m }}</button>
             </div>
-            <div class="mt-3"><label class="block text-[11px] text-slate-500 mb-1">识别提示词</label><textarea v-model="aiForm.system_prompt" rows="5" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono"></textarea></div>
-            <button @click="saveAI" class="mt-3 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">保存配置</button>
+            <div class="mt-3">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-[11px] text-slate-500">识别提示词</label>
+                <button type="button" @click="restoreDefaultPrompt" class="h-7 px-2 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50">恢复默认提示词</button>
+              </div>
+              <textarea v-model="aiForm.system_prompt" rows="5" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono"></textarea>
+            </div>
+            <button type="button" @click="saveAI" class="mt-3 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">保存配置</button>
           </div>
 
           <div v-if="settingTab==='users' && user.role==='admin'" class="bg-white border border-slate-200 rounded-2xl p-5">
@@ -1884,9 +1903,19 @@ const app = createApp({
 
     const aiForm = reactive({ enabled: true, base_url: '', model_name: '', api_key: '', has_key: false, system_prompt: '' });
     const modelOptions = ref([]);
+    const defaultAIPrompt = ref('');
+    const visibleModelOptions = computed(() => {
+      const selected = (aiForm.model_name || '').trim();
+      const all = Array.isArray(modelOptions.value) ? modelOptions.value.filter(Boolean) : [];
+      if (!all.length) return [];
+      const rest = all.filter(name => name !== selected);
+      const ordered = selected ? [selected, ...rest] : rest;
+      return ordered.slice(0, 20);
+    });
     async function loadAI() {
       try {
         const data = await api('/api/settings/ai');
+        defaultAIPrompt.value = data.default_system_prompt || defaultAIPrompt.value;
         Object.assign(aiForm, { enabled: data.enabled, base_url: data.base_url, model_name: data.model_name, api_key: '', has_key: data.has_key, system_prompt: data.system_prompt });
       } catch (e) {}
     }
@@ -1899,17 +1928,26 @@ const app = createApp({
       } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function fetchModels() {
+      if (!aiForm.base_url.trim() || (!aiForm.api_key && !aiForm.has_key)) return notify('请先填写接口地址和 API Key', 'error');
       try {
         const result = await api('/api/settings/ai/models', { method: 'POST', body: { base_url: aiForm.base_url, api_key: aiForm.api_key } });
-        if (result.success) { modelOptions.value = result.models; notify(result.message); }
+        if (result.success) { modelOptions.value = result.models || []; notify(result.message); }
         else notify(result.message, 'error');
       } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function testAI() {
+      if (!aiForm.base_url.trim() || !aiForm.model_name.trim() || (!aiForm.api_key && !aiForm.has_key)) {
+        return notify('请先填写接口地址、API Key 和模型名称', 'error');
+      }
       try {
-        const result = await api('/api/settings/ai/test', { method: 'POST', body: { base_url: aiForm.base_url, api_key: aiForm.api_key } });
+        const result = await api('/api/settings/ai/test', { method: 'POST', body: { base_url: aiForm.base_url, api_key: aiForm.api_key, model_name: aiForm.model_name } });
         notify(result.message, result.success ? 'success' : 'error');
       } catch (error) { notify(errMsg(error), 'error'); }
+    }
+    function restoreDefaultPrompt() {
+      if (!defaultAIPrompt.value) return notify('默认提示词暂不可用', 'error');
+      aiForm.system_prompt = defaultAIPrompt.value;
+      notify('已恢复默认提示词，保存后生效');
     }
 
     const userForm = reactive({ username: '', password: '', role: 'user' });
@@ -1972,7 +2010,7 @@ const app = createApp({
       companyBarWidth, agingBarWidth, categoryBarWidth, trendHeight,
       companyForm, openCompanyModal, saveCompany, deleteCompany,
       categoryForm, openCategoryModal, saveCategory,
-      aiForm, modelOptions, saveAI, fetchModels, testAI,
+      aiForm, modelOptions, visibleModelOptions, saveAI, fetchModels, testAI, restoreDefaultPrompt,
       userForm, openUserModal, saveUser, resetTarget, resetPasswordValue, openResetPassword, doResetPassword, deleteUser,
       thumbCache,
     };
