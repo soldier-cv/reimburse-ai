@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>差旅住宿电子发票</title>
+  <link rel="stylesheet" href="invoices.css">
+</head>
+<body class="invoice">
+  <div class="header">
+    <div class="badge">电子发票（普通发票）</div>
+    <h1>差旅住宿电子发票</h1>
+  </div>
+  <div class="meta">
+    <div>发票号码：<b>25312000000022345678</b></div>
+    <div>开票日期：<b>2026年11月04日</b></div>
+  </div>
+  <div class="parties">
+    <div class="party">
+      <h2>购买方信息</h2>
+      <p>名称：杭州识微科技有限公司</p>
+      <p>统一社会信用代码/纳税人识别号：91330100MA2TEST01X</p>
+    </div>
+    <div class="party">
+      <h2>销售方信息</h2>
+      <p>名称：杭州湖畔酒店管理有限公司</p>
+      <p>统一社会信用代码/纳税人识别号：91330100MA2HOTEL3Z</p>
+    </div>
+  </div>
+  <table class="items">
+    <thead>
+      <tr>
+        <th class="name">项目名称</th>
+        <th>数量</th>
+        <th>单价</th>
+        <th>金额</th>
+        <th>税率</th>
+        <th>税额</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="name">*住宿服务*客房住宿费</td>
+        <td>2</td>
+        <td>320.75</td>
+        <td>641.51</td>
+        <td>6%</td>
+        <td>38.49</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td class="name">合计</td>
+        <td></td>
+        <td></td>
+        <td>641.51</td>
+        <td></td>
+        <td>38.49</td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="total">
+    <div class="cap">价税合计（大写）陆佰捌拾圆整</div>
+    <div class="num">（小写）¥680.00</div>
+  </div>
+  <div class="notes">
+    <p>备注：入住日期 2026-11-03，离店日期 2026-11-05</p>
+    <p>本发票为测试夹具，仅用于 reimburse-ai 故事测试，不具有税务效力。</p>
+  </div>
+  <div class="seal">
+    <div class="stamp"><strong>杭州湖畔酒店</strong><span>发票专用章</span></div>
+  </div>
+</body>
+</html>

@@ -40,6 +40,12 @@
    - 所有查询强制带 `user_id`，管理员只能管理账号，不能读取其他成员账本；
    - 成员账号默认由管理员创建，仅 `ALLOW_REGISTRATION=1` 时开放自主注册。
 
+8. **Agent 令牌**
+   - 用户可在「设置 -> Agent 令牌」为自己签发访问令牌，前缀为 `ragt_`，明文只显示一次；
+   - 在请求头使用 `Authorization: Bearer ragt_...`，令牌只作用于该用户账本；
+   - 权限范围：`capture`（采集与确认）、`ledger`（公司、类别、台账、批次、到账、看板）、`export`（Excel、PDF、财务包与导出记录）；
+   - 不能用 Agent 令牌管理账号、改密码、签发或吊销令牌，也不能读取或修改 AI 密钥。
+
 ## 环境变量
 
 | 变量 | 作用 | 默认 |
@@ -147,19 +153,34 @@ docker exec reimburse-ai python scripts/backup.py
 ```
 app/
   main.py                 API 路由与业务编排
-  models.py               公司、类别、应收、批次、到账、附件、草稿、导出记录
+  models.py               公司、类别、应收、批次、到账、附件、草稿、导出记录、Agent 令牌
   schemas.py              请求模型
   services/
     ai_service.py         多模态识别与 JSON 归一化
     capture.py            文件落盘、缩略图、草稿识别、去重
     exporter.py           Excel、合并 PDF、财务包 ZIP
     money.py              整数分与日期工具
-    auth.py               认证与口令哈希
+    auth.py               认证、会话 JWT 与 Agent 令牌校验
     auth_guard.py         登录限流与封禁
+    agent_tokens.py       Agent 令牌签发、哈希与范围
     download_tokens.py    一次性签名下载
   static/index.html       Vue 3 单页界面
-tests/                    接口与导出回归测试
+tests/                    接口、导出与 Agent 故事测试
+tests/fixtures/invoices/  可复用发票 HTML 与 PNG 夹具
 ```
+
+## Agent 调用
+
+签发令牌后，用该用户的身份访问业务接口：
+
+```http
+Authorization: Bearer ragt_...
+GET /api/auth/me
+```
+
+`/api/auth/me` 会返回 `auth_method`、令牌名称和权限范围。已有数据库在启动时会自动创建 `agent_tokens` 表，无需手工迁移，也不影响旧数据。
+
+建议为 Agent 或故事测试单独准备一个成员账号，只在该账本中跑测试，避免和个人生产数据混在一起。成员由管理员在「设置 -> 成员」中创建，再由该成员自己签发 Agent 令牌。系统不会向生产库自动写入测试用户。
 
 ## 测试
 
@@ -167,7 +188,11 @@ tests/                    接口与导出回归测试
 python -m pytest -q
 ```
 
-测试使用独立临时数据库与上传目录，不会触碰 `data/` 与 `uploads/`。
+测试使用独立临时数据库与上传目录，不会触碰 `data/` 与 `uploads/`。故事测试会创建名为 `story-tester` 的隔离用户，并用 `tests/fixtures/invoices/` 中的发票截图跑采集、入账、批次、到账和导出流程；识别结果为空时测试会补全草稿字段，不依赖在线 AI。重新生成夹具：
+
+```bash
+python tests/fixtures/invoices/render.py
+```
 
 ## 许可证
 

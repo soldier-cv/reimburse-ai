@@ -8,9 +8,19 @@ import argon2
 import argon2.exceptions
 from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from limits.limits import RateLimitItemPerMinute
+from limits.storage import MemoryStorage
+from limits.strategies import MovingWindowRateLimiter
 from sqlalchemy.orm import Session
 from ..database import get_db, DATA_DIR
 from ..models import User
+from .agent_tokens import (
+    TOKEN_PREFIX,
+    authenticate_agent_token,
+    enforce_agent_access,
+    scopes_from_row,
+    touch_last_used,
+)
 
 # JWT 密钥初始化与持久化（权限收紧为 0600，且 fail-closed）
 SECRET_FILE = os.path.join(DATA_DIR, "jwt_secret.key")
@@ -52,6 +62,11 @@ ACCESS_TOKEN_EXPIRE_DAYS = 7 # 会话有效期收窄至 7 天
 
 security = HTTPBearer(auto_error=False)
 pwd_hasher = argon2.PasswordHasher()
+
+# Agent 写操作限流：按令牌 ID，进程内滑动窗口
+agent_write_storage = MemoryStorage()
+agent_write_limiter = MovingWindowRateLimiter(agent_write_storage)
+agent_write_limit = RateLimitItemPerMinute(60)
 
 def _verify_legacy_pbkdf2(plain_password: str, salt: str, hashed: str) -> bool:
     # 仅用于校验/迁移旧记录（PBKDF2-HMAC-SHA256 遗留兼容分支）
@@ -139,9 +154,9 @@ def get_current_user(
 ) -> User:
     """
     鉴权中间件 / 依赖：
-    支持以下两种凭据传递方式（彻底禁止 query param 传 token）：
-    1. Header: Authorization: Bearer <token>
-    2. Cookie: access_token=<token> 或 expense_token=<token>
+    支持以下凭据传递方式（彻底禁止 query param 传 token）：
+    1. Header: Authorization: Bearer <session JWT 或 ragt_ Agent 令牌>
+    2. Cookie: access_token=<token> 或 expense_token=<token>（仅会话 JWT）
     """
     token = None
     if auth and auth.credentials:
@@ -157,6 +172,31 @@ def get_current_user(
             detail="请先登录系统",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if token.startswith(TOKEN_PREFIX):
+        row = authenticate_agent_token(db, token)
+        user = db.query(User).filter(User.id == row.user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="用户不存在",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        scopes = scopes_from_row(row)
+        request.state.auth_method = "agent"
+        request.state.agent_scopes = scopes
+        request.state.agent_token_id = row.id
+        request.state.agent_token_name = row.name
+        enforce_agent_access(request.url.path, scopes, request)
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            allowed = agent_write_limiter.hit(agent_write_limit, "agentwrite", str(row.id))
+            if not allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="请求过于频繁，请稍后再试",
+                )
+        touch_last_used(db, row.id)
+        return user
 
     payload = decode_access_token(token)
     if not payload or "sub" not in payload:
@@ -184,6 +224,10 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    request.state.auth_method = "session"
+    request.state.agent_scopes = None
+    request.state.agent_token_id = None
+    request.state.agent_token_name = None
     return user
 
 def init_default_admin(db: Session):

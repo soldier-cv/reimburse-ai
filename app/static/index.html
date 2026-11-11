@@ -667,6 +667,49 @@
             <button type="button" @click="saveAI" class="mt-3 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">保存配置</button>
           </div>
 
+          <div v-if="settingTab==='agent'" class="bg-white border border-slate-200 rounded-2xl p-5">
+            <div class="flex items-center justify-between mb-3">
+              <div class="text-sm font-bold text-slate-900">Agent 令牌</div>
+              <button type="button" @click="showAgentCreate=!showAgentCreate" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">签发令牌</button>
+            </div>
+            <p class="text-[11px] text-slate-400 mb-4">令牌仅作用于当前账号的账本。在请求头使用 Authorization: Bearer 即可让 Agent 采集票据、维护台账、提交批次、核销到账和导出财务包。明文只在签发时显示一次，令牌不能管理账号、修改密码或配置 AI 密钥。</p>
+            <div v-if="showAgentCreate" class="mb-4 border border-slate-200 rounded-xl p-3 space-y-3">
+              <div class="grid sm:grid-cols-2 gap-3">
+                <div><label class="block text-[11px] text-slate-500 mb-1">名称 *</label><input v-model="agentTokenForm.name" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：故事测试"></div>
+                <div><label class="block text-[11px] text-slate-500 mb-1">过期日期（可选）</label><input v-model="agentTokenForm.expires_at" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+              </div>
+              <div>
+                <div class="text-[11px] text-slate-500 mb-1">权限范围</div>
+                <div class="flex flex-wrap gap-3">
+                  <label v-for="item in agentScopeOptions" :key="item.key" class="inline-flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" :value="item.key" v-model="agentTokenForm.scopes" class="rounded border-slate-300">{{ item.label }}</label>
+                </div>
+              </div>
+              <div class="flex justify-end gap-2">
+                <button type="button" @click="showAgentCreate=false" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs">取消</button>
+                <button type="button" @click="createAgentToken" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">签发</button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-[11px] text-slate-500"><tr><th class="text-left px-3 py-2 font-medium">名称</th><th class="text-left px-3 py-2 font-medium">前缀</th><th class="text-left px-3 py-2 font-medium">范围</th><th class="text-left px-3 py-2 font-medium">状态</th><th class="text-left px-3 py-2 font-medium">最近使用</th><th class="text-right px-3 py-2 font-medium">操作</th></tr></thead>
+                <tbody class="divide-y divide-slate-100">
+                  <tr v-for="item in agentTokens" :key="item.id">
+                    <td class="px-3 py-3 font-medium">{{ item.name }}</td>
+                    <td class="px-3 py-3 text-xs font-mono text-slate-500">{{ item.token_prefix }}</td>
+                    <td class="px-3 py-3 text-[11px] text-slate-500">{{ scopeText(item.scopes) }}</td>
+                    <td class="px-3 py-3"><span :class="['text-[10px] px-2 py-0.5 rounded-full', agentStatusClass(item.status)]">{{ item.status_label }}</span></td>
+                    <td class="px-3 py-3 text-xs text-slate-400">{{ item.last_used_at || '-' }}</td>
+                    <td class="px-3 py-3 text-right whitespace-nowrap">
+                      <button v-if="item.status==='active' || item.status==='disabled'" type="button" @click="toggleAgentToken(item)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">{{ item.enabled ? '停用' : '启用' }}</button>
+                      <button v-if="!item.revoked_at" type="button" @click="revokeAgentToken(item)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">吊销</button>
+                    </td>
+                  </tr>
+                  <tr v-if="!agentTokens.length"><td colspan="6" class="py-10 text-center text-sm text-slate-400">尚未签发 Agent 令牌</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div v-if="settingTab==='users' && user.role==='admin'" class="bg-white border border-slate-200 rounded-2xl p-5">
             <div class="flex items-center justify-between mb-4">
               <div class="text-sm font-bold text-slate-900">成员账号</div>
@@ -997,6 +1040,19 @@
     </div>
   </div>
 
+
+  <div v-if="modal.name==='agentTokenSecret'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
+    <div class="bg-white rounded-2xl w-full max-w-lg border border-slate-200 shadow-xl p-5">
+      <div class="text-sm font-bold text-slate-900">令牌已签发</div>
+      <p class="text-[11px] text-slate-500 mt-2 leading-relaxed">请立即复制并妥善保存。关闭此窗口后将无法再次查看明文。使用方式：在请求头加入 Authorization: Bearer 后跟该令牌。</p>
+      <div class="mt-3 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono break-all select-all">{{ createdAgentToken }}</div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button type="button" @click="copyAgentToken" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-medium">复制</button>
+        <button type="button" @click="closeModal" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">已保存</button>
+      </div>
+    </div>
+  </div>
+
   <input ref="fileInput" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.gif,.heic,.ofd,.zip" class="hidden" @change="onFilePicked">
 </div>
 
@@ -1058,6 +1114,7 @@ const app = createApp({
       { key: 'companies', label: '公司' },
       { key: 'categories', label: '类别' },
       { key: 'ai', label: 'AI 识别' },
+      { key: 'agent', label: 'Agent 令牌' },
       { key: 'users', label: '成员' },
       { key: 'audit', label: '审计' },
     ];
@@ -1093,6 +1150,15 @@ const app = createApp({
     const exportRecords = ref([]);
     const auditLogs = ref([]);
     const users = ref([]);
+    const agentTokens = ref([]);
+    const showAgentCreate = ref(false);
+    const createdAgentToken = ref('');
+    const agentScopeOptions = [
+      { key: 'capture', label: '采集' },
+      { key: 'ledger', label: '台账' },
+      { key: 'export', label: '导出' },
+    ];
+    const agentTokenForm = reactive({ name: '', expires_at: '', scopes: ['capture', 'ledger', 'export'] });
     const selectedReceivableIds = ref([]);
     const selectedDraftIds = ref([]);
     const uploadCompanyId = ref(null);
@@ -1363,7 +1429,7 @@ const app = createApp({
       if (key === 'batches') loadBatches().catch(() => {});
       if (key === 'payments') loadPayments().catch(() => {});
       if (key === 'export') loadExportRecords().catch(() => {});
-      if (key === 'settings') { loadCompanies(); loadCategories(); loadAI(); loadUsers(); loadAudit(); }
+      if (key === 'settings') { loadCompanies(); loadCategories(); loadAI(); loadUsers(); loadAudit(); loadAgentTokens(); }
       if (key === 'inbox') loadDrafts().catch(() => {});
       if (key === 'dashboard') loadDashboard().catch(() => {});
     }
@@ -1912,6 +1978,55 @@ const app = createApp({
       const ordered = selected ? [selected, ...rest] : rest;
       return ordered.slice(0, 20);
     });
+    async function loadAgentTokens() {
+      try { agentTokens.value = await api('/api/settings/agent-tokens'); }
+      catch (e) { notify(errMsg(e), 'error'); }
+    }
+    function scopeText(scopes) {
+      const map = { capture: '采集', ledger: '台账', export: '导出' };
+      return (scopes || []).map(item => map[item] || item).join('、') || '-';
+    }
+    function agentStatusClass(status) {
+      return { active: 'bg-emerald-50 text-emerald-700', disabled: 'bg-slate-100 text-slate-500', revoked: 'bg-rose-50 text-rose-700', expired: 'bg-amber-50 text-amber-700' }[status] || 'bg-slate-100 text-slate-500';
+    }
+    async function createAgentToken() {
+      const name = (agentTokenForm.name || '').trim();
+      if (!name) return notify('请填写令牌名称', 'error');
+      if (!agentTokenForm.scopes.length) return notify('请至少选择一个权限范围', 'error');
+      try {
+        const created = await api('/api/settings/agent-tokens', { method: 'POST', body: { name, scopes: agentTokenForm.scopes, expires_at: agentTokenForm.expires_at || null } });
+        createdAgentToken.value = created.token;
+        agentTokenForm.name = '';
+        agentTokenForm.expires_at = '';
+        agentTokenForm.scopes = ['capture', 'ledger', 'export'];
+        showAgentCreate.value = false;
+        await loadAgentTokens();
+        openModal('agentTokenSecret');
+      } catch (e) { notify(errMsg(e), 'error'); }
+    }
+    async function copyAgentToken() {
+      try {
+        await navigator.clipboard.writeText(createdAgentToken.value || '');
+        notify('已复制到剪贴板');
+      } catch (e) { notify('复制失败，请手动选择复制', 'error'); }
+    }
+    async function toggleAgentToken(item) {
+      try {
+        await api('/api/settings/agent-tokens/' + item.id, { method: 'PATCH', body: { enabled: !item.enabled } });
+        await loadAgentTokens();
+        notify(item.enabled ? '令牌已停用' : '令牌已启用');
+      } catch (e) { notify(errMsg(e), 'error'); }
+    }
+    async function revokeAgentToken(item) {
+      const ok = await askConfirm('吊销令牌', '吊销后不可恢复，使用该令牌的 Agent 将立即无法访问。确定吊销「' + item.name + '」？');
+      if (!ok) return;
+      try {
+        await api('/api/settings/agent-tokens/' + item.id + '/revoke', { method: 'POST' });
+        await loadAgentTokens();
+        notify('令牌已吊销');
+      } catch (e) { notify(errMsg(e), 'error'); }
+    }
+
     async function loadAI() {
       try {
         const data = await api('/api/settings/ai');
@@ -1992,13 +2107,14 @@ const app = createApp({
       token, user, authMode, authForm, authError, authLoading,
       view, settingTab, settingTabs, visibleSettingTabs, navItems, currentTitle,
       companies, activeCompanies, categories, dashboard, receivables, receivableTotal, receivableSummary,
-      batches, payments, drafts, exportRecords, auditLogs, users,
+      batches, payments, drafts, exportRecords, auditLogs, users, agentTokens, showAgentCreate, createdAgentToken, agentScopeOptions, agentTokenForm,
       selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput,
       filters, exportFilters, toast, notify, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount, canApplyPayment, applyDraftPayment,
       readyDraftCount, allSelected, selectedAmount, selectedCompanyName, toggleSelectAll,
       draftTitleMismatch, appendForm, appendTargets, appendDrafts, appendTargetTitle, appendableDrafts, openAppendModal, doAppendDrafts, goMissingMaterials,
       modal, openModal, closeModal, confirmDialog, askConfirm, resolveConfirm,
-      loadReceivables, loadBatches, loadPayments, loadExportRecords, loadAudit, loadUsers, loadAI,
+      loadReceivables, loadBatches, loadPayments, loadExportRecords, loadAudit, loadUsers, loadAI, loadAgentTokens,
+      scopeText, agentStatusClass, createAgentToken, copyAgentToken, toggleAgentToken, revokeAgentToken,
       submitAuth, logout, go, resetFilters, openQuickUpload, onFilePicked, uploadFiles, onDragOver, onDragLeave, onDrop,
       saveDraft, retryDraft, discardDraft, applyDraftCompany, openDraftFile, confirmDrafts,
       receivableForm, openReceivableModal, saveReceivable, deleteReceivable, duplicateReceivable, detail, openReceivableDetail,

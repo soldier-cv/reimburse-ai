@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>城市交通电子发票</title>
+  <link rel="stylesheet" href="invoices.css">
+</head>
+<body class="invoice">
+  <div class="header">
+    <div class="badge">电子发票（普通发票）</div>
+    <h1>城市交通电子发票</h1>
+  </div>
+  <div class="meta">
+    <div>发票号码：<b>25312000000012345678</b></div>
+    <div>开票日期：<b>2026年11月03日</b></div>
+  </div>
+  <div class="parties">
+    <div class="party">
+      <h2>购买方信息</h2>
+      <p>名称：杭州识微科技有限公司</p>
+      <p>统一社会信用代码/纳税人识别号：91330100MA2TEST01X</p>
+    </div>
+    <div class="party">
+      <h2>销售方信息</h2>
+      <p>名称：杭州便捷出行科技有限公司</p>
+      <p>统一社会信用代码/纳税人识别号：91330100MA2TAXI02Y</p>
+    </div>
+  </div>
+  <table class="items">
+    <thead>
+      <tr>
+        <th class="name">项目名称</th>
+        <th>数量</th>
+        <th>单价</th>
+        <th>金额</th>
+        <th>税率</th>
+        <th>税额</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="name">*运输服务*客运服务费（出租车）</td>
+        <td>1</td>
+        <td>120.75</td>
+        <td>120.75</td>
+        <td>6%</td>
+        <td>7.25</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td class="name">合计</td>
+        <td></td>
+        <td></td>
+        <td>120.75</td>
+        <td></td>
+        <td>7.25</td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="total">
+    <div class="cap">价税合计（大写）壹佰贰拾捌圆整</div>
+    <div class="num">（小写）¥128.00</div>
+  </div>
+  <div class="notes">
+    <p>备注：行程：杭州市西湖区至萧山区</p>
+    <p>本发票为测试夹具，仅用于 reimburse-ai 故事测试，不具有税务效力。</p>
+  </div>
+  <div class="seal">
+    <div class="stamp"><strong>杭州便捷出行</strong><span>发票专用章</span></div>
+  </div>
+</body>
+</html>

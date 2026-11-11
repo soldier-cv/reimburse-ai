@@ -39,6 +39,7 @@ class User(Base):
     exports = relationship("ExportRecord", back_populates="user", cascade="all, delete-orphan")
     settings = relationship("UserSetting", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
+    agent_tokens = relationship("AgentToken", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserSetting(Base):
@@ -318,6 +319,26 @@ class SystemSetting(Base):
     key = Column(String(50), unique=True, nullable=False)
     value = Column(Text, nullable=True)
     description = Column(String(200), nullable=True)
+
+
+class AgentToken(Base):
+    """用户签发的 Agent 访问令牌，明文只在创建时返回一次。"""
+
+    __tablename__ = "agent_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    name = Column(String(80), nullable=False)
+    token_prefix = Column(String(32), nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    scopes = Column(String(200), nullable=False, default="[]")
+    enabled = Column(Boolean, nullable=False, default=True)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+    revoked_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="agent_tokens")
 
 
 def materials_status(receivable: "Receivable") -> dict:

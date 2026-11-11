@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from .database import BASE_DIR, Base, engine, get_db
 from .models import (
+    AgentToken,
     Attachment,
     AuditLog,
     Batch,
@@ -48,6 +49,8 @@ from .models import (
 from .schemas import (
     AdminCreateUserRequest,
     AdminResetPasswordRequest,
+    AgentTokenCreate,
+    AgentTokenUpdate,
     AIModelFetchRequest,
     AISettingRequest,
     BatchCreate,
@@ -114,7 +117,18 @@ from .services.exporter import (
     build_finance_zip,
     build_merged_pdf,
 )
-from .services.migrations import ensure_auth_schema, ensure_receivable_schema
+from .services.agent_tokens import (
+    MAX_TOKENS_PER_USER,
+    generate_plaintext_token,
+    display_prefix,
+    hash_token,
+    parse_expires_at,
+    parse_scopes,
+    reject_if_agent_bearer,
+    serialize_token,
+    store_scopes,
+)
+from .services.migrations import ensure_auth_schema, ensure_agent_token_schema, ensure_receivable_schema
 from .services.payroll_match import propose_allocation
 from .services.money import (
     add_days,
@@ -135,7 +149,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.1.0",
+    version="3.2.0",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -442,6 +456,7 @@ def _resolve_export_receivables(db: Session, user: User, ids: list[int], batch_i
 async def startup_event():
     ensure_auth_schema(engine)
     ensure_receivable_schema(engine)
+    ensure_agent_token_schema(engine)
     db = next(get_db())
     try:
         init_default_admin(db)
@@ -475,6 +490,7 @@ def get_init_status(db: Session = Depends(get_db)):
 @app.post("/api/system/init-admin")
 @limiter.limit("10/minute")
 def init_admin_user(request: Request, req: InitAdminRequest, response: Response, db: Session = Depends(get_db)):
+    reject_if_agent_bearer(request.headers.get("Authorization"))
     if db.query(User).filter(User.role == "admin").count() > 0:
         raise HTTPException(status_code=400, detail="系统管理员已初始化，禁止重复设置")
     username = (req.username or "").strip()
@@ -513,6 +529,7 @@ def init_admin_user(request: Request, req: InitAdminRequest, response: Response,
 @app.post("/api/auth/register")
 @limiter.limit("10/minute")
 def register_user(request: Request, req: RegisterRequest, db: Session = Depends(get_db)):
+    reject_if_agent_bearer(request.headers.get("Authorization"))
     if os.environ.get("ALLOW_REGISTRATION", "").strip().lower() not in ("1", "true", "yes", "on"):
         raise HTTPException(status_code=403, detail="系统未开放自主注册，请联系管理员创建成员账号")
     client_ip = get_remote_address(request)
@@ -564,15 +581,25 @@ def login(request: Request, req: LoginRequest, response: Response, db: Session =
 
 
 @app.post("/api/auth/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
+    reject_if_agent_bearer(request.headers.get("Authorization"))
     response.delete_cookie("access_token")
     response.delete_cookie("expense_token")
     return {"success": True, "message": "已退出登录"}
 
 
 @app.get("/api/auth/me")
-def get_me(user: User = Depends(get_current_user)):
-    return {"id": user.id, "username": user.username, "role": user.role}
+def get_me(request: Request, user: User = Depends(get_current_user)):
+    payload = {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "auth_method": getattr(request.state, "auth_method", "session"),
+    }
+    if payload["auth_method"] == "agent":
+        payload["token_name"] = getattr(request.state, "agent_token_name", "")
+        payload["scopes"] = list(getattr(request.state, "agent_scopes", []) or [])
+    return payload
 
 
 @app.post("/api/auth/change-password")
@@ -2360,6 +2387,104 @@ def download_export_record(record_id: int, user: User = Depends(get_current_user
     if not record or not os.path.exists(record.stored_path):
         raise HTTPException(status_code=404, detail="导出文件不存在")
     return FileResponse(record.stored_path, media_type="application/zip", filename=record.filename)
+
+
+# ---------------------------------------------------------------------------
+# Agent 令牌（仅会话 JWT 可管理，Agent 令牌不能签发或吊销令牌）
+# ---------------------------------------------------------------------------
+@app.get("/api/settings/agent-tokens")
+def list_agent_tokens(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (
+        db.query(AgentToken)
+        .filter(AgentToken.user_id == user.id)
+        .order_by(AgentToken.id.desc())
+        .all()
+    )
+    return [serialize_token(row) for row in rows]
+
+
+@app.post("/api/settings/agent-tokens")
+@limiter.limit("10/minute")
+def create_agent_token(
+    request: Request,
+    req: AgentTokenCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    name = (req.name or "").strip()
+    if not name or len(name) > 80:
+        raise HTTPException(status_code=400, detail="令牌名称不能为空，且不超过 80 个字符")
+    scopes = parse_scopes(req.scopes)
+    expires_at = parse_expires_at(req.expires_at)
+    active_count = (
+        db.query(AgentToken)
+        .filter(AgentToken.user_id == user.id, AgentToken.revoked_at.is_(None))
+        .count()
+    )
+    if active_count >= MAX_TOKENS_PER_USER:
+        raise HTTPException(status_code=400, detail=f"每位用户最多保留 {MAX_TOKENS_PER_USER} 个未吊销的 Agent 令牌")
+
+    plaintext = generate_plaintext_token()
+    row = AgentToken(
+        user_id=user.id,
+        name=name,
+        token_prefix=display_prefix(plaintext),
+        token_hash=hash_token(plaintext),
+        scopes=store_scopes(scopes),
+        enabled=True,
+        expires_at=expires_at,
+        created_at=datetime.now(),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    record_audit(db, user.id, "签发 Agent 令牌", "agent_token", row.id, f"签发 Agent 令牌 [{name}]，范围 {','.join(scopes)}")
+    payload = serialize_token(row)
+    payload["token"] = plaintext
+    payload["message"] = "请立即复制并妥善保存，关闭后将无法再次查看明文"
+    return payload
+
+
+@app.patch("/api/settings/agent-tokens/{token_id}")
+def update_agent_token(
+    token_id: int,
+    req: AgentTokenUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(AgentToken).filter(AgentToken.id == token_id, AgentToken.user_id == user.id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="令牌不存在")
+    if row.revoked_at is not None:
+        raise HTTPException(status_code=400, detail="已吊销的令牌不能再修改或启用")
+    if req.name is not None:
+        name = req.name.strip()
+        if not name or len(name) > 80:
+            raise HTTPException(status_code=400, detail="令牌名称不能为空，且不超过 80 个字符")
+        row.name = name
+    if req.enabled is not None:
+        row.enabled = bool(req.enabled)
+        action = "启用 Agent 令牌" if row.enabled else "停用 Agent 令牌"
+    else:
+        action = None
+    db.commit()
+    db.refresh(row)
+    if action:
+        record_audit(db, user.id, action, "agent_token", row.id, f"{action} [{row.name}]")
+    return serialize_token(row)
+
+
+@app.post("/api/settings/agent-tokens/{token_id}/revoke")
+def revoke_agent_token(token_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.query(AgentToken).filter(AgentToken.id == token_id, AgentToken.user_id == user.id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="令牌不存在")
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now()
+        row.enabled = False
+        db.commit()
+        record_audit(db, user.id, "吊销 Agent 令牌", "agent_token", row.id, f"吊销 Agent 令牌 [{row.name}]")
+    return {"success": True, "message": "令牌已吊销"}
 
 
 # ---------------------------------------------------------------------------
