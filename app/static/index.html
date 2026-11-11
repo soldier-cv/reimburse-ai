@@ -375,7 +375,7 @@
                 <div v-if="d.payroll_match" class="mt-2 text-[10px] text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1">
                   <div>{{ d.payroll_match.reason }}</div>
                   <div v-if="d.payroll_match.allocations.length" class="text-slate-400 mt-0.5">
-                    {{ d.payroll_match.allocations.map(a => a.period + ' ¥' + a.amount).join('，') }}
+                    {{ d.payroll_match.allocations.map(a => a.period + ' ¥' + money(a.amount)).join('，') }}
                   </div>
                 </div>
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
@@ -384,6 +384,7 @@
                     <button @click="discardDraft(d)" class="text-slate-400 hover:text-rose-600">丢弃</button>
                   </div>
                   <button v-if="canApplyPayment(d)" @click="applyDraftPayment(d)" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-semibold">核销到账</button>
+                  <button v-else-if="d.is_inflow" @click="confirmDrafts([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2 py-1 rounded-lg border border-slate-200 text-slate-500 text-[10px] disabled:opacity-30">仍记为应收</button>
                   <button v-else @click="confirmDrafts([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-semibold disabled:opacity-30">确认入账</button>
                 </div>
               </div>

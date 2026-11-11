@@ -138,6 +138,10 @@ def reference_monthly_cents(db: Session, user_id: int, company_id: int) -> int:
     return int(median(values)) if values else 0
 
 
+def _month_label(period: str) -> str:
+    return f"{int(period[5:7])}月" if len(period) == 7 and period[5:7].isdigit() else period
+
+
 def _allocation(receivable: Receivable, cents: int) -> dict:
     return {
         "receivable_id": receivable.id,
@@ -202,16 +206,19 @@ def propose_allocation(
                     remaining -= take
         result.update(
             months=months,
-            month_labels=[f"{int(item[5:7])}月" for item in months],
+            month_labels=[_month_label(item) for item in months],
             allocations=allocations,
             remaining_cents=remaining,
             remaining=round(remaining / 100, 2),
             missing_periods=missing,
             source="remark",
         )
-        parts = [f"备注写明 {len(months)} 个月：{'、'.join(result['month_labels'])}"]
+        parts = [f"备注写明 {'、'.join(_month_label(item) for item in months)}"]
         if missing:
-            parts.append(f"{'、'.join(item[5:7] + '月' for item in missing)} 没有对应的工资应收")
+            if allocations:
+                parts.append(f"{'、'.join(_month_label(item) for item in missing)}没有对应的工资应收")
+            else:
+                parts[0] += "，但没有对应的工资应收"
         if remaining > 0:
             parts.append(f"还有 ¥{cents_to_text(remaining)} 没有可分到")
         if allocations and not missing and remaining == 0:
@@ -240,7 +247,7 @@ def propose_allocation(
         periods = [item["period"] for item in allocations]
         result.update(
             months=periods,
-            month_labels=[f"{int(item[5:7])}月" for item in periods if len(item) == 7],
+            month_labels=[_month_label(item) for item in periods],
             allocations=allocations,
             remaining_cents=remaining,
             remaining=round(remaining / 100, 2),
@@ -262,7 +269,7 @@ def propose_allocation(
                 periods = [item["period"] for item in allocations]
                 result.update(
                     months=periods,
-                    month_labels=[f"{int(item[5:7])}月" for item in periods if len(item) == 7],
+                    month_labels=[_month_label(item) for item in periods],
                     allocations=allocations,
                     remaining_cents=remaining,
                     remaining=round(remaining / 100, 2),
@@ -279,7 +286,7 @@ def propose_allocation(
     periods = [item["period"] for item in allocations]
     result.update(
         months=periods,
-        month_labels=[f"{int(item[5:7])}月" for item in periods if len(item) == 7],
+        month_labels=[_month_label(item) for item in periods],
         allocations=allocations,
         remaining_cents=remaining,
         remaining=round(remaining / 100, 2),

@@ -7,6 +7,7 @@
 import fnmatch
 import json
 import re
+import unicodedata
 
 try:
     import pymupdf as fitz  # PyMuPDF
@@ -69,7 +70,11 @@ def extract_pdf_text(pdf_path: str, max_pages: int = MAX_TEXT_PAGES) -> str:
 def has_usable_text(text: str) -> bool:
     """文本层是否足以直接交给模型（扫描件通常没有文本层或只有零星字符）。"""
     compact = re.sub(r"\s+", "", text or "")
-    return len(compact) >= 30 and bool(re.search(r"\d", compact))
+    if len(compact) < 20 or not re.search(r"\d", compact):
+        return False
+    # 字体缺编码时文本层会是一堆乱码，这种直接走视觉识别
+    garbage = sum(1 for char in compact if char == "\ufffd" or unicodedata.category(char) in ("Cc", "Co", "Cn"))
+    return garbage / len(compact) < 0.1
 
 
 def parse_clean_amount(val_str: str) -> float:

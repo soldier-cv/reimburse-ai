@@ -372,9 +372,7 @@ def _apply_extraction(db: Session, draft: CaptureDraft, data: dict) -> None:
         total = sum(float(entry.get("amount") or 0) for entry in data["entries"])
         amount = total if total > 0 else None
         data["amount_from"] = "entries"
-    if (amount is None or amount <= 0) and data.get("amount_candidates"):
-        amount = data["amount_candidates"][0]
-        data["amount_from"] = "candidate"
+    # 模型没给金额时不再拿候选值顶替：候选只作为可点选的建议，金额必须人工确认
 
     if amount is not None and amount > 0:
         try:
@@ -508,7 +506,8 @@ def _filename_fallback(hints: dict) -> dict:
 def _finish(db: Session, draft_id: int, plan: dict, ai_result: dict | None) -> None:
     """同步阶段：落库识别结果。"""
     draft = db.query(CaptureDraft).filter(CaptureDraft.id == draft_id).first()
-    if not draft:
+    # 识别期间用户可能已经核销或丢弃，不能把状态改回去
+    if not draft or draft.status in ("confirmed", "discarded"):
         return
     ext = plan["ext"]
     data = plan["data"]
@@ -538,8 +537,10 @@ def _finish(db: Session, draft_id: int, plan: dict, ai_result: dict | None) -> N
 
     if data:
         _apply_extraction(db, draft, data)
-        if error and draft.amount_cents:
+        if draft.amount_cents:
             error = None
+        elif not error:
+            error = "未识别到金额，请从候选金额中选择或手动填写"
 
     if not draft.occurred_on:
         draft.occurred_on = today_str()
@@ -669,7 +670,7 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
             candidates.append(cents)
     is_inflow = extracted.get("direction") == "in"
     payroll_match = None
-    if is_inflow and db is not None and draft.company_id and draft.amount_cents:
+    if is_inflow and draft.status == "ready" and db is not None and draft.company_id and draft.amount_cents:
         payroll_match = propose_allocation(
             db,
             draft.user_id,
@@ -681,12 +682,15 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
     hints = []
     if draft.amount_cents and not extracted.get("amount_confirmed") and (
         extracted.get("method") == "filename"
-        or extracted.get("amount_from") == "candidate"
         or (isinstance(amount_confidence, (int, float)) and amount_confidence < LOW_CONFIDENCE)
     ):
         hints.append("金额把握不高，请对照原件核对")
+    if extracted.get("amount_from") == "entries":
+        hints.append("金额由多笔明细合计，请核对是否完整")
     if draft.status == "ready" and extracted and extracted.get("date_missing"):
         hints.append("未识别到日期，已暂填今天")
+    if is_inflow and draft.status == "ready" and not (payroll_match or {}).get("allocations"):
+        hints.append("这是到账记录，没有匹配的工资应收；可先在应收台账补建对应月份")
     return {
         "id": draft.id,
         "company_id": draft.company_id,
