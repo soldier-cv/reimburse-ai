@@ -178,3 +178,15 @@ class FinancePackRequest(BaseModel):
     receivable_ids: List[int] = Field(default_factory=list)
     batch_id: Optional[int] = None
     include_originals: bool = True
+
+
+class AgentTokenCreate(BaseModel):
+    name: str
+    scopes: Optional[List[str]] = None
+    expires_at: Optional[str] = None
+
+
+class AgentTokenUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    name: Optional[str] = None
+

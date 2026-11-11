@@ -52,3 +52,37 @@ def ensure_receivable_schema(engine: Engine) -> None:
             ))
             conn.commit()
             print("[RECEIVABLE MIGRATE] payment_items.amount_cents 已添加")
+
+
+def ensure_agent_token_schema(engine: Engine) -> None:
+    """为已有库创建 agent_tokens 表（幂等）。新库由 metadata.create_all 创建。"""
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_tokens'")
+        ).fetchone()
+        if exists:
+            return
+        conn.execute(
+            text(
+                """
+                CREATE TABLE agent_tokens (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    name VARCHAR(80) NOT NULL,
+                    token_prefix VARCHAR(32) NOT NULL,
+                    token_hash VARCHAR(64) NOT NULL,
+                    scopes VARCHAR(200) NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    expires_at DATETIME,
+                    last_used_at DATETIME,
+                    created_at DATETIME,
+                    revoked_at DATETIME,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_tokens_user_id ON agent_tokens (user_id)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_tokens_token_hash ON agent_tokens (token_hash)"))
+        conn.commit()
+        print("[AUTH MIGRATE] agent_tokens 表已创建")

@@ -18,15 +18,18 @@ os.environ["ALLOW_REGISTRATION"] = "1"
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.auth_guard import guard_storage  # noqa: E402
+from app.services.auth import agent_write_storage  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def reset_guard_and_limiter():
     guard_storage.reset()
+    agent_write_storage.reset()
     if hasattr(app.state, "limiter") and hasattr(app.state.limiter, "_storage"):
         app.state.limiter._storage.reset()
     yield
     guard_storage.reset()
+    agent_write_storage.reset()
     if hasattr(app.state, "limiter") and hasattr(app.state.limiter, "_storage"):
         app.state.limiter._storage.reset()
 

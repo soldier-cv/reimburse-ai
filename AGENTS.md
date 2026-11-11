@@ -10,8 +10,8 @@
 2. **环境感知**：生产为 Linux + Docker（宿主 8092 → 容器 8090，数据 `/data/reimburse-ai`）；本地开发可能是 Windows。命令与路径按当前环境处理。
 3. **语言规范**：始终使用中文回复和解释。
 4. **禁止 Emoji**：界面、提示词、注释、日志一律不使用 emoji；图标统一使用 EttsDohikct 或内联 SVG。
-5. **认证鉴权纪律**：口令哈希用 `argon2-cffi`，令牌用 `PyJWT`，限流用 `slowapi`/`limits`，签名链接用 `itsdangerous`；禁止手写密码哈希、令牌签名、随机数与常量时间比较。凭证只走 Header/Cookie，禁止 query 传凭证。
-6. **数据隔离**：所有业务查询必须带 `user_id`。管理员只能管理账号，不能读取其他成员账本。
+5. **认证鉴权纪律**：口令哈希用 `argon2-cffi`，会话令牌用 `PyJWT`，限流用 `slowapi`/`limits`，签名链接用 `itsdangerous`；禁止手写密码哈希、令牌签名、随机数与常量时间比较。Agent 令牌使用 `hashlib.sha256` 存储、`hmac.compare_digest` 比对，明文前缀为 `ragt_`，只在签发时返回一次。凭证只走 Header/Cookie，禁止 query 传凭证。
+6. **数据隔离**：所有业务查询必须带 `user_id`。管理员只能管理账号，不能读取其他成员账本。Agent 令牌属于某个用户，并始终以该用户身份访问，不能查看其他账本，也不能管理任何用户的令牌。
 7. **注册默认关闭**：成员账号由管理员在设置中创建；仅当显式设置 `ALLOW_REGISTRATION=1` 时开放自主注册。
 8. **CORS 默认关闭**：前后端同源部署；跨域来源必须通过 `CORS_ORIGINS` 显式白名单。
 9. **提交准则**：本地验证通过后按逻辑分组 `git commit`；`git push` 由派发方验收后执行。
@@ -44,6 +44,7 @@
 | `Attachment` | 发票、截图、聊天记录、回单 |
 | `CaptureDraft` | 已上传未确认的采集草稿，承载 AI 识别结果 |
 | `ExportRecord` | 导出快照：清单、金额、文件哈希、路径 |
+| `AgentToken` | 用户签发的 Agent 访问令牌，只存哈希与前缀 |
 | `AuditLog` / `UserSetting` / `SystemSetting` | 审计与配置 |
 
 ---
@@ -61,6 +62,15 @@
 - AI 置信度不可信，金额必须可编辑、可看原图；金额为空不允许确认；模型没给出金额时不拿候选值顶替，候选只作可点选的建议。
 - 去重：文件哈希 + 发票代码/号码 + 同批重复；命中只提示，不自动删除。
 - 确认时生成 `Receivable + Attachment`，草稿状态置为 `confirmed`；支持把草稿追加到已有应收。
+
+## Agent 接口
+
+- 用户在「设置 -> Agent 令牌」签发、停用、启用或吊销自己的令牌；管理员不能管理其他用户的令牌。
+- 请求头：`Authorization: Bearer ragt_...`。`GET /api/auth/me` 对 Agent 调用返回 `auth_method`、令牌名称和范围。
+- 默认签发全部三个范围：`capture`（`/api/capture*`，含确认与核销到账）、`ledger`（公司、类别、应收、批次、到账、看板、附件）、`export`（Excel、PDF、财务包、附件压缩包、导出记录与下载）。缺少范围返回 403。
+- Agent 令牌禁止用于：管理员账号管理、初始化管理员、注册、改密、退出登录、AI 设置（含密钥与测连）、以及令牌本身的签发/列举/吊销。
+- 吊销、停用或过期的令牌返回 401。已有数据库启动时自动创建 `agent_tokens` 表，无需破坏性迁移。
+- 不要在生产库自动写入测试用户。如需给 Agent 或故事测试准备专用账本，由管理员创建独立成员，再由该成员自己签发令牌。
 
 ## 导出
 
@@ -89,7 +99,7 @@ python run.py
 python -m pytest -q
 ```
 
-测试使用临时数据库与上传目录，禁止指向生产路径。
+测试使用临时数据库与上传目录，禁止指向生产路径。故事测试使用 `tests/fixtures/invoices/` 中的发票截图，并在隔离用户 `story-tester` 的账本中执行；不依赖在线 AI。重新生成夹具：`python tests/fixtures/invoices/render.py`。
 
 ## 已知边界
 
