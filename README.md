@@ -171,7 +171,7 @@ tests/fixtures/invoices/  可复用发票 HTML 与 PNG 夹具
 
 ## Agent 调用
 
-签发令牌后，用该用户的身份访问业务接口：
+其它 Agent 的完整用法（鉴权、权限范围、采集到导出的步骤与边界）见仓库内技能文档 [`skills/reimburse-ai/SKILL.md`](skills/reimburse-ai/SKILL.md)。签发令牌后，用该用户的身份访问业务接口：
 
 ```http
 Authorization: Bearer ragt_...

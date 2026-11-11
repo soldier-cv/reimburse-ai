@@ -72,6 +72,15 @@
 - 吊销、停用或过期的令牌返回 401。已有数据库启动时自动创建 `agent_tokens` 表，无需破坏性迁移。
 - 不要在生产库自动写入测试用户。如需给 Agent 或故事测试准备专用账本，由管理员创建独立成员，再由该成员自己签发令牌。
 
+## 技能文档（skills/）
+
+`skills/reimburse-ai/SKILL.md` 是发给外部 Agent 的用法说明，**真源就在本仓库**，随代码一起版本化：
+
+- 改 Agent 可见的接口、权限范围或业务规则时，**同一个提交里**把技能改掉，别让它落后于代码。
+- 技能版本号独立于应用版本，按 patch（措辞）/ minor（新增章节或接口）/ major（推翻既有结论）递增。当前技能 1.0.0 对齐应用 3.2.0+。
+- 本仓库不带用于同步技能目录的 git hooks。要挂到公共技能注册，只需在宿主上建立符号链接：`/opt/code/static-deploy/skills/reimburse-ai` → 本仓库的 `skills/reimburse-ai`。之后由宿主已有的 index 同步机制纳入 `http://100.64.0.88:8088/.well-known/skills/`。在完成这一步之前，不要假定线上已提供这份技能。
+- 判断线上是否最新：`curl -s http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md | sha256sum` 与本地 `sha256sum skills/reimburse-ai/SKILL.md` 一致。
+
 ## 导出
 
 - `GET /api/export/excel`：筛选条件导出明细 Excel。
