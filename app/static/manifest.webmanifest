@@ -1,0 +1,16 @@
+{
+  "name": "个人应收与报销管理台",
+  "short_name": "应收管理台",
+  "description": "记录公司应付的报销、工资与补贴，跟踪提交、逾期与到账。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
