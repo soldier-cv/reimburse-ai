@@ -318,3 +318,18 @@ class SystemSetting(Base):
     key = Column(String(50), unique=True, nullable=False)
     value = Column(Text, nullable=True)
     description = Column(String(200), nullable=True)
+
+
+def materials_status(receivable: "Receivable") -> dict:
+    """按类别「需要发票」判断一笔应收的材料是否齐全。"""
+    attachments = [item for item in (receivable.attachments or []) if item.deleted_at is None]
+    has_invoice = any(item.kind == "invoice" for item in attachments)
+    requires_invoice = bool(receivable.category.requires_invoice) if receivable.category else False
+    missing_invoice = requires_invoice and not has_invoice
+    return {
+        "requires_invoice": requires_invoice,
+        "has_invoice": has_invoice,
+        "missing_invoice": missing_invoice,
+        "materials_ok": not missing_invoice,
+        "attachment_count": len(attachments),
+    }
