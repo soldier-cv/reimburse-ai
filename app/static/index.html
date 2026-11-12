@@ -47,10 +47,50 @@
     .num { font-variant-numeric: tabular-nums; }
     .app-icon { display: inline-block; vertical-align: -0.125em; flex: none; }
     .drag-over { outline: 2px dashed #2563eb; outline-offset: -8px; background: #eff6ff; }
+    button, [role="button"], .pressable {
+      transition: transform .1s ease, filter .1s ease, background-color .12s ease, box-shadow .12s ease;
+    }
+    button:active:not(:disabled), [role="button"]:active, .pressable:active { transform: scale(0.97); }
+    .btn-spin {
+      display: inline-block; width: .85em; height: .85em;
+      border: 2px solid currentColor; border-right-color: transparent;
+      border-radius: 50%; animation: btn-spin .6s linear infinite;
+      vertical-align: -0.12em; margin-right: .35em;
+    }
+    @keyframes btn-spin { to { transform: rotate(360deg); } }
+    #app-progress {
+      position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 120;
+      background: linear-gradient(90deg, #2563eb, #38bdf8, #2563eb);
+      background-size: 200% 100%;
+      animation: progress-slide 1.1s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes progress-slide {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .guide-q {
+      display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center;
+      border-radius: 999px; border: 1px solid #cbd5e1; color: #64748b;
+      font-size: 10px; font-weight: 700; line-height: 1; cursor: pointer; background: #fff;
+    }
+    .guide-q:hover { background: #f1f5f9; color: #0f172a; }
+    .guide-h1 { font-size: 1.25rem; font-weight: 700; margin: 0 0 1rem; color: #0f172a; }
+    .guide-h2 { font-size: 1.05rem; font-weight: 700; margin: 1.75rem 0 0.75rem; padding-top: 0.35rem; color: #0f172a; scroll-margin-top: 5rem; }
+    .guide-h3 { font-size: 0.9rem; font-weight: 600; margin: 1.15rem 0 0.45rem; color: #1e293b; scroll-margin-top: 5rem; }
+    .guide-p { font-size: 0.8125rem; line-height: 1.75; color: #475569; margin: 0.4rem 0; }
+    .guide-ul { font-size: 0.8125rem; line-height: 1.75; color: #475569; margin: 0.4rem 0 0.4rem 1.15rem; list-style: disc; }
+    .guide-ul li { margin: 0.2rem 0; }
+    .guide-body code { font-size: 0.75rem; background: #f1f5f9; padding: 0.1em 0.35em; border-radius: 4px; }
+    .preview-stage { cursor: grab; }
+    .preview-stage.dragging { cursor: grabbing; }
+    .inbox-sticky { position: sticky; top: 4rem; z-index: 10; background: #fff; }
+    @media (max-width: 1023px) { .inbox-sticky { top: 6.5rem; } }
   </style>
 </head>
 <body class="bg-[#f7f8fa] text-slate-800 antialiased">
 <div id="app" v-cloak>
+  <div v-if="showProgress" id="app-progress"></div>
 
   <!-- 认证 / 初始化 -->
   <div v-if="!user" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-50 via-white to-blue-50">
@@ -130,8 +170,10 @@
             <div class="min-w-0"><div class="text-sm font-bold text-slate-900 truncate">{{ currentTitle }}</div></div>
           </div>
           <div class="flex items-center gap-2">
-            <button @click="openQuickUpload" class="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50">
-              <app-icon name="paperclip" class="mr-1"></app-icon>上传凭证
+            <button type="button" class="hidden sm:flex w-8 h-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-900" @click="go('guide')" title="使用指南">?</button>
+            <button @click="openQuickUpload" :disabled="isPending('upload')" class="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+              <span v-if="isPending('upload')" class="btn-spin"></span>
+              <app-icon v-else name="paperclip" class="mr-1"></app-icon>{{ isPending('upload') ? '上传中...' : '上传票据（进收件箱）' }}
             </button>
             <button @click="openReceivableModal()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800">
               <app-icon name="plus" class="mr-1"></app-icon>新增应收
@@ -148,6 +190,37 @@
 
         <!-- 总览 -->
         <section v-if="view==='dashboard'" class="space-y-6">
+          <div v-if="dashboard?.todos" class="bg-white border border-slate-200 rounded-2xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="text-sm font-bold text-slate-900">待办</div>
+              <div class="text-[11px] text-slate-400">先处理最紧急的一项</div>
+            </div>
+            <div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+              <button type="button" @click="go('inbox')" class="text-left rounded-xl border border-slate-200 px-3.5 py-3 hover:border-slate-400">
+                <div class="text-[11px] text-slate-500">未确认草稿</div>
+                <div class="text-lg font-bold num mt-1" :class="dashboard.todos.unconfirmed_drafts ? 'text-blue-700' : 'text-slate-800'">{{ dashboard.todos.unconfirmed_drafts || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">张</span></div>
+                <div class="text-[10px] text-blue-600 mt-1">去收件箱确认</div>
+              </button>
+              <button type="button" @click="goPendingThisMonth" class="text-left rounded-xl border border-slate-200 px-3.5 py-3 hover:border-slate-400">
+                <div class="text-[11px] text-slate-500">本月待提交</div>
+                <div class="text-lg font-bold num mt-1">¥{{ money(dashboard.todos.pending_this_month) }}</div>
+                <div class="text-[10px] text-slate-400 mt-1">{{ dashboard.todos.pending_this_month_count || 0 }} 笔 · {{ dashboard.todos.pending_this_month_period }}</div>
+              </button>
+              <button type="button" @click="goOverdue" class="text-left rounded-xl border border-slate-200 px-3.5 py-3 hover:border-slate-400">
+                <div class="text-[11px] text-slate-500">已逾期</div>
+                <div class="text-lg font-bold num mt-1" :class="dashboard.todos.overdue_count ? 'text-rose-600' : 'text-slate-800'">¥{{ money(dashboard.todos.overdue) }}</div>
+                <div class="text-[10px] text-slate-400 mt-1">{{ dashboard.todos.overdue_count || 0 }} 笔待催收</div>
+              </button>
+              <button type="button" @click="go('payroll')" class="text-left rounded-xl border border-slate-200 px-3.5 py-3 hover:border-slate-400">
+                <div class="text-[11px] text-slate-500">工资待办</div>
+                <div class="text-lg font-bold num mt-1">¥{{ money(dashboard.todos.payroll_outstanding) }}</div>
+                <div class="text-[10px] text-slate-400 mt-1">
+                  待核销 {{ dashboard.todos.payroll_outstanding_count || 0 }} 笔
+                  <span v-if="dashboard.todos.payroll_missing_count" class="text-amber-700"> · 待生成 {{ dashboard.todos.payroll_missing_count }} 个月</span>
+                </div>
+              </button>
+            </div>
+          </div>
           <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 lg:gap-4">
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
@@ -295,35 +368,49 @@
               <div>
                 <div class="text-sm font-bold text-slate-900">采集收件箱</div>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <select v-model.number="uploadCompanyId" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
                   <option :value="null">上传时先不选公司</option>
                   <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
-                <button @click="openQuickUpload" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="upload" class="mr-1.5"></app-icon>选择文件</button>
+                <button @click="openQuickUpload" :disabled="isPending('upload')" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50">
+                  <span v-if="isPending('upload')" class="btn-spin"></span>
+                  <app-icon v-else name="upload" class="mr-1.5"></app-icon>{{ isPending('upload') ? '上传中...' : '上传票据（进收件箱）' }}
+                </button>
+                <button @click="openCameraUpload" :disabled="isPending('upload')" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">拍照上传</button>
               </div>
             </div>
             <div class="border-2 border-dashed border-slate-200 rounded-2xl p-6 lg:p-8 text-center bg-slate-50/60 hover:bg-slate-50 transition"
               :class="{'drag-over': dragging}" @click="openQuickUpload">
               <div class="w-12 h-12 rounded-2xl bg-white border border-slate-200 text-blue-600 flex items-center justify-center mx-auto mb-3"><app-icon name="cloud-upload" class="w-5 h-5"></app-icon></div>
-              <div class="text-sm font-semibold text-slate-700">拖入或粘贴发票、截图、PDF、ZIP</div>
+              <div class="text-sm font-semibold text-slate-700">拖入、粘贴或拍照上传发票、截图、PDF、ZIP</div>
+              <div class="text-[11px] text-slate-400 mt-1">文件会进入收件箱，确认后才记入台账</div>
+            </div>
+            <div v-if="uploadResult" class="mt-3 rounded-xl border px-3 py-2.5 text-xs" :class="uploadResult.hasIssue ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-100 bg-emerald-50 text-emerald-800'">
+              <div class="font-medium">{{ uploadResult.message }}</div>
+              <div v-for="(s, i) in (uploadResult.skipped || [])" :key="'s'+i" class="mt-1 text-[11px]">跳过：{{ s.filename || s.name || '文件' }}{{ s.reason ? ' — ' + s.reason : '' }}</div>
+              <div v-for="(d, i) in (uploadResult.duplicates || [])" :key="'d'+i" class="mt-1 text-[11px]">重复提示：{{ d.message || d.filename }}</div>
             </div>
           </div>
 
           <div class="bg-white border border-slate-200 rounded-2xl">
-            <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            <div class="inbox-sticky px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-3">
                 <div class="text-sm font-bold text-slate-900">待确认</div>
                 <span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{{ drafts.length }} 张</span>
+                <span v-if="selectedDraftIds.length" class="text-[11px] text-blue-600">已选 {{ selectedDraftIds.length }}</span>
               </div>
               <div class="flex flex-wrap items-center gap-2">
+                <button type="button" @click="selectAllDrafts" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">全选</button>
+                <button type="button" @click="invertDraftSelection" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">反选</button>
                 <select v-model.number="batchDraftCompany" class="custom-select px-3 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
                   <option :value="null">批量选择公司</option>
                   <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
                 <button @click="applyDraftCompany" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">应用到已选</button>
-                <button @click="openAppendModal()" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40" :disabled="!selectedDraftIds.length">追加到已有应收</button>
-                <button @click="confirmDrafts()" class="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40" :disabled="!selectedDraftIds.length">确认入账（{{ selectedDraftIds.length }}）</button>
+                <button @click="openConfirmSummary()" :disabled="!selectedDraftIds.length || isPending('confirm')" class="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">
+                  <span v-if="isPending('confirm')" class="btn-spin"></span>确认入账（{{ selectedDraftIds.length }}）
+                </button>
               </div>
             </div>
 
@@ -335,7 +422,7 @@
             <div v-else class="p-4 grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
               <div v-for="d in drafts" :key="d.id" :class="['rounded-xl border p-3 transition', selectedDraftIds.includes(d.id) ? 'border-blue-300 bg-blue-50/30' : 'border-slate-200 bg-white']">
                 <div class="flex gap-3">
-                  <div class="relative w-24 h-28 rounded-lg bg-slate-100 overflow-hidden flex-none cursor-pointer" @click="openDraftFile(d)">
+                  <div class="relative w-24 h-28 rounded-lg bg-slate-100 overflow-hidden flex-none cursor-pointer" @click="openDraftPreview(d)" title="在线预览">
                     <img v-if="thumbCache['draft-'+d.id]" :src="thumbCache['draft-'+d.id]" class="w-full h-full object-cover" alt="">
                     <div v-else class="w-full h-full flex items-center justify-center text-slate-300"><app-icon name="image" class="text-xl"></app-icon></div>
                     <span class="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-black/60 text-white">{{ docTypeLabel(d.doc_type) }}</span>
@@ -362,17 +449,25 @@
                       <div v-if="d.evidence" class="text-[10px] text-slate-400 truncate mt-1" :title="d.evidence">{{ d.evidence }}</div>
                     </div>
                     <div class="grid grid-cols-2 gap-1.5 mt-2">
-                      <input v-model="d.occurred_on" @change="saveDraft(d,{occurred_on:d.occurred_on})" type="date" class="text-[11px] px-1.5 py-1 rounded border border-slate-200 bg-white">
+                      <date-field v-model="d.occurred_on" @change="onDraftOccurred(d)" placeholder="发生日期"></date-field>
                       <select v-model.number="d.category_id" @change="saveDraft(d,{category_id:d.category_id})" class="custom-select text-[11px] px-1.5 py-1 rounded border border-slate-200 bg-white">
                         <option :value="null">类别</option>
                         <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
                       </select>
+                    </div>
+                    <div class="mt-1.5">
+                      <div class="flex items-center gap-1 text-[10px] text-slate-400 mb-0.5">归属月 <button type="button" class="guide-q" @click.stop="goGuide('3-归属月与发生日期')">?</button></div>
+                      <month-field v-model="d.period" @change="saveDraft(d,{period:d.period})" placeholder="归属月"></month-field>
                     </div>
                     <select v-model.number="d.company_id" @change="saveDraft(d,{company_id:d.company_id})" class="custom-select w-full mt-1.5 text-[11px] px-1.5 py-1 rounded border border-slate-200 bg-white">
                       <option :value="null">选择公司（必填）</option>
                       <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
                     </select>
                   </div>
+                </div>
+                <div v-if="d.duplicates && d.duplicates.length" class="mt-2 text-[10px] text-rose-700 bg-rose-50 border border-rose-100 rounded px-2 py-1">
+                  <div class="font-medium">疑似重复票据</div>
+                  <div v-for="(w, i) in d.duplicates" :key="i">{{ w.message }}</div>
                 </div>
                 <div v-if="d.error" class="mt-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 line-clamp-2">{{ d.error }}</div>
                 <div v-for="h in (d.hints || [])" :key="h" class="mt-1 text-[10px] text-amber-700">{{ h }}</div>
@@ -389,8 +484,8 @@
                     <button @click="discardDraft(d)" class="text-slate-400 hover:text-rose-600">丢弃</button>
                   </div>
                   <button v-if="canApplyPayment(d)" @click="applyDraftPayment(d)" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-semibold">核销到账</button>
-                  <button v-else-if="d.is_inflow" @click="confirmDrafts([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2 py-1 rounded-lg border border-slate-200 text-slate-500 text-[10px] disabled:opacity-30">仍记为应收</button>
-                  <button v-else @click="confirmDrafts([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-semibold disabled:opacity-30">确认入账</button>
+                  <button v-else-if="d.is_inflow" @click="openConfirmSummary([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2 py-1 rounded-lg border border-slate-200 text-slate-500 text-[10px] disabled:opacity-30">仍记为应收</button>
+                  <button v-else @click="openConfirmSummary([d.id])" :disabled="!d.amount_cents || !d.company_id" class="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-semibold disabled:opacity-30">确认入账</button>
                 </div>
               </div>
             </div>
@@ -410,8 +505,8 @@
               <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">类型</label>
                 <select v-model="filters.kind" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部</option><option value="reimbursement">报销</option><option value="payroll">薪资</option><option value="other">其他</option></select>
               </div>
-              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">起始月</label><input v-model="filters.period_from" @change="loadReceivables" type="month" class="w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs"></div>
-              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">结束月</label><input v-model="filters.period_to" @change="loadReceivables" type="month" class="w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs"></div>
+              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">起始月</label><month-field v-model="filters.period_from" @change="loadReceivables" allow-clear></month-field></div>
+              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">结束月</label><month-field v-model="filters.period_to" @change="loadReceivables" allow-clear></month-field></div>
               <div class="flex-1 min-w-[160px]"><label class="block text-[10px] text-slate-400 mb-1">搜索事项</label><input v-model="filters.q" @keyup.enter="loadReceivables" class="w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs" placeholder="事项名称或备注"></div>
               <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-2"><input type="checkbox" v-model="filters.overdue" @change="loadReceivables" class="rounded border-slate-300">只看逾期</label>
               <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-2"><input type="checkbox" v-model="filters.missing_materials" @change="loadReceivables" class="rounded border-slate-300">只看材料不全</label>
@@ -427,9 +522,8 @@
                 <span v-if="selectedReceivableIds.length" class="text-blue-600">已选 {{ selectedReceivableIds.length }} 笔</span>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <button @click="openBatchModal()" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"><app-icon name="layers" class="mr-1"></app-icon>归集批次</button>
-                <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"><app-icon name="file-pdf" class="mr-1"></app-icon>合并 PDF</button>
-                <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><app-icon name="archive" class="mr-1"></app-icon>财务包</button>
+                <button @click="openBatchModal()" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><app-icon name="layers" class="mr-1"></app-icon>归集批次</button>
+                <span class="text-[10px] text-slate-400">合并 PDF 与财务包请到导出中心或批次详情</span>
               </div>
             </div>
             <div class="overflow-x-auto">
@@ -437,7 +531,9 @@
                 <thead class="bg-slate-50 text-[11px] text-slate-500">
                   <tr>
                     <th class="w-10 px-3 py-2.5"><input type="checkbox" :checked="allSelected" @change="toggleSelectAll" class="rounded border-slate-300"></th>
-                    <th class="text-left px-2 py-2.5 font-medium">日期</th>
+                    <th class="text-left px-2 py-2.5 font-medium">发生日</th>
+                    <th class="text-left px-2 py-2.5 font-medium">归属月</th>
+                    <th class="text-left px-2 py-2.5 font-medium">创建日期</th>
                     <th class="text-left px-2 py-2.5 font-medium">公司</th>
                     <th class="text-left px-2 py-2.5 font-medium">类别</th>
                     <th class="text-left px-2 py-2.5 font-medium">事项</th>
@@ -450,11 +546,13 @@
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                   <tr v-for="r in receivables" :key="r.id" class="hover:bg-slate-50/70">
-                    <td class="px-3 py-3"><input type="checkbox" :value="r.id" v-model="selectedReceivableIds" class="rounded border-slate-300"></td>
+                    <td class="px-3 py-3"><input type="checkbox" :value="r.id" v-model="selectedReceivableIds" class="rounded border-slate-300" :disabled="!r.can_collect" :title="r.collect_reason || ''"></td>
                     <td class="px-2 py-3 text-xs text-slate-500 whitespace-nowrap">{{ r.occurred_on || '-' }}</td>
+                    <td class="px-2 py-3 text-xs text-slate-600 whitespace-nowrap">{{ r.period || '-' }}</td>
+                    <td class="px-2 py-3 text-xs text-slate-400 whitespace-nowrap">{{ r.created_on || '-' }}</td>
                     <td class="px-2 py-3"><span class="inline-flex items-center gap-1.5 text-xs"><span class="w-1.5 h-1.5 rounded-full" :style="{background:r.company_color}"></span>{{ r.company_name }}</span></td>
                     <td class="px-2 py-3 text-xs text-slate-500">{{ r.category_name || '-' }}</td>
-                    <td class="px-2 py-3"><button @click="openReceivableDetail(r.id)" class="text-left font-medium text-slate-800 hover:text-blue-600">{{ r.title }}</button><div v-if="r.batch_title" class="text-[10px] text-slate-400">{{ r.batch_title }}</div></td>
+                    <td class="px-2 py-3"><button @click="openReceivableDetail(r.id)" class="text-left font-medium text-slate-800 hover:text-blue-600">{{ r.title }}</button><div v-if="r.batch_title" class="text-[10px] text-slate-400">{{ r.batch_title }}</div><div v-if="!r.can_collect && r.collect_reason" class="text-[10px] text-slate-400">{{ r.collect_reason }}</div></td>
                     <td class="px-2 py-3 text-right font-semibold num whitespace-nowrap">¥{{ money(r.amount) }}<div v-if="r.status==='partial'" class="text-[10px] font-normal text-amber-600">已收 ¥{{ money(r.received) }} · 待收 ¥{{ money(r.remaining) }}</div></td>
                     <td class="px-2 py-3 text-center"><span :class="['text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap', statusClass(r.status)]">{{ r.status_label }}</span></td>
                     <td class="px-2 py-3 text-xs whitespace-nowrap">
@@ -468,11 +566,13 @@
                       <div v-if="r.missing_invoice" class="text-[10px] text-amber-600">缺发票</div>
                     </td>
                     <td class="px-3 py-3 text-right whitespace-nowrap">
-                      <button @click="openReceivableModal(r)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">编辑</button>
-                      <button @click="deleteReceivable(r)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">删除</button>
+                      <button v-if="!r.locked" @click="openReceivableModal(r)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">编辑</button>
+                      <button v-else @click="openReceivableDetail(r.id)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">查看</button>
+                      <button v-if="!r.locked && r.status !== 'abandoned'" @click="deleteReceivable(r)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">删除</button>
+                      <button v-else-if="r.status==='submitted'" @click="abandonReceivable(r)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">放弃</button>
                     </td>
                   </tr>
-                  <tr v-if="!receivables.length"><td colspan="10" class="py-12 text-center text-sm text-slate-400">暂无数据</td></tr>
+                  <tr v-if="!receivables.length"><td colspan="12" class="py-12 text-center text-sm text-slate-400">暂无数据</td></tr>
                 </tbody>
               </table>
             </div>
@@ -505,10 +605,12 @@
               </div>
               <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
                 <button @click="openBatchDetail(b.id)" class="text-xs text-slate-600 hover:text-slate-900 font-medium">查看明细</button>
-                <div class="flex gap-1.5">
+                <div class="flex flex-wrap justify-end gap-1.5">
                   <button v-if="b.status==='draft'" @click="submitBatch(b)" class="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-semibold">提交</button>
-                  <button v-if="b.status==='submitted'" @click="payBatch(b)" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-semibold">记录到账</button>
-                  <button @click="exportBatchPack(b)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium">导出包</button>
+                  <button v-if="b.can_unsubmit" @click="openUnsubmitBatch(b)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium">撤回提交</button>
+                  <button v-if="b.can_cancel" @click="cancelBatch(b)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium text-slate-500">取消</button>
+                  <button v-if="b.status==='submitted' || b.status==='partial'" @click="openPayBatch(b)" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-semibold">记录到账</button>
+                  <button @click="exportBatchPack(b)" :disabled="isPending('export-'+b.id)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium disabled:opacity-50">导出包</button>
                 </div>
               </div>
             </div>
@@ -550,10 +652,10 @@
               <div class="grid grid-cols-2 gap-2 mt-4">
                 <select v-model.number="exportFilters.company_id" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">全部公司</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select>
                 <select v-model="exportFilters.kind" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部类型</option><option value="reimbursement">报销</option><option value="payroll">薪资</option><option value="other">其他</option></select>
-                <input v-model="exportFilters.period_from" type="month" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
-                <input v-model="exportFilters.period_to" type="month" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
+                <month-field v-model="exportFilters.period_from" allow-clear placeholder="起始月"></month-field>
+                <month-field v-model="exportFilters.period_to" allow-clear placeholder="结束月"></month-field>
               </div>
-              <button @click="exportExcel" class="mt-3 w-full py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="file-excel" class="mr-1.5"></app-icon>导出 Excel 明细</button>
+              <button @click="exportExcel" :disabled="isPending('export-excel')" class="mt-3 w-full py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('export-excel')" class="btn-spin"></span><app-icon v-else name="file-excel" class="mr-1.5"></app-icon>导出 Excel 明细</button>
             </div>
 
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
@@ -562,7 +664,8 @@
                 <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="flex-1 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">导出已选 {{ selectedReceivableIds.length }} 笔</button>
                 <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-4 py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">合并 PDF</button>
               </div>
-              <button @click="exportSelectedAttachments" :disabled="!selectedReceivableIds.length" class="mt-2 w-full py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">只导出原始截图与发票（ZIP）</button>
+              <button @click="exportSelectedAttachments" :disabled="!selectedReceivableIds.length || isPending('export-att')" class="mt-2 w-full py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">只导出已选原始文件（ZIP）</button>
+              <button @click="exportAttachmentsByFilter" :disabled="isPending('export-att')" class="mt-2 w-full py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">按筛选月份/公司打包原件</button>
             </div>
           </div>
 
@@ -586,6 +689,56 @@
                 </tbody>
               </table>
             </div>
+          </div>
+        </section>
+
+        <!-- 薪资计划 -->
+        <section v-if="view==='payroll'" class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-bold text-slate-900">薪资计划</div>
+                <button type="button" class="guide-q" @click="goGuide('5-薪资计划与到账核销')">?</button>
+              </div>
+              <div class="text-[11px] text-slate-400 mt-1">按公司配置月薪与发薪日，打开应用时会自动补齐缺失月份的工资应收，不会重复生成。</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button @click="syncPayrollPlans" :disabled="isPending('payroll-sync')" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-50">
+                <span v-if="isPending('payroll-sync')" class="btn-spin"></span>手动补齐缺失月份
+              </button>
+              <button @click="openPayrollModal()" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">新建计划</button>
+            </div>
+          </div>
+          <div v-if="!payrollPlans.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">还没有薪资计划。配置后，打开应用就会按月份生成待提交的工资应收。</div>
+          <div v-else class="grid md:grid-cols-2 gap-3">
+            <div v-for="p in payrollPlans" :key="p.id" class="bg-white border border-slate-200 rounded-2xl p-4">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full" :style="{background:p.company_color}"></span>
+                    <div class="text-sm font-bold text-slate-900 truncate">{{ p.company_name }}</div>
+                  </div>
+                  <div class="text-[11px] text-slate-400 mt-1">每月 {{ p.payday }} 日发薪 · {{ p.effective_from }} 起{{ p.effective_to ? ' 至 ' + p.effective_to : '（长期）' }}</div>
+                </div>
+                <span :class="['text-[10px] px-2 py-0.5 rounded-full', p.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500']">{{ p.is_active ? '生效中' : '已停发' }}</span>
+              </div>
+              <div class="mt-3 flex items-end justify-between">
+                <div><div class="text-[10px] text-slate-400">月薪</div><div class="text-xl font-bold num">¥{{ money(p.amount) }}</div></div>
+                <div class="flex gap-1.5">
+                  <button v-if="p.is_active" @click="openPayrollModal(p)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium">编辑</button>
+                  <button v-if="p.is_active" @click="stopPayrollPlan(p)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium text-rose-600">停发</button>
+                </div>
+              </div>
+              <div v-if="p.note" class="mt-2 text-[11px] text-slate-400">{{ p.note }}</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 使用指南 -->
+        <section v-if="view==='guide'" class="space-y-4">
+          <div class="bg-white border border-slate-200 rounded-2xl p-5 lg:p-8">
+            <div v-if="!guideHtml" class="py-16 text-center text-sm text-slate-400">{{ guideError || '正在加载使用指南...' }}</div>
+            <div v-else class="guide-body max-w-3xl" v-html="guideHtml"></div>
           </div>
         </section>
 
@@ -650,8 +803,8 @@
                 <label class="block text-[11px] text-slate-500 mb-1">模型名称</label>
                 <div class="flex items-center gap-2">
                   <input v-model="aiForm.model_name" class="custom-input flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如 qwen-vl-max">
-                  <button type="button" @click="fetchModels" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">获取模型</button>
-                  <button type="button" @click="testAI" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900">测试连接</button>
+                  <button type="button" @click="fetchModels" :disabled="isPending('ai-models')" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"><span v-if="isPending('ai-models')" class="btn-spin"></span>获取模型</button>
+                  <button type="button" @click="testAI" :disabled="isPending('ai-test')" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"><span v-if="isPending('ai-test')" class="btn-spin"></span>测试连接</button>
                 </div>
               </div>
             </div>
@@ -665,7 +818,8 @@
               </div>
               <textarea v-model="aiForm.system_prompt" rows="5" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono"></textarea>
             </div>
-            <button type="button" @click="saveAI" class="mt-3 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">保存配置</button>
+            <div v-if="aiPanelResult.message" class="mt-3 text-xs rounded-lg px-3 py-2" :class="aiPanelResult.type==='error' ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'">{{ aiPanelResult.message }}</div>
+            <button type="button" @click="saveAI" :disabled="isPending('ai-save')" class="mt-3 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('ai-save')" class="btn-spin"></span>保存配置</button>
           </div>
 
           <div v-if="settingTab==='agent'" class="bg-white border border-slate-200 rounded-2xl p-5">
@@ -677,7 +831,7 @@
             <div v-if="showAgentCreate" class="mb-4 border border-slate-200 rounded-xl p-3 space-y-3">
               <div class="grid sm:grid-cols-2 gap-3">
                 <div><label class="block text-[11px] text-slate-500 mb-1">名称 *</label><input v-model="agentTokenForm.name" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：故事测试"></div>
-                <div><label class="block text-[11px] text-slate-500 mb-1">过期日期（可选）</label><input v-model="agentTokenForm.expires_at" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+                <div><label class="block text-[11px] text-slate-500 mb-1">过期日期（可选）</label><date-field v-model="agentTokenForm.expires_at" allow-clear placeholder="不过期"></date-field></div>
               </div>
               <div>
                 <div class="text-[11px] text-slate-500 mb-1">权限范围</div>
@@ -687,7 +841,7 @@
               </div>
               <div class="flex justify-end gap-2">
                 <button type="button" @click="showAgentCreate=false" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs">取消</button>
-                <button type="button" @click="createAgentToken" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">签发</button>
+                <button type="button" @click="createAgentToken" :disabled="isPending('token-create')" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('token-create')" class="btn-spin"></span>签发</button>
               </div>
             </div>
             <div class="overflow-x-auto">
@@ -702,7 +856,8 @@
                     <td class="px-3 py-3 text-xs text-slate-400">{{ item.last_used_at || '-' }}</td>
                     <td class="px-3 py-3 text-right whitespace-nowrap">
                       <button v-if="item.status==='active' || item.status==='disabled'" type="button" @click="toggleAgentToken(item)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">{{ item.enabled ? '停用' : '启用' }}</button>
-                      <button v-if="!item.revoked_at" type="button" @click="revokeAgentToken(item)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">吊销</button>
+                      <button v-if="!item.revoked_at" type="button" @click="reissueAgentToken(item)" :disabled="isPending('token-'+item.id)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">重新签发</button>
+                      <button v-if="!item.revoked_at" type="button" @click="revokeAgentToken(item)" :disabled="isPending('token-'+item.id)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">吊销</button>
                     </td>
                   </tr>
                   <tr v-if="!agentTokens.length"><td colspan="6" class="py-10 text-center text-sm text-slate-400">尚未签发 Agent 令牌</td></tr>
@@ -712,19 +867,29 @@
           </div>
 
           <div v-if="settingTab==='users' && user.role==='admin'" class="bg-white border border-slate-200 rounded-2xl p-5">
-            <div class="flex items-center justify-between mb-4">
-              <div class="text-sm font-bold text-slate-900">成员账号</div>
-              <button @click="openUserModal()" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">新建成员</button>
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-bold text-slate-900">成员账号</div>
+                <button type="button" class="guide-q" @click="goGuide('7-成员与账本隔离')">?</button>
+              </div>
+              <button @click="openUserModal()" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold">新建普通成员</button>
             </div>
+            <p class="text-[11px] text-slate-400 mb-4">每个成员就是一份独立账本。管理员可以管理账号，但不能查看其他成员的票据、台账或到账记录。默认只创建普通成员；创建管理员需要二次确认。停用后无法登录，数据保留；删除为软删除，并清理该成员的上传文件。</p>
             <table class="w-full text-sm">
-              <thead class="bg-slate-50 text-[11px] text-slate-500"><tr><th class="text-left px-3 py-2 font-medium">用户名</th><th class="text-left px-3 py-2 font-medium">角色</th><th class="text-center px-3 py-2 font-medium">应收数</th><th class="text-left px-3 py-2 font-medium">最近登录</th><th class="text-right px-3 py-2 font-medium">操作</th></tr></thead>
+              <thead class="bg-slate-50 text-[11px] text-slate-500"><tr><th class="text-left px-3 py-2 font-medium">用户名</th><th class="text-left px-3 py-2 font-medium">角色</th><th class="text-left px-3 py-2 font-medium">状态</th><th class="text-center px-3 py-2 font-medium">应收数</th><th class="text-left px-3 py-2 font-medium">最近登录</th><th class="text-right px-3 py-2 font-medium">操作</th></tr></thead>
               <tbody class="divide-y divide-slate-100">
-                <tr v-for="u in users" :key="u.id">
+                <tr v-for="u in users" :key="u.id" :class="u.deleted ? 'opacity-50' : ''">
                   <td class="px-3 py-3 font-medium">{{ u.username }}</td>
                   <td class="px-3 py-3 text-xs"><span class="px-2 py-0.5 rounded-full bg-slate-100">{{ u.role==='admin'?'管理员':'成员' }}</span></td>
+                  <td class="px-3 py-3 text-xs">{{ u.status || (u.is_active ? '正常' : '已停用') }}</td>
                   <td class="px-3 py-3 text-center text-xs">{{ u.receivable_count }}</td>
                   <td class="px-3 py-3 text-xs text-slate-400">{{ u.last_login }}</td>
-                  <td class="px-3 py-3 text-right"><button @click="openResetPassword(u)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">重置密码</button><button v-if="u.id!==user.id" @click="deleteUser(u)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">删除</button></td>
+                  <td class="px-3 py-3 text-right whitespace-nowrap">
+                    <button v-if="!u.deleted" @click="openResetPassword(u)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">重置密码</button>
+                    <button v-if="!u.deleted && u.is_active && u.id!==user.id" @click="disableUser(u)" class="text-xs text-slate-500 hover:text-slate-900 px-1.5">停用</button>
+                    <button v-if="!u.deleted && !u.is_active" @click="enableUser(u)" class="text-xs text-emerald-600 hover:text-emerald-800 px-1.5">启用</button>
+                    <button v-if="!u.deleted && u.id!==user.id" @click="deleteUser(u)" class="text-xs text-slate-400 hover:text-rose-600 px-1.5">删除</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -758,7 +923,11 @@
 
   <!-- Toast -->
   <transition name="fade">
-    <div v-if="toast.show" :class="['fixed bottom-5 right-5 z-[90] px-4 py-3 rounded-xl shadow-lg text-sm font-medium border', toast.type==='error' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-slate-900 border-slate-900 text-white']">{{ toast.msg }}</div>
+    <div v-if="toast.show" :class="['fixed bottom-5 right-5 z-[90] px-4 py-3 rounded-xl shadow-lg text-sm font-medium border flex items-start gap-2.5 max-w-sm', toast.type==='error' ? 'bg-rose-50 border-rose-200 text-rose-800' : (toast.type==='warning' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-900 border-slate-900 text-white')]">
+      <span class="mt-0.5 flex-none text-base leading-none">{{ toast.type==='error' ? '!' : (toast.type==='warning' ? '!' : '✓') }}</span>
+      <div class="flex-1 whitespace-pre-line leading-relaxed">{{ toast.msg }}</div>
+      <button v-if="toast.type==='error'" type="button" class="flex-none text-rose-500 hover:text-rose-800" @click="closeToast">×</button>
+    </div>
   </transition>
 
   <!-- 通用确认框 -->
@@ -784,27 +953,31 @@
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">事项 *</label><input v-model="receivableForm.title" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月打车费"></div>
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-[11px] text-slate-500 mb-1">金额 *</label><input v-model="receivableForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="0.00"></div>
-          <div><label class="block text-[11px] text-slate-500 mb-1">发生日期</label><input v-model="receivableForm.occurred_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">金额 *</label><input v-model="receivableForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" :disabled="receivableForm.locked" placeholder="0.00"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">发生日期</label><date-field v-model="receivableForm.occurred_on" :disabled="receivableForm.locked" @change="onReceivableOccurred"></date-field></div>
         </div>
-        <div v-if="receivableForm.id" class="grid grid-cols-2 gap-3">
-          <div><label class="block text-[11px] text-slate-500 mb-1">状态</label>
-            <select v-if="receivableForm.status==='partial' || receivableForm.status==='paid'" v-model="receivableForm.status" disabled class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-slate-50 text-slate-500">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="flex items-center gap-1 text-[11px] text-slate-500 mb-1">归属月 <button type="button" class="guide-q" @click="goGuide('3-归属月与发生日期')">?</button></label><month-field v-model="receivableForm.period" :disabled="receivableForm.locked"></month-field></div>
+          <div v-if="receivableForm.id"><label class="block text-[11px] text-slate-500 mb-1">状态</label>
+            <select v-if="receivableForm.status==='partial' || receivableForm.status==='paid' || receivableForm.status==='submitted'" v-model="receivableForm.status" disabled class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-slate-50 text-slate-500">
+              <option value="submitted">已提交</option>
               <option value="partial">部分到账</option>
               <option value="paid">已到账</option>
             </select>
             <select v-else v-model="receivableForm.status" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
               <option value="pending">待提交</option>
-              <option value="submitted">已提交</option>
               <option value="rejected">被驳回</option>
               <option value="abandoned">已放弃</option>
             </select>
           </div>
-          <div><label class="block text-[11px] text-slate-500 mb-1">预计到账日</label><input v-model="receivableForm.expected_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+        </div>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">预计到账日</label>
+          <date-field v-model="receivableForm.expected_on" allow-clear placeholder="可选"></date-field>
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><textarea v-model="receivableForm.note" rows="2" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></textarea></div>
       </div>
-      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="saveReceivable" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">保存</button></div>
+      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="saveReceivable" :disabled="isPending('recv-save')" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('recv-save')" class="btn-spin"></span>保存</button></div>
     </div>
   </div>
 
@@ -812,7 +985,7 @@
   <div v-if="modal.name==='receivableDetail'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
     <div class="bg-white rounded-2xl w-full max-w-3xl border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
       <div class="px-5 py-4 border-b border-slate-100 flex items-start justify-between">
-        <div><div class="text-sm font-bold">{{ detail?.title }}</div><div class="text-[11px] text-slate-400 mt-0.5">{{ detail?.company_name }} · {{ detail?.category_name || '未分类' }} · {{ detail?.occurred_on }}</div></div>
+        <div><div class="text-sm font-bold">{{ detail?.title }}</div><div class="text-[11px] text-slate-400 mt-0.5">{{ detail?.company_name }} · {{ detail?.category_name || '未分类' }} · 发生 {{ detail?.occurred_on }} · 归属 {{ detail?.period || '-' }}</div></div>
         <button @click="closeModal" class="text-slate-400 hover:text-slate-900"><app-icon name="close"></app-icon></button>
       </div>
       <div class="p-5 overflow-y-auto space-y-4">
@@ -837,7 +1010,7 @@
           <div v-if="!detail?.attachments.length" class="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">暂无附件</div>
           <div v-else class="grid sm:grid-cols-2 gap-2">
             <div v-for="a in detail.attachments" :key="a.id" class="border border-slate-200 rounded-lg p-2 flex items-center gap-2">
-              <div class="w-12 h-12 rounded bg-slate-100 overflow-hidden flex-none cursor-pointer" @click="openAttachment(a)">
+              <div class="w-12 h-12 rounded bg-slate-100 overflow-hidden flex-none cursor-pointer" @click="openAttachmentPreview(a)" title="在线预览">
                 <img v-if="thumbCache['att-'+a.id]" :src="thumbCache['att-'+a.id]" class="w-full h-full object-cover" alt="">
                 <div v-else class="w-full h-full flex items-center justify-center text-slate-300"><app-icon name="file"></app-icon></div>
               </div>
@@ -854,9 +1027,10 @@
       </div>
       <div class="px-5 py-3 border-t border-slate-100 flex justify-between">
         <div class="flex gap-2">
-          <button @click="openReceivableModal(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">编辑</button>
+          <button v-if="!detail?.locked" @click="openReceivableModal(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">编辑</button>
           <button @click="duplicateReceivable(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">复制为新月</button>
           <button v-if="detail && detail.status !== 'paid' && appendableDrafts(detail).length" @click="openAppendModal(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">从收件箱追加</button>
+          <button v-if="detail?.status==='submitted'" @click="abandonReceivable(detail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs text-rose-600">放弃</button>
           <button v-if="detail?.remaining_cents" @click="openPaymentModal(detail)" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">记录到账</button>
         </div>
         <div class="flex gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">关闭</button></div>
@@ -872,7 +1046,8 @@
         <div class="text-xs text-slate-500">已选 {{ selectedReceivableIds.length }} 笔，合计 <b class="text-slate-900">¥{{ money(selectedAmount) }}</b></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><div class="px-3 py-2 rounded-lg bg-slate-50 text-xs font-medium">{{ selectedCompanyName || '-' }}</div></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">批次名称</label><input v-model="batchForm.title" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销"></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">归属月</label><input v-model="batchForm.period" type="month" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+        <div><label class="flex items-center gap-1 text-[11px] text-slate-500 mb-1">归属月 <button type="button" class="guide-q" @click="goGuide('3-归属月与发生日期')">?</button></label><month-field v-model="batchForm.period"></month-field></div>
+        <div v-if="batchForm.periodHint" class="text-[11px] text-amber-700">{{ batchForm.periodHint }}</div>
       </div>
       <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="createBatch" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">创建批次</button></div>
     </div>
@@ -882,22 +1057,46 @@
   <div v-if="modal.name==='batchDetail'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
     <div class="bg-white rounded-2xl w-full max-w-3xl border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
       <div class="px-5 py-4 border-b border-slate-100 flex items-start justify-between">
-        <div><div class="text-sm font-bold">{{ batchDetail?.title }}</div><div class="text-[11px] text-slate-400 mt-0.5">{{ batchDetail?.company_name }} · {{ batchDetail?.period }} · {{ batchDetail?.status }}</div></div>
+        <div>
+          <div class="text-sm font-bold">{{ batchDetail?.title }}</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">{{ batchDetail?.company_name }} · {{ batchDetail?.period }} · {{ batchDetail?.status_label || batchDetail?.status }}</div>
+        </div>
         <button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button>
       </div>
       <div class="p-5 overflow-y-auto">
         <div class="flex items-center justify-between mb-3"><div class="text-xs text-slate-500">{{ batchDetail?.items.length }} 笔 · 提交 {{ batchDetail?.submitted_on || '-' }} · 预计 {{ batchDetail?.expected_on || '-' }}</div><div class="text-lg font-bold num">¥{{ money(batchDetail?.amount) }}</div></div>
+        <div v-if="batchDetail?.has_payments && !batchDetail?.can_edit_items" class="mb-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">已有到账记录，不能拆分、撤回提交或取消。</div>
         <table class="w-full text-xs">
-          <thead class="bg-slate-50 text-slate-500"><tr><th class="text-left px-2 py-2">日期</th><th class="text-left px-2 py-2">事项</th><th class="text-right px-2 py-2">金额</th><th class="text-center px-2 py-2">状态</th></tr></thead>
+          <thead class="bg-slate-50 text-slate-500"><tr><th class="text-left px-2 py-2">日期</th><th class="text-left px-2 py-2">归属月</th><th class="text-left px-2 py-2">事项</th><th class="text-right px-2 py-2">金额</th><th class="text-center px-2 py-2">状态</th><th v-if="batchDetail?.can_edit_items" class="text-right px-2 py-2">操作</th></tr></thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="r in batchDetail?.items || []" :key="r.id"><td class="px-2 py-2 text-slate-500">{{ r.occurred_on }}</td><td class="px-2 py-2">{{ r.title }}</td><td class="px-2 py-2 text-right font-semibold num">¥{{ money(r.amount) }}</td><td class="px-2 py-2 text-center"><span :class="['text-[10px] px-2 py-0.5 rounded-full', statusClass(r.status)]">{{ r.status_label }}</span></td></tr>
+            <tr v-for="r in batchDetail?.items || []" :key="r.id">
+              <td class="px-2 py-2 text-slate-500">{{ r.occurred_on }}</td>
+              <td class="px-2 py-2 text-slate-500">{{ r.period }}</td>
+              <td class="px-2 py-2">{{ r.title }}</td>
+              <td class="px-2 py-2 text-right font-semibold num">¥{{ money(r.amount) }}</td>
+              <td class="px-2 py-2 text-center"><span :class="['text-[10px] px-2 py-0.5 rounded-full', statusClass(r.status)]">{{ r.status_label }}</span></td>
+              <td v-if="batchDetail?.can_edit_items" class="px-2 py-2 text-right"><button type="button" @click="removeBatchItem(r)" class="text-slate-400 hover:text-rose-600">移出</button></td>
+            </tr>
           </tbody>
         </table>
+        <div v-if="batchDetail?.can_edit_items" class="mt-4">
+          <div class="text-[11px] font-medium text-slate-600 mb-1.5">添加待提交应收（同一归属月）</div>
+          <div v-if="!batchAddCandidates.length" class="text-[11px] text-slate-400">没有可添加的同月待提交应收。</div>
+          <div v-else class="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-40 overflow-y-auto">
+            <div v-for="r in batchAddCandidates" :key="r.id" class="flex items-center justify-between px-3 py-2 text-xs">
+              <div class="min-w-0"><div class="truncate font-medium">{{ r.title }}</div><div class="text-[10px] text-slate-400">{{ r.period }} · ¥{{ money(r.amount) }}</div></div>
+              <button type="button" @click="addBatchItem(r)" class="text-blue-600 font-medium flex-none">添加</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="px-5 py-3 border-t border-slate-100 flex flex-wrap justify-end gap-2">
-        <button @click="exportBatchPack(batchDetail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">导出财务包</button>
+        <button @click="exportBatchPack(batchDetail)" :disabled="isPending('export-'+batchDetail?.id)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs disabled:opacity-50">导出财务包</button>
+        <button @click="exportBatchAttachments(batchDetail)" :disabled="isPending('export-'+batchDetail?.id)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs disabled:opacity-50">打包原件</button>
+        <button v-if="batchDetail?.can_cancel" @click="cancelBatch(batchDetail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消批次</button>
+        <button v-if="batchDetail?.can_unsubmit" @click="openUnsubmitBatch(batchDetail)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">撤回提交</button>
         <button v-if="batchDetail?.status==='draft'" @click="submitBatch(batchDetail)" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">提交批次</button>
-        <button v-if="batchDetail?.status==='submitted'" @click="payBatch(batchDetail)" class="px-3.5 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold">记录到账</button>
+        <button v-if="batchDetail?.status==='submitted' || batchDetail?.status==='partial'" @click="openPayBatch(batchDetail)" class="px-3.5 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold">记录到账</button>
       </div>
     </div>
   </div>
@@ -908,10 +1107,10 @@
       <div class="text-sm font-bold">提交批次</div>
       <div class="text-[11px] text-slate-400 mt-1">{{ batchSubmitTarget?.title }}</div>
       <div class="mt-4 space-y-3">
-        <div><label class="block text-[11px] text-slate-500 mb-1">提交日期</label><input v-model="batchSubmitForm.submitted_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">预计到账日</label><input v-model="batchSubmitForm.expected_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">提交日期</label><date-field v-model="batchSubmitForm.submitted_on" disable-future></date-field></div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">预计到账日</label><date-field v-model="batchSubmitForm.expected_on" allow-clear placeholder="可选"></date-field></div>
       </div>
-      <div class="flex justify-end gap-2 mt-5"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="doSubmitBatch" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">确认提交</button></div>
+      <div class="flex justify-end gap-2 mt-5"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="doSubmitBatch" :disabled="isPending('batch-submit')" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('batch-submit')" class="btn-spin"></span>确认提交</button></div>
     </div>
   </div>
 
@@ -922,7 +1121,7 @@
       <div class="p-5 overflow-y-auto space-y-3">
         <div class="grid grid-cols-3 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><select v-model.number="paymentForm.company_id" @change="loadPaymentCandidates" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">请选择</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
-          <div><label class="block text-[11px] text-slate-500 mb-1">到账日期</label><input v-model="paymentForm.paid_on" type="date" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">到账日期</label><date-field v-model="paymentForm.paid_on" disable-future></date-field></div>
           <div><label class="block text-[11px] text-slate-500 mb-1">到账金额</label><input v-model.number="paymentForm.amount" type="number" step="0.01" min="0" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs num" placeholder="0.00"></div>
         </div>
         <div>
@@ -949,7 +1148,7 @@
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="paymentForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销一批到账"></div>
       </div>
-      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="savePayment" :disabled="!canSavePayment" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">保存到账</button></div>
+      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="savePayment" :disabled="!canSavePayment || isPending('payment')" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><span v-if="isPending('payment')" class="btn-spin"></span>保存到账</button></div>
     </div>
   </div>
 
@@ -1022,11 +1221,13 @@
   <!-- 成员编辑 -->
   <div v-if="modal.name==='user'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
     <div class="bg-white rounded-2xl w-full max-w-sm border border-slate-200 shadow-xl p-5">
-      <div class="text-sm font-bold mb-4">新建成员</div>
+      <div class="text-sm font-bold mb-1">新建成员</div>
+      <p class="text-[11px] text-slate-400 mb-4">默认创建普通成员，每个成员拥有独立账本。管理员不能查看该账本。</p>
       <div class="space-y-3">
         <div><label class="block text-[11px] text-slate-500 mb-1">用户名</label><input v-model="userForm.username" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">初始密码</label><input v-model="userForm.password" type="password" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">角色</label><select v-model="userForm.role" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="user">成员</option><option value="admin">管理员</option></select></div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">角色</label><select v-model="userForm.role" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="user">普通成员</option><option value="admin">管理员（需二次确认）</option></select></div>
+        <div v-if="userForm.role==='admin'" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">创建管理员将在保存时再次确认。管理员可以管理账号，但不能查看其他成员的账本。</div>
       </div>
       <div class="flex justify-end gap-2 mt-5"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="saveUser" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">创建</button></div>
     </div>
@@ -1054,7 +1255,137 @@
     </div>
   </div>
 
+  <!-- 确认入账汇总 -->
+  <div v-if="modal.name==='confirmDrafts'" class="fixed inset-0 z-[75] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
+    <div class="bg-white rounded-2xl w-full max-w-lg border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">确认入账</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
+      <div class="p-5 overflow-y-auto space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="bg-slate-50 rounded-lg px-3 py-2"><div class="text-[10px] text-slate-400">笔数</div><div class="font-bold text-sm">{{ confirmSummary.count }} 张</div></div>
+          <div class="bg-slate-50 rounded-lg px-3 py-2"><div class="text-[10px] text-slate-400">合计金额</div><div class="font-bold text-sm num">¥{{ money(confirmSummary.amount) }}</div></div>
+        </div>
+        <div>
+          <div class="text-[11px] text-slate-500 mb-1">公司</div>
+          <div v-for="g in confirmSummary.groups" :key="g.company_id" class="flex justify-between py-1 border-b border-slate-50 last:border-0">
+            <span>{{ g.name }}</span><span class="num">{{ g.count }} 笔 · ¥{{ money(g.amount) }}</span>
+          </div>
+          <div v-if="confirmSummary.groups.length>1" class="mt-1 text-[11px] text-amber-700">将按公司分别确认入账。</div>
+        </div>
+        <div>
+          <label class="flex items-center gap-1 text-[11px] text-slate-500 mb-1">整组归属月 <button type="button" class="guide-q" @click="goGuide('3-归属月与发生日期')">?</button></label>
+          <month-field v-model="confirmSummary.period" allow-clear placeholder="按各草稿自己的归属月"></month-field>
+          <div v-if="confirmSummary.mixedPeriod && !confirmSummary.period" class="text-[11px] text-slate-400 mt-1">各草稿归属月不同：{{ confirmSummary.periods.join('、') }}。留空则分别使用各自归属月。</div>
+        </div>
+        <div v-if="confirmSummary.duplicates.length" class="text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+          <div class="font-medium mb-1">疑似重复，仍可确认，请先核对</div>
+          <div v-for="(w,i) in confirmSummary.duplicates" :key="i">{{ w.message }}</div>
+        </div>
+        <div v-if="confirmSummary.missing.length" class="text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          以下草稿缺少金额或公司，不能入账：{{ confirmSummary.missing.join('、') }}
+        </div>
+      </div>
+      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2">
+        <button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">返回修改</button>
+        <button @click="doConfirmFromSummary" :disabled="!!confirmSummary.missing.length || isPending('confirm')" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><span v-if="isPending('confirm')" class="btn-spin"></span>确认入账</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 批次到账 -->
+  <div v-if="modal.name==='payBatch'" class="fixed inset-0 z-[76] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl w-full max-w-sm border border-slate-200 shadow-xl p-5">
+      <div class="text-sm font-bold">批次到账</div>
+      <div class="text-[11px] text-slate-400 mt-1">{{ payBatchForm.title }} · {{ payBatchForm.count }} 笔 · ¥{{ money(payBatchForm.amount) }}</div>
+      <div class="mt-4 space-y-3">
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">到账日期</label>
+          <date-field v-model="payBatchForm.paid_on" disable-future></date-field>
+          <div class="text-[10px] text-slate-400 mt-1">不选则按当天（本地日期）记录</div>
+        </div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="payBatchForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="批次到账"></div>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button>
+        <button @click="doPayBatch" :disabled="isPending('pay-batch')" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('pay-batch')" class="btn-spin"></span>确认到账</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 撤回提交 -->
+  <div v-if="modal.name==='unsubmitBatch'" class="fixed inset-0 z-[76] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl w-full max-w-sm border border-slate-200 shadow-xl p-5">
+      <div class="text-sm font-bold">撤回提交</div>
+      <div class="text-xs text-slate-500 mt-2 leading-relaxed">批次「{{ unsubmitForm.title }}」将回到草稿，{{ unsubmitForm.count }} 笔、合计 ¥{{ money(unsubmitForm.amount) }} 的应收回到待提交。必须填写原因并记入审计。已到账或部分到账的批次不能撤回。</div>
+      <textarea v-model="unsubmitForm.reason" rows="3" class="custom-input w-full mt-3 px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="撤回原因（必填）"></textarea>
+      <div class="flex justify-end gap-2 mt-5">
+        <button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button>
+        <button @click="doUnsubmitBatch" :disabled="!unsubmitForm.reason.trim() || isPending('unsubmit')" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><span v-if="isPending('unsubmit')" class="btn-spin"></span>确认撤回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 薪资计划 -->
+  <div v-if="modal.name==='payroll'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
+    <div class="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-xl p-5">
+      <div class="text-sm font-bold mb-4">{{ payrollForm.id ? '编辑薪资计划' : '新建薪资计划' }}</div>
+      <div class="space-y-3">
+        <div><label class="block text-[11px] text-slate-500 mb-1">公司 *</label>
+          <select v-model.number="payrollForm.company_id" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
+            <option :value="null">请选择</option>
+            <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-[11px] text-slate-500 mb-1">月薪 *</label><input v-model="payrollForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">发薪日</label><input v-model.number="payrollForm.payday" type="number" min="1" max="28" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="1-28"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-[11px] text-slate-500 mb-1">生效日期 *</label><date-field v-model="payrollForm.effective_from"></date-field></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">停发日期</label><date-field v-model="payrollForm.effective_to" allow-clear placeholder="长期有效"></date-field></div>
+        </div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="payrollForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：转正后调薪"></div>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button>
+        <button @click="savePayrollPlan" :disabled="isPending('payroll-save')" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('payroll-save')" class="btn-spin"></span>保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 在线预览 -->
+  <div v-if="preview.open" class="fixed inset-0 z-[88] bg-slate-950/92 flex flex-col">
+    <div class="h-12 flex-none flex items-center justify-between gap-3 px-3 sm:px-4 text-white/90">
+      <div class="min-w-0 text-sm truncate">{{ preview.title }}</div>
+      <div class="flex items-center gap-1.5 flex-none text-xs">
+        <button type="button" class="px-2 py-1 rounded-md hover:bg-white/10" @click="previewZoom(-0.2)">−</button>
+        <span class="w-12 text-center num">{{ Math.round(preview.zoom * 100) }}%</span>
+        <button type="button" class="px-2 py-1 rounded-md hover:bg-white/10" @click="previewZoom(0.2)">+</button>
+        <button v-if="preview.pages>1" type="button" class="px-2 py-1 rounded-md hover:bg-white/10" @click="previewPage(-1)">上一页</button>
+        <span v-if="preview.pages>0" class="px-1 num">{{ preview.page }} / {{ preview.pages }}</span>
+        <button v-if="preview.pages>1" type="button" class="px-2 py-1 rounded-md hover:bg-white/10" @click="previewPage(1)">下一页</button>
+        <button type="button" class="px-2 py-1 rounded-md hover:bg-white/10" @click="downloadPreviewOriginal">下载原件</button>
+        <button type="button" class="px-2 py-1 rounded-md hover:bg-white/10" @click="closePreview">关闭</button>
+      </div>
+    </div>
+    <div class="flex-1 relative overflow-hidden preview-stage" :class="{dragging: preview.dragging}" @mousedown="previewDown" @mousemove="previewMove" @mouseup="previewUp" @mouseleave="previewUp" @wheel.prevent="previewWheel">
+      <div v-if="preview.loading" class="absolute inset-0 flex items-center justify-center text-white/70 text-sm">正在生成预览...</div>
+      <div v-else-if="preview.ofd" class="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-6">
+        <div class="text-sm font-medium">OFD 暂不支持在线预览</div>
+        <div class="text-xs text-white/60 mt-2">请下载原件后用专业阅读器打开。</div>
+        <button type="button" @click="downloadPreviewOriginal" class="mt-4 px-4 py-2 rounded-lg bg-white text-slate-900 text-xs font-semibold">下载原件</button>
+      </div>
+      <div v-else-if="preview.error" class="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-6">
+        <div class="text-sm">{{ preview.error }}</div>
+        <button type="button" @click="downloadPreviewOriginal" class="mt-4 px-4 py-2 rounded-lg bg-white text-slate-900 text-xs font-semibold">下载原件</button>
+      </div>
+      <img v-else-if="preview.url" :src="preview.url" alt="预览" draggable="false"
+        class="select-none max-w-none absolute left-1/2 top-1/2"
+        :style="{ transform: 'translate(calc(-50% + ' + preview.dx + 'px), calc(-50% + ' + preview.dy + 'px)) scale(' + preview.zoom + ')' }">
+    </div>
+  </div>
+
   <input ref="fileInput" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.gif,.heic,.ofd,.zip" class="hidden" @change="onFilePicked">
+  <input ref="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" @change="onFilePicked">
 </div>
 
 <script>
@@ -1100,6 +1431,384 @@ const AppIcon = {
 };
 
 
+function pad2(n) { return String(n).padStart(2, '0'); }
+function localToday() {
+  const d = new Date();
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function localMonth() {
+  const d = new Date();
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+}
+function parseISODate(value) {
+  const m = String(value || '').trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+function formatISODate(d) {
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function parseISOMonth(value) {
+  const m = String(value || '').trim().match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return null;
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return null;
+  return { year: Number(m[1]), month: month };
+}
+function formatISOMonth(year, month) { return year + '-' + pad2(month); }
+
+const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
+
+const DateField = {
+  props: {
+    modelValue: { type: String, default: '' },
+    disabled: { type: Boolean, default: false },
+    disableFuture: { type: Boolean, default: false },
+    min: { type: String, default: '' },
+    max: { type: String, default: '' },
+    allowClear: { type: Boolean, default: true },
+    placeholder: { type: String, default: '选择日期' },
+  },
+  emits: ['update:modelValue', 'change'],
+  data() {
+    const current = parseISODate(this.modelValue) || parseISODate(localToday());
+    return {
+      open: false,
+      typed: this.modelValue || '',
+      viewYear: current.getFullYear(),
+      viewMonth: current.getMonth() + 1,
+      weekdays: WEEKDAYS,
+      popTop: 0,
+      popLeft: 0,
+    };
+  },
+  computed: {
+    isMobile() { return typeof window !== 'undefined' && window.innerWidth < 640; },
+    minDate() { return parseISODate(this.min); },
+    maxDate() {
+      const explicit = parseISODate(this.max);
+      if (this.disableFuture) {
+        const today = parseISODate(localToday());
+        if (!explicit || explicit > today) return today;
+      }
+      return explicit;
+    },
+    cells() {
+      const first = new Date(this.viewYear, this.viewMonth - 1, 1);
+      let start = first.getDay();
+      start = start === 0 ? 6 : start - 1;
+      const days = new Date(this.viewYear, this.viewMonth, 0).getDate();
+      const prevDays = new Date(this.viewYear, this.viewMonth - 1, 0).getDate();
+      const list = [];
+      for (let i = 0; i < 42; i++) {
+        let y = this.viewYear, m = this.viewMonth, d, other = false;
+        if (i < start) {
+          d = prevDays - start + i + 1;
+          m -= 1;
+          if (m < 1) { m = 12; y -= 1; }
+          other = true;
+        } else if (i >= start + days) {
+          d = i - start - days + 1;
+          m += 1;
+          if (m > 12) { m = 1; y += 1; }
+          other = true;
+        } else {
+          d = i - start + 1;
+        }
+        const iso = y + '-' + pad2(m) + '-' + pad2(d);
+        list.push({ iso: iso, day: d, other: other, disabled: this.isDisabled(iso), selected: iso === this.modelValue, today: iso === localToday() });
+      }
+      return list;
+    },
+    title() { return this.viewYear + ' 年 ' + this.viewMonth + ' 月'; },
+  },
+  watch: {
+    modelValue(val) {
+      this.typed = val || '';
+      const parsed = parseISODate(val);
+      if (parsed) { this.viewYear = parsed.getFullYear(); this.viewMonth = parsed.getMonth() + 1; }
+    },
+  },
+  mounted() {
+    this._onDoc = (e) => {
+      if (!this.open) return;
+      if (this.$el && this.$el.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('.date-pop-panel')) return;
+      this.close();
+    };
+    document.addEventListener('mousedown', this._onDoc);
+  },
+  beforeUnmount() { document.removeEventListener('mousedown', this._onDoc); },
+  methods: {
+    isDisabled(iso) {
+      const d = parseISODate(iso);
+      if (!d) return true;
+      if (this.minDate && d < this.minDate) return true;
+      if (this.maxDate && d > this.maxDate) return true;
+      return false;
+    },
+    popupStyle() {
+      if (this.isMobile) return {};
+      return { position: 'fixed', top: this.popTop + 'px', left: this.popLeft + 'px', zIndex: 85 };
+    },
+    measure() {
+      if (!this.$el || this.isMobile) return;
+      const r = this.$el.getBoundingClientRect();
+      let top = r.bottom + 4;
+      let left = r.left;
+      if (left + 280 > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 288);
+      if (top + 340 > window.innerHeight) top = Math.max(8, r.top - 344);
+      this.popTop = top;
+      this.popLeft = left;
+    },
+    toggle() { if (this.disabled) return; clearTimeout(this._blurTimer); this.open = !this.open; if (this.open) { this.syncView(); this.$nextTick(() => this.measure()); } },
+    close() { this.open = false; this.typed = this.modelValue || ''; },
+    syncView() {
+      const parsed = parseISODate(this.modelValue) || parseISODate(localToday());
+      this.viewYear = parsed.getFullYear();
+      this.viewMonth = parsed.getMonth() + 1;
+    },
+    prevMonth() { this.viewMonth -= 1; if (this.viewMonth < 1) { this.viewMonth = 12; this.viewYear -= 1; } },
+    nextMonth() { this.viewMonth += 1; if (this.viewMonth > 12) { this.viewMonth = 1; this.viewYear += 1; } },
+    apply(iso) {
+      this.typed = iso;
+      this.$emit('update:modelValue', iso);
+      this.$emit('change', iso);
+      this.close();
+    },
+    pick(cell) { clearTimeout(this._blurTimer); if (!cell.disabled) this.apply(cell.iso); },
+    pickToday() {
+      const t = localToday();
+      if (!this.isDisabled(t)) this.apply(t);
+    },
+    clear() { this.apply(''); },
+    onType(e) { this.typed = e.target.value; },
+    commitTyped() {
+      const raw = String(this.typed || '').trim().replace(/[./年]/g, '-').replace(/月/g, '-').replace(/日/g, '');
+      let parsed = parseISODate(raw);
+      if (!parsed && /^\d{8}$/.test(raw)) parsed = parseISODate(raw.slice(0, 4) + '-' + raw.slice(4, 6) + '-' + raw.slice(6, 8));
+      if (parsed) {
+        const iso = formatISODate(parsed);
+        if (!this.isDisabled(iso)) { this.apply(iso); return; }
+      }
+      this.typed = this.modelValue || '';
+    },
+    onFocus() { if (!this.open && !this.disabled) { this.open = true; this.syncView(); this.$nextTick(() => this.measure()); } },
+    onBlurDelay() {
+      clearTimeout(this._blurTimer);
+      this._blurTimer = setTimeout(() => { if (!this.open) this.commitTyped(); }, 180);
+    },
+    onKey(e) {
+      if (e.key === 'Escape') { this.close(); }
+      else if (e.key === 'Enter') { this.commitTyped(); }
+      else if (e.key === 'ArrowDown' && !this.open) { this.open = true; this.syncView(); e.preventDefault(); }
+    },
+  },
+  template: `
+    <div class="date-field relative w-full">
+      <div class="flex items-center gap-1">
+        <input type="text" :value="typed" :disabled="disabled" :placeholder="placeholder"
+          class="custom-input w-full min-w-0 px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"
+          @focus="onFocus" @input="onType" @keydown="onKey" @blur="onBlurDelay" autocomplete="off">
+        <button type="button" class="flex-none w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" :disabled="disabled" @click="toggle" tabindex="-1" aria-label="打开日历">
+          <svg class="app-icon mx-auto" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        </button>
+      </div>
+      <teleport to="body">
+        <div v-if="open" class="date-pop-root">
+          <div v-if="isMobile" class="fixed inset-0 z-[84] bg-slate-900/30" @click="close"></div>
+          <div class="date-pop-panel bg-white border border-slate-200 shadow-xl p-3" :class="isMobile ? 'fixed inset-x-0 bottom-0 z-[85] rounded-t-2xl pb-6' : 'w-[280px] rounded-xl'" :style="isMobile ? {} : popupStyle()">
+            <div class="flex items-center justify-between mb-2">
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="prevMonth">‹</button>
+              <div class="text-xs font-semibold text-slate-800">{{ title }}</div>
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="nextMonth">›</button>
+            </div>
+            <div class="grid grid-cols-7 mb-1">
+              <div v-for="w in weekdays" :key="w" class="text-center text-[10px] text-slate-400 py-1">{{ w }}</div>
+            </div>
+            <div class="grid grid-cols-7">
+              <button v-for="c in cells" :key="c.iso" type="button" :disabled="c.disabled"
+                :class="['h-8 text-[11px] rounded-lg', c.other ? 'text-slate-300' : 'text-slate-700', c.selected ? 'bg-slate-900 text-white' : (c.today ? 'border border-slate-400' : 'hover:bg-slate-100'), c.disabled ? 'opacity-30 cursor-not-allowed' : '']"
+                @click="pick(c)">{{ c.day }}</button>
+            </div>
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+              <button type="button" class="text-[11px] text-slate-600 hover:text-slate-900 font-medium" @click="pickToday">今天</button>
+              <button v-if="allowClear" type="button" class="text-[11px] text-slate-400 hover:text-rose-600" @click="clear">清空</button>
+            </div>
+          </div>
+        </div>
+      </teleport>
+    </div>
+  `,
+};
+
+const MonthField = {
+  props: {
+    modelValue: { type: String, default: '' },
+    disabled: { type: Boolean, default: false },
+    disableFuture: { type: Boolean, default: false },
+    allowClear: { type: Boolean, default: true },
+    placeholder: { type: String, default: '选择月份' },
+  },
+  emits: ['update:modelValue', 'change'],
+  data() {
+    const current = parseISOMonth(this.modelValue) || parseISOMonth(localMonth());
+    return { open: false, typed: this.modelValue || '', viewYear: current.year, popTop: 0, popLeft: 0 };
+  },
+  computed: {
+    isMobile() { return typeof window !== 'undefined' && window.innerWidth < 640; },
+    months() {
+      const now = parseISOMonth(localMonth());
+      const selected = parseISOMonth(this.modelValue);
+      const list = [];
+      for (let m = 1; m <= 12; m++) {
+        const iso = formatISOMonth(this.viewYear, m);
+        const future = this.disableFuture && (this.viewYear > now.year || (this.viewYear === now.year && m > now.month));
+        list.push({
+          iso: iso, month: m, label: m + '月',
+          disabled: future,
+          selected: selected && selected.year === this.viewYear && selected.month === m,
+          current: now.year === this.viewYear && now.month === m,
+        });
+      }
+      return list;
+    },
+  },
+  watch: {
+    modelValue(val) {
+      this.typed = val || '';
+      const parsed = parseISOMonth(val);
+      if (parsed) this.viewYear = parsed.year;
+    },
+  },
+  mounted() {
+    this._onDoc = (e) => {
+      if (!this.open) return;
+      if (this.$el && this.$el.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('.month-pop-panel')) return;
+      this.close();
+    };
+    document.addEventListener('mousedown', this._onDoc);
+  },
+  beforeUnmount() { document.removeEventListener('mousedown', this._onDoc); },
+  methods: {
+    popupStyle() {
+      if (this.isMobile) return {};
+      return { position: 'fixed', top: this.popTop + 'px', left: this.popLeft + 'px', zIndex: 85 };
+    },
+    measure() {
+      if (!this.$el || this.isMobile) return;
+      const r = this.$el.getBoundingClientRect();
+      let top = r.bottom + 4, left = r.left;
+      if (left + 260 > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 268);
+      if (top + 280 > window.innerHeight) top = Math.max(8, r.top - 284);
+      this.popTop = top;
+      this.popLeft = left;
+    },
+    toggle() { if (this.disabled) return; clearTimeout(this._blurTimer); this.open = !this.open; if (this.open) this.$nextTick(() => this.measure()); },
+    close() { this.open = false; this.typed = this.modelValue || ''; },
+    apply(iso) {
+      this.typed = iso;
+      this.$emit('update:modelValue', iso);
+      this.$emit('change', iso);
+      this.close();
+    },
+    pick(item) { clearTimeout(this._blurTimer); if (!item.disabled) this.apply(item.iso); },
+    pickThis() { this.apply(localMonth()); },
+    clear() { this.apply(''); },
+    onType(e) { this.typed = e.target.value; },
+    commitTyped() {
+      const raw = String(this.typed || '').trim().replace(/[./年]/g, '-').replace(/月/g, '');
+      let parsed = parseISOMonth(raw);
+      if (!parsed && /^\d{6}$/.test(raw)) parsed = parseISOMonth(raw.slice(0, 4) + '-' + raw.slice(4, 6));
+      if (parsed) { this.apply(formatISOMonth(parsed.year, parsed.month)); return; }
+      this.typed = this.modelValue || '';
+    },
+    onFocus() { if (!this.open && !this.disabled) { this.open = true; this.$nextTick(() => this.measure()); } },
+    onBlurDelay() {
+      clearTimeout(this._blurTimer);
+      this._blurTimer = setTimeout(() => { if (!this.open) this.commitTyped(); }, 180);
+    },
+    onKey(e) {
+      if (e.key === 'Escape') this.close();
+      else if (e.key === 'Enter') this.commitTyped();
+      else if (e.key === 'ArrowDown' && !this.open) { this.open = true; e.preventDefault(); }
+    },
+  },
+  template: `
+    <div class="date-field relative w-full">
+      <div class="flex items-center gap-1">
+        <input type="text" :value="typed" :disabled="disabled" :placeholder="placeholder"
+          class="custom-input w-full min-w-0 px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"
+          @focus="onFocus" @input="onType" @keydown="onKey" @blur="onBlurDelay" autocomplete="off">
+        <button type="button" class="flex-none w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" :disabled="disabled" @click="toggle" tabindex="-1" aria-label="打开月份">
+          <svg class="app-icon mx-auto" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        </button>
+      </div>
+      <teleport to="body">
+        <div v-if="open" class="date-pop-root">
+          <div v-if="isMobile" class="fixed inset-0 z-[84] bg-slate-900/30" @click="close"></div>
+          <div class="month-pop-panel bg-white border border-slate-200 shadow-xl p-3" :class="isMobile ? 'fixed inset-x-0 bottom-0 z-[85] rounded-t-2xl pb-6' : 'w-[260px] rounded-xl'" :style="isMobile ? {} : popupStyle()">
+            <div class="flex items-center justify-between mb-3">
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="viewYear -= 1">‹</button>
+              <div class="text-xs font-semibold text-slate-800">{{ viewYear }} 年</div>
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="viewYear += 1">›</button>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button v-for="m in months" :key="m.iso" type="button" :disabled="m.disabled"
+                :class="['h-9 text-xs rounded-lg', m.selected ? 'bg-slate-900 text-white' : (m.current ? 'border border-slate-400 text-slate-800' : 'text-slate-700 hover:bg-slate-100'), m.disabled ? 'opacity-30 cursor-not-allowed' : '']"
+                @click="pick(m)">{{ m.label }}</button>
+            </div>
+            <div class="flex items-center justify-between mt-3 pt-2 border-t border-slate-100">
+              <button type="button" class="text-[11px] text-slate-600 hover:text-slate-900 font-medium" @click="pickThis">本月</button>
+              <button v-if="allowClear" type="button" class="text-[11px] text-slate-400 hover:text-rose-600" @click="clear">清空</button>
+            </div>
+          </div>
+        </div>
+      </teleport>
+    </div>
+  `,
+};
+
+function renderMarkdown(src) {
+  const escape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const slug = (s) => String(s).trim().toLowerCase().replace(/[^\u4e00-\u9fff\w]+/g, '-').replace(/^-|-$/g, '');
+  const lines = String(src || '').replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let inList = false;
+  const flushList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  for (const raw of lines) {
+    const line = raw;
+    const hm = line.match(/^(#{1,3})\s+(.+)$/);
+    if (hm) {
+      flushList();
+      const level = hm[1].length;
+      const text = escape(hm[2]);
+      const id = slug(hm[2]);
+      out.push('<' + 'h' + level + ' id="' + id + '" class="guide-h' + level + '">' + text + '</' + 'h' + level + '>');
+      continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      if (!inList) { out.push('<ul class="guide-ul">'); inList = true; }
+      let item = escape(line.replace(/^[-*]\s+/, ''));
+      item = item.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+      out.push('<li>' + item + '</li>');
+      continue;
+    }
+    flushList();
+    if (!line.trim()) { out.push(''); continue; }
+    let t = escape(line);
+    t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+    out.push('<p class="guide-p">' + t + '</p>');
+  }
+  flushList();
+  return out.join('\n');
+}
+
+
 const app = createApp({
   setup() {
     const token = ref(localStorage.getItem('reimburse_token') || '');
@@ -1125,7 +1834,9 @@ const app = createApp({
       { key: 'receivables', label: '应收台账', icon: 'list-check' },
       { key: 'batches', label: '提交批次', icon: 'layers' },
       { key: 'payments', label: '到账记录', icon: 'banknote' },
+      { key: 'payroll', label: '薪资计划', icon: 'hand-coins' },
       { key: 'export', label: '导出中心', icon: 'export' },
+      { key: 'guide', label: '使用指南', icon: 'file' },
       { key: 'settings', label: '设置', icon: 'settings' },
     ];
     const titles = {
@@ -1134,7 +1845,9 @@ const app = createApp({
       receivables: '应收台账',
       batches: '提交批次',
       payments: '到账记录',
+      payroll: '薪资计划',
       export: '导出中心',
+      guide: '使用指南',
       settings: '设置',
     };
     const currentTitle = computed(() => titles[view.value] || '');
@@ -1167,6 +1880,40 @@ const app = createApp({
     const batchDraftCompany = ref(null);
     const dragging = ref(false);
     const fileInput = ref(null);
+    const cameraInput = ref(null);
+    const uploadResult = ref(null);
+    const payrollPlans = ref([]);
+    const guideHtml = ref('');
+    const guideError = ref('');
+    const guideMarkdown = ref('');
+    const inFlight = ref(0);
+    const showProgress = ref(false);
+    let progressTimer = null;
+    function beginFlight() {
+      inFlight.value += 1;
+      if (!progressTimer) {
+        progressTimer = setTimeout(() => {
+          progressTimer = null;
+          if (inFlight.value > 0) showProgress.value = true;
+        }, 200);
+      }
+    }
+    function endFlight() {
+      inFlight.value = Math.max(0, inFlight.value - 1);
+      if (inFlight.value === 0) {
+        if (progressTimer) { clearTimeout(progressTimer); progressTimer = null; }
+        showProgress.value = false;
+      }
+    }
+    const pending = reactive({});
+    function isPending(key) { return !!pending[key]; }
+    async function withPending(key, fn) {
+      if (pending[key]) return;
+      pending[key] = true;
+      try { return await fn(); }
+      finally { pending[key] = false; }
+    }
+    const aiPanelResult = reactive({ type: '', message: '' });
 
     const filters = reactive({ company_id: null, status_value: '', kind: '', category_id: null, period_from: '', period_to: '', q: '', overdue: false, missing_materials: false });
     const exportFilters = reactive({ company_id: null, kind: '', period_from: '', period_to: '' });
@@ -1176,8 +1923,11 @@ const app = createApp({
     function notify(msg, type = 'success') {
       toast.msg = msg; toast.type = type; toast.show = true;
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toast.show = false; }, 3200);
+      if (type === 'error') return;
+      const ms = type === 'warning' ? 4500 : 2800;
+      toastTimer = setTimeout(() => { toast.show = false; }, ms);
     }
+    function closeToast() { toast.show = false; clearTimeout(toastTimer); }
 
     function errMsg(error) {
       const detail = error?.detail?.detail;
@@ -1188,50 +1938,63 @@ const app = createApp({
     }
 
     async function api(path, options = {}) {
-      const headers = Object.assign({}, options.headers || {});
-      if (token.value) headers.Authorization = `Bearer ${token.value}`;
-      let body = options.body;
-      if (body && !(body instanceof FormData)) {
-        headers['Content-Type'] = 'application/json';
-        body = JSON.stringify(body);
-      }
-      const response = await fetch(path, Object.assign({}, options, { headers, body }));
-      if (!response.ok) {
-        let detail = null;
-        try { detail = await response.json(); } catch (e) {}
-        const error = new Error('HTTP ' + response.status);
-        error.status = response.status;
-        error.detail = detail;
-        if (response.status === 401) {
-          logout(false);
+      const silent = options.silent;
+      const fetchOpts = Object.assign({}, options);
+      delete fetchOpts.silent;
+      if (!silent) beginFlight();
+      try {
+        const headers = Object.assign({}, fetchOpts.headers || {});
+        if (token.value) headers.Authorization = `Bearer ${token.value}`;
+        let body = fetchOpts.body;
+        if (body && !(body instanceof FormData)) {
+          headers['Content-Type'] = 'application/json';
+          body = JSON.stringify(body);
         }
-        throw error;
+        const response = await fetch(path, Object.assign({}, fetchOpts, { headers, body }));
+        if (!response.ok) {
+          let detail = null;
+          try { detail = await response.json(); } catch (e) {}
+          const error = new Error('HTTP ' + response.status);
+          error.status = response.status;
+          error.detail = detail;
+          if (response.status === 401) {
+            logout(false);
+          }
+          throw error;
+        }
+        const type = response.headers.get('content-type') || '';
+        if (type.includes('application/json')) return response.json();
+        return response;
+      } finally {
+        if (!silent) endFlight();
       }
-      const type = response.headers.get('content-type') || '';
-      if (type.includes('application/json')) return response.json();
-      return response;
     }
 
     async function downloadBlob(path, options = {}, filename = 'download') {
-      const headers = Object.assign({}, options.headers || {});
-      if (token.value) headers.Authorization = `Bearer ${token.value}`;
-      let body = options.body;
-      if (body && !(body instanceof FormData)) {
-        headers['Content-Type'] = 'application/json';
-        body = JSON.stringify(body);
+      beginFlight();
+      try {
+        const headers = Object.assign({}, options.headers || {});
+        if (token.value) headers.Authorization = `Bearer ${token.value}`;
+        let body = options.body;
+        if (body && !(body instanceof FormData)) {
+          headers['Content-Type'] = 'application/json';
+          body = JSON.stringify(body);
+        }
+        const response = await fetch(path, Object.assign({}, options, { headers, body }));
+        if (!response.ok) {
+          let detail = null;
+          try { detail = await response.json(); } catch (e) {}
+          const error = new Error('下载失败'); error.detail = detail; throw error;
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = filename;
+        document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 8000);
+      } finally {
+        endFlight();
       }
-      const response = await fetch(path, Object.assign({}, options, { headers, body }));
-      if (!response.ok) {
-        let detail = null;
-        try { detail = await response.json(); } catch (e) {}
-        const error = new Error('下载失败'); error.detail = detail; throw error;
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url; link.download = filename;
-      document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 8000);
     }
 
     async function openBlob(path) {
@@ -1257,7 +2020,7 @@ const app = createApp({
       return { pending: 'bg-slate-100 text-slate-600', submitted: 'bg-blue-50 text-blue-700', partial: 'bg-amber-50 text-amber-700', paid: 'bg-emerald-50 text-emerald-700', rejected: 'bg-rose-50 text-rose-700', abandoned: 'bg-slate-100 text-slate-400' }[status] || 'bg-slate-100 text-slate-500';
     }
     function batchStatusClass(status) {
-      return { draft: 'bg-slate-100 text-slate-600', submitted: 'bg-blue-50 text-blue-700', paid: 'bg-emerald-50 text-emerald-700', cancelled: 'bg-slate-100 text-slate-400' }[status] || 'bg-slate-100';
+      return { draft: 'bg-slate-100 text-slate-600', submitted: 'bg-blue-50 text-blue-700', partial: 'bg-amber-50 text-amber-700', paid: 'bg-emerald-50 text-emerald-700', cancelled: 'bg-slate-100 text-slate-400' }[status] || 'bg-slate-100';
     }
     function draftStatusClass(status) {
       return { pending: 'bg-slate-100 text-slate-500', processing: 'bg-amber-50 text-amber-700', ready: 'bg-blue-50 text-blue-700', failed: 'bg-rose-50 text-rose-700', confirmed: 'bg-emerald-50 text-emerald-700' }[status] || 'bg-slate-100';
@@ -1276,7 +2039,8 @@ const app = createApp({
     const readyDraftCount = computed(() => drafts.value.filter(d => d.status === 'ready' || d.status === 'failed').length);
     const activeCompanies = computed(() => companies.value.filter(c => c.is_active));
     const visibleSettingTabs = computed(() => user.value?.role === 'admin' ? settingTabs : settingTabs.filter(tab => tab.key !== 'users'));
-    const allSelected = computed(() => receivables.value.length > 0 && receivables.value.every(r => selectedReceivableIds.value.includes(r.id)));
+    const collectableReceivables = computed(() => receivables.value.filter(r => r.can_collect));
+    const allSelected = computed(() => collectableReceivables.value.length > 0 && collectableReceivables.value.every(r => selectedReceivableIds.value.includes(r.id)));
     const selectedAmount = computed(() => receivables.value.filter(r => selectedReceivableIds.value.includes(r.id)).reduce((sum, r) => sum + Number(r.amount || 0), 0));
     const selectedCompanyName = computed(() => {
       const selected = receivables.value.filter(r => selectedReceivableIds.value.includes(r.id));
@@ -1286,7 +2050,8 @@ const app = createApp({
     });
 
     function toggleSelectAll(event) {
-      selectedReceivableIds.value = event.target.checked ? receivables.value.map(r => r.id) : [];
+      const ids = collectableReceivables.value.map(r => r.id);
+      selectedReceivableIds.value = event.target.checked ? ids : [];
     }
 
     const modal = reactive({ name: '', data: null });
@@ -1310,6 +2075,23 @@ const app = createApp({
         lastCompanyId.value = null;
         localStorage.removeItem('reimburse_last_company');
       }
+      applyDefaultCompany();
+    }
+    function defaultCompanyId() {
+      const active = activeCompanies.value;
+      if (!active.length) return null;
+      if (active.length === 1) return active[0].id;
+      if (lastCompanyId.value && active.some(c => c.id === lastCompanyId.value)) return lastCompanyId.value;
+      return active[0].id;
+    }
+    function applyDefaultCompany() {
+      const def = defaultCompanyId();
+      if (def && (uploadCompanyId.value == null || uploadCompanyId.value === 0)) uploadCompanyId.value = def;
+    }
+    function rememberCompany(id) {
+      if (!id) return;
+      lastCompanyId.value = id;
+      localStorage.setItem('reimburse_last_company', String(id));
     }
     async function loadCategories() { categories.value = await api('/api/categories'); }
     async function loadDashboard() { dashboard.value = await api('/api/dashboard'); }
@@ -1407,7 +2189,12 @@ const app = createApp({
     async function afterLogin() {
       try {
         user.value = await api('/api/auth/me');
+        try {
+          const sync = await api('/api/payroll-plans/sync', { method: 'POST' });
+          if (sync && sync.created_count) notify(sync.message || (`已按薪资计划补齐 ${sync.created_count} 笔工资应收`));
+        } catch (e) {}
         await loadAll();
+        applyDefaultCompany();
         go('dashboard');
         startPolling();
       } catch (error) {
@@ -1433,6 +2220,27 @@ const app = createApp({
       if (key === 'settings') { loadCompanies(); loadCategories(); loadAI(); loadUsers(); loadAudit(); loadAgentTokens(); }
       if (key === 'inbox') loadDrafts().catch(() => {});
       if (key === 'dashboard') loadDashboard().catch(() => {});
+      if (key === 'payroll') loadPayrollPlans().catch(() => {});
+      if (key === 'guide') loadGuide().catch(() => {});
+    }
+    function goPendingThisMonth() {
+      const period = dashboard.value?.todos?.pending_this_month_period || localMonth();
+      Object.assign(filters, { status_value: 'pending', overdue: false, period_from: period, period_to: period });
+      go('receivables');
+    }
+    function goOverdue() {
+      Object.assign(filters, { status_value: '', overdue: true, period_from: '', period_to: '' });
+      go('receivables');
+    }
+    function goGuide(anchor) {
+      view.value = 'guide';
+      loadGuide().then(() => {
+        nextTick(() => {
+          if (!anchor) return;
+          const el = document.getElementById(anchor);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      }).catch(() => {});
     }
 
     function resetFilters() {
@@ -1441,26 +2249,48 @@ const app = createApp({
     }
 
     function openQuickUpload() { fileInput.value && fileInput.value.click(); }
+    function openCameraUpload() { cameraInput.value && cameraInput.value.click(); }
     async function onFilePicked(event) {
       const files = Array.from(event.target.files || []);
       event.target.value = '';
       if (files.length) await uploadFiles(files);
     }
     async function uploadFiles(files) {
-      const form = new FormData();
-      files.forEach(file => form.append('files', file));
-      const companyForUpload = uploadCompanyId.value || lastCompanyId.value || (activeCompanies.value.length === 1 ? activeCompanies.value[0].id : null);
-      if (companyForUpload) form.append('company_id', companyForUpload);
-      try {
-        const result = await api('/api/capture', { method: 'POST', body: form });
-        notify(`已上传 ${result.count} 个文件`);
-        await loadDrafts();
-        await loadDashboard();
-        go('inbox');
-        startPolling();
-      } catch (error) {
-        notify(errMsg(error), 'error');
-      }
+      return withPending('upload', async () => {
+        const form = new FormData();
+        files.forEach(file => form.append('files', file));
+        const companyForUpload = uploadCompanyId.value || defaultCompanyId();
+        if (companyForUpload) form.append('company_id', companyForUpload);
+        try {
+          const result = await api('/api/capture', { method: 'POST', body: form });
+          const hasIssue = !!(result.skipped_count || result.duplicate_count);
+          uploadResult.value = {
+            message: result.message || `已生成 ${result.count} 条草稿`,
+            skipped: result.skipped || [],
+            duplicates: result.duplicates || [],
+            hasIssue,
+          };
+          notify(result.message || `已生成 ${result.count} 条草稿`, hasIssue ? 'warning' : 'success');
+          rememberCompany(companyForUpload);
+          await loadDrafts();
+          await loadDashboard();
+          go('inbox');
+          startPolling();
+        } catch (error) {
+          const detail = error?.detail?.detail;
+          if (detail && typeof detail === 'object' && (detail.skipped || detail.message)) {
+            uploadResult.value = {
+              message: detail.message || errMsg(error),
+              skipped: detail.skipped || [],
+              duplicates: [],
+              hasIssue: true,
+            };
+            notify(detail.message || errMsg(error), 'error');
+          } else {
+            notify(errMsg(error), 'error');
+          }
+        }
+      });
     }
     function onDragOver(event) { event.preventDefault(); dragging.value = true; }
     function onDragLeave(event) { if (!event.relatedTarget) dragging.value = false; }
@@ -1519,7 +2349,58 @@ const app = createApp({
       }
     }
 
-    async function confirmDrafts(ids = null, targetId = null) {
+    function onDraftOccurred(draft) {
+      const payload = { occurred_on: draft.occurred_on };
+      if (draft.occurred_on && (!draft.period || draft.period === (draft._prevOccurred || '').slice(0, 7))) {
+        draft.period = draft.occurred_on.slice(0, 7);
+        payload.period = draft.period;
+      }
+      draft._prevOccurred = draft.occurred_on;
+      saveDraft(draft, payload);
+    }
+    function selectAllDrafts() { selectedDraftIds.value = drafts.value.map(d => d.id); }
+    function invertDraftSelection() {
+      const set = new Set(selectedDraftIds.value);
+      selectedDraftIds.value = drafts.value.filter(d => !set.has(d.id)).map(d => d.id);
+    }
+    const confirmSummary = reactive({ count: 0, amount: 0, period: '', mixedPeriod: false, periods: [], groups: [], duplicates: [], missing: [], drafts: [] });
+    function openConfirmSummary(ids = null) {
+      const chosenIds = ids || selectedDraftIds.value.slice();
+      if (!chosenIds.length) return notify('请先勾选草稿', 'error');
+      const chosen = drafts.value.filter(d => chosenIds.includes(d.id));
+      const missing = [];
+      chosen.forEach(d => {
+        if (!d.company_id) missing.push((d.original_filename || '草稿') + '（缺公司）');
+        if (!d.amount_cents) missing.push((d.original_filename || '草稿') + '（缺金额）');
+      });
+      const periods = [...new Set(chosen.map(d => d.period || (d.occurred_on || '').slice(0, 7)).filter(Boolean))];
+      const groupsMap = {};
+      chosen.forEach(d => {
+        const cid = d.company_id || 0;
+        if (!groupsMap[cid]) {
+          const company = companies.value.find(c => c.id === cid);
+          groupsMap[cid] = { company_id: cid, name: company ? company.name : '未选公司', count: 0, amount: 0, ids: [] };
+        }
+        groupsMap[cid].count += 1;
+        groupsMap[cid].amount += Number(d.amount || 0);
+        groupsMap[cid].ids.push(d.id);
+      });
+      const duplicates = [];
+      chosen.forEach(d => { (d.duplicates || []).forEach(w => duplicates.push(w)); });
+      Object.assign(confirmSummary, {
+        count: chosen.length,
+        amount: chosen.reduce((s, d) => s + Number(d.amount || 0), 0),
+        period: periods.length === 1 ? periods[0] : '',
+        mixedPeriod: periods.length > 1,
+        periods,
+        groups: Object.values(groupsMap),
+        duplicates,
+        missing,
+        drafts: chosen,
+      });
+      openModal('confirmDrafts');
+    }
+    async function confirmDrafts(ids = null, targetId = null, options = {}) {
       const chosenIds = ids || selectedDraftIds.value.slice();
       if (!chosenIds.length) { notify('请先勾选草稿', 'error'); return false; }
       const chosen = drafts.value.filter(d => chosenIds.includes(d.id));
@@ -1530,15 +2411,14 @@ const app = createApp({
       const companyIds = [...new Set(chosen.map(d => d.company_id))];
       if (!targetId && companyIds.length > 1) { notify('一次确认只能属于同一家公司', 'error'); return false; }
       const body = { draft_ids: chosenIds, company_id: companyIds[0] || null };
-      if (body.company_id) {
-        lastCompanyId.value = body.company_id;
-        localStorage.setItem('reimburse_last_company', String(body.company_id));
-      }
+      if (options.period) body.period = options.period;
+      if (options.force) body.force = true;
+      if (body.company_id) rememberCompany(body.company_id);
       if (targetId) body.target_receivable_id = targetId;
       const afterSuccess = async (result) => {
         notify(targetId ? '已追加到已有应收' : (`已入账 ${result?.created?.length || chosenIds.length} 笔`));
         selectedDraftIds.value = [];
-        await loadDrafts(); await loadReceivables(); await loadDashboard(); await loadBatches();
+        await loadDrafts(); await loadReceivables(); await loadDashboard(); await loadBatches(); await loadCompanies();
       };
       try {
         const result = await api('/api/capture/confirm', { method: 'POST', body });
@@ -1549,7 +2429,7 @@ const app = createApp({
         if (error.status === 409 && detail?.warnings) {
           const onlyTitle = detail.warnings.every(w => w.type === 'buyer_mismatch');
           const title = onlyTitle ? '发票抬头不一致' : '检测到疑似重复';
-          const message = detail.warnings.map(w => w.message).join('\n') + '\n\n仍然入账吗？';
+          const message = detail.warnings.map(w => w.message).join('\n') + '\n\n仍然入账吗？请先核对风险后再确认。';
           if (await askConfirm(title, message)) {
             try {
               const forced = await api('/api/capture/confirm', { method: 'POST', body: Object.assign({}, body, { force: true }) });
@@ -1562,6 +2442,18 @@ const app = createApp({
         notify(errMsg(error), 'error');
         return false;
       }
+    }
+    async function doConfirmFromSummary() {
+      if (confirmSummary.missing.length) return notify('请先补全金额和公司', 'error');
+      return withPending('confirm', async () => {
+        const period = confirmSummary.period || undefined;
+        for (const group of confirmSummary.groups) {
+          const ok = await confirmDrafts(group.ids, null, { period });
+          if (!ok) return false;
+        }
+        closeModal();
+        return true;
+      });
     }
 
 
@@ -1634,18 +2526,23 @@ const app = createApp({
       loadReceivables().catch(() => {});
     }
 
-    const receivableForm = reactive({ id: null, company_id: null, category_id: null, title: '', amount: '', occurred_on: '', expected_on: '', note: '', status: 'pending' });
+    const receivableForm = reactive({ id: null, company_id: null, category_id: null, title: '', amount: '', occurred_on: '', period: '', expected_on: '', note: '', status: 'pending', locked: false });
+    function onReceivableOccurred() {
+      if (receivableForm.occurred_on && !receivableForm.period) receivableForm.period = receivableForm.occurred_on.slice(0, 7);
+    }
     function openReceivableModal(item = null) {
       if (item) {
         Object.assign(receivableForm, {
           id: item.id, company_id: item.company_id, category_id: item.category_id,
           title: item.title, amount: item.amount, occurred_on: item.occurred_on,
+          period: item.period || (item.occurred_on || '').slice(0, 7),
           expected_on: item.expected_on, note: item.note, status: item.status,
+          locked: !!item.locked,
         });
       } else {
         Object.assign(receivableForm, {
-          id: null, company_id: activeCompanies.value[0]?.id || null, category_id: categories.value[0]?.id || null,
-          title: '', amount: '', occurred_on: new Date().toISOString().slice(0, 10), expected_on: '', note: '', status: 'pending',
+          id: null, company_id: defaultCompanyId() || activeCompanies.value[0]?.id || null, category_id: categories.value[0]?.id || null,
+          title: '', amount: '', occurred_on: localToday(), period: localMonth(), expected_on: '', note: '', status: 'pending', locked: false,
         });
       }
       openModal('receivable');
@@ -1660,28 +2557,44 @@ const app = createApp({
         title: receivableForm.title.trim(),
         amount: receivableForm.amount,
         occurred_on: receivableForm.occurred_on,
+        period: receivableForm.period,
         expected_on: receivableForm.expected_on,
         note: receivableForm.note,
       };
       try {
-        if (receivableForm.id) {
-          if (!['paid', 'partial'].includes(receivableForm.status)) body.status = receivableForm.status;
-          await api(`/api/receivables/${receivableForm.id}`, { method: 'PUT', body });
-        } else {
-          await api('/api/receivables', { method: 'POST', body });
-        }
+        await withPending('recv-save', async () => {
+          if (receivableForm.id) {
+            if (!['paid', 'partial', 'submitted'].includes(receivableForm.status)) body.status = receivableForm.status;
+            await api(`/api/receivables/${receivableForm.id}`, { method: 'PUT', body });
+          } else {
+            await api('/api/receivables', { method: 'POST', body });
+          }
+        });
         notify('已保存');
         closeModal();
         await loadReceivables(); await loadDashboard(); await loadCompanies();
       } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function deleteReceivable(item) {
+      if (item.locked || item.status === 'submitted') return notify('已提交的应收不能删除，只能放弃', 'error');
       if (!(await askConfirm('删除应收', `确定删除「${item.title}」吗？已到账的不能删除。`))) return;
       try { await api(`/api/receivables/${item.id}`, { method: 'DELETE' }); notify('已删除'); await loadReceivables(); await loadDashboard(); }
       catch (error) { notify(errMsg(error), 'error'); }
     }
+    async function abandonReceivable(item) {
+      const reason = prompt('放弃原因（必填，将记入审计）');
+      if (reason === null) return;
+      if (!String(reason).trim()) return notify('请填写放弃原因', 'error');
+      try {
+        await api(`/api/receivables/${item.id}`, { method: 'PUT', body: { status: 'abandoned', reason: String(reason).trim() } });
+        notify('已放弃该笔应收');
+        closeModal();
+        await loadReceivables(); await loadDashboard();
+        if (detail.value?.id === item.id) detail.value = await api(`/api/receivables/${item.id}`);
+      } catch (error) { notify(errMsg(error), 'error'); }
+    }
     function duplicateReceivable(item) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localToday();
       openReceivableModal({
         id: null,
         company_id: item.company_id,
@@ -1730,12 +2643,18 @@ const app = createApp({
     }
     function openAttachment(attachment) { openBlob(`/api/attachments/${attachment.id}/file`); }
 
-    const batchForm = reactive({ title: '', period: new Date().toISOString().slice(0, 7) });
+    const batchForm = reactive({ title: '', period: localMonth(), periodHint: '' });
     function openBatchModal() {
       if (!selectedReceivableIds.value.length) return notify('请先在台账勾选应收', 'error');
       if (!selectedCompanyName.value) return notify('一次只能归集同一家公司的应收', 'error');
-      batchForm.title = selectedCompanyName.value + ' ' + new Date().toISOString().slice(0, 7) + ' 报销';
-      batchForm.period = new Date().toISOString().slice(0, 7);
+      const selected = receivables.value.filter(r => selectedReceivableIds.value.includes(r.id));
+      const blocked = selected.filter(r => !r.can_collect);
+      if (blocked.length) return notify('只能勾选待提交或被驳回的应收。' + (blocked[0].collect_reason || ''), 'error');
+      const periods = [...new Set(selected.map(r => r.period).filter(Boolean))];
+      batchForm.period = periods.length === 1 ? periods[0] : (periods[0] || localMonth());
+      batchForm.periodHint = periods.length > 1 ? ('所选应收归属月不一致：' + periods.join('、') + '。批次要求同一归属月，请调整后再归集。') : '';
+      batchForm.title = selectedCompanyName.value + ' ' + batchForm.period + ' 报销';
+      if (periods.length > 1) return notify(batchForm.periodHint, 'error');
       openModal('batch');
     }
     async function createBatch() {
@@ -1752,16 +2671,47 @@ const app = createApp({
     }
 
     const batchDetail = ref(null);
+    const batchAddCandidates = ref([]);
     async function openBatchDetail(id) {
-      try { batchDetail.value = await api(`/api/batches/${id}`); openModal('batchDetail'); }
-      catch (error) { notify(errMsg(error), 'error'); }
+      try {
+        batchDetail.value = await api(`/api/batches/${id}`);
+        await refreshBatchAddCandidates();
+        openModal('batchDetail');
+      } catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function refreshBatchAddCandidates() {
+      batchAddCandidates.value = [];
+      const batch = batchDetail.value;
+      if (!batch || !batch.can_edit_items) return;
+      try {
+        const data = await api(`/api/receivables?company_id=${batch.company_id}&status_value=pending&page_size=200`, { silent: true });
+        const existing = new Set((batch.items || []).map(r => r.id));
+        batchAddCandidates.value = (data.items || []).filter(r => !existing.has(r.id) && r.can_collect && (!batch.period || r.period === batch.period));
+      } catch (e) { batchAddCandidates.value = []; }
+    }
+    async function removeBatchItem(item) {
+      if (!(await askConfirm('移出应收', `将「${item.title}」从草稿批次中移出，该笔回到待提交。确定吗？`))) return;
+      try {
+        await api(`/api/batches/${batchDetail.value.id}/items`, { method: 'POST', body: { remove_ids: [item.id] } });
+        notify('已移出');
+        await openBatchDetail(batchDetail.value.id);
+        await loadBatches(); await loadReceivables();
+      } catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function addBatchItem(item) {
+      try {
+        await api(`/api/batches/${batchDetail.value.id}/items`, { method: 'POST', body: { add_ids: [item.id] } });
+        notify('已添加');
+        await openBatchDetail(batchDetail.value.id);
+        await loadBatches(); await loadReceivables();
+      } catch (error) { notify(errMsg(error), 'error'); }
     }
 
     const batchSubmitTarget = ref(null);
     const batchSubmitForm = reactive({ submitted_on: '', expected_on: '' });
     function submitBatch(batch) {
       batchSubmitTarget.value = batch;
-      batchSubmitForm.submitted_on = new Date().toISOString().slice(0, 10);
+      batchSubmitForm.submitted_on = localToday();
       batchSubmitForm.expected_on = '';
       openModal('submitBatch');
     }
@@ -1773,31 +2723,79 @@ const app = createApp({
           const names = incomplete.map(item => item.title).join('、');
           if (!(await askConfirm('材料不全', `以下 ${incomplete.length} 笔还缺发票：${names}\n\n仍然提交吗？`))) return;
         }
-        const result = await api(`/api/batches/${batchSubmitTarget.value.id}/submit`, { method: 'POST', body: { submitted_on: batchSubmitForm.submitted_on, expected_on: batchSubmitForm.expected_on } });
-        notify('批次已提交，预计 ' + result.expected_on + ' 到账');
+        await withPending('batch-submit', async () => {
+          const result = await api(`/api/batches/${batchSubmitTarget.value.id}/submit`, { method: 'POST', body: { submitted_on: batchSubmitForm.submitted_on, expected_on: batchSubmitForm.expected_on } });
+          notify('批次已提交，预计 ' + result.expected_on + ' 到账');
+        });
         closeModal();
         await loadBatches(); await loadReceivables(); await loadDashboard();
         if (batchDetail.value?.id === batchSubmitTarget.value.id) openBatchDetail(batchSubmitTarget.value.id);
       } catch (error) { notify(errMsg(error), 'error'); }
     }
-    async function payBatch(batch) {
-      if (!(await askConfirm('记录到账', `确认这笔款项已全额到账？`))) return;
+    const payBatchForm = reactive({ id: null, title: '', count: 0, amount: 0, paid_on: '', note: '批次到账' });
+    const unsubmitForm = reactive({ id: null, title: '', count: 0, amount: 0, reason: '' });
+    function openPayBatch(batch) {
+      payBatchForm.id = batch.id;
+      payBatchForm.title = batch.title;
+      payBatchForm.count = batch.count || (batch.items || []).length;
+      payBatchForm.amount = batch.amount;
+      payBatchForm.paid_on = localToday();
+      payBatchForm.note = '批次到账';
+      openModal('payBatch');
+    }
+    async function doPayBatch() {
+      if (!payBatchForm.id) return;
+      return withPending('pay-batch', async () => {
+        try {
+          await api(`/api/batches/${payBatchForm.id}/payment`, { method: 'POST', body: { paid_on: payBatchForm.paid_on || localToday(), note: payBatchForm.note || '批次到账' } });
+          notify('已记录到账');
+          closeModal();
+          await loadBatches(); await loadReceivables(); await loadDashboard(); await loadPayments(); await loadCompanies();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
+    }
+    function openUnsubmitBatch(batch) {
+      unsubmitForm.id = batch.id;
+      unsubmitForm.title = batch.title;
+      unsubmitForm.count = batch.count || (batch.items || []).length;
+      unsubmitForm.amount = batch.amount;
+      unsubmitForm.reason = '';
+      openModal('unsubmitBatch');
+    }
+    async function doUnsubmitBatch() {
+      const reason = (unsubmitForm.reason || '').trim();
+      if (!reason) return notify('请填写撤回原因', 'error');
+      return withPending('unsubmit', async () => {
+        try {
+          await api(`/api/batches/${unsubmitForm.id}/unsubmit`, { method: 'POST', body: { reason } });
+          notify('已撤回提交，批次回到草稿');
+          closeModal();
+          await loadBatches(); await loadReceivables(); await loadDashboard();
+          if (batchDetail.value?.id === unsubmitForm.id) await openBatchDetail(unsubmitForm.id);
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
+    }
+    async function cancelBatch(batch) {
+      const count = batch.count || (batch.items || []).length;
+      if (!(await askConfirm('取消批次', `将取消「${batch.title}」，影响 ${count} 笔、合计 ¥${money(batch.amount)}，应收退回待提交。确定吗？`))) return;
       try {
-        await api(`/api/batches/${batch.id}/payment`, { method: 'POST', body: { paid_on: new Date().toISOString().slice(0, 10), note: '批次到账' } });
-        notify('已记录到账');
+        const result = await api(`/api/batches/${batch.id}/cancel`, { method: 'POST' });
+        notify(result.message || `已取消，退回 ${result.count || count} 笔`);
         closeModal();
-        await loadBatches(); await loadReceivables(); await loadDashboard(); await loadPayments(); await loadCompanies();
+        await loadBatches(); await loadReceivables(); await loadDashboard();
       } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function exportBatchPack(batch) {
-      try {
-        await downloadBlob('/api/export/finance-pack', { method: 'POST', body: { batch_id: batch.id, include_originals: true } }, `财务报销包_${batch.title || batch.id}.zip`);
-        notify('财务包已生成');
-        loadExportRecords();
-      } catch (error) { notify(errMsg(error), 'error'); }
+      return withPending('export-' + batch.id, async () => {
+        try {
+          await downloadBlob('/api/export/finance-pack', { method: 'POST', body: { batch_id: batch.id, include_originals: true } }, `财务报销包_${batch.title || batch.id}.zip`);
+          notify('财务包已生成');
+          loadExportRecords();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
     }
 
-    const paymentForm = reactive({ company_id: null, paid_on: new Date().toISOString().slice(0, 10), amount: 0, note: '', receivable_ids: [], allocations: {}, idempotency_key: '' });
+    const paymentForm = reactive({ company_id: null, paid_on: localToday(), amount: 0, note: '', receivable_ids: [], allocations: {}, idempotency_key: '' });
     const paymentCandidates = ref([]);
     const paymentAllocatedTotal = computed(() => paymentForm.receivable_ids.reduce((sum, id) => sum + (Number(paymentForm.allocations[id]) || 0), 0));
     const allocationMatches = computed(() => paymentAllocatedTotal.value > 0 && Math.abs(paymentAllocatedTotal.value - (Number(paymentForm.amount) || 0)) < 0.005);
@@ -1822,8 +2820,8 @@ const app = createApp({
       if (left > 0.005) notify('到账金额超过所选应收待收合计', 'error');
     }
     async function openPaymentModal(preset = null) {
-      paymentForm.company_id = preset?.company_id || activeCompanies.value[0]?.id || null;
-      paymentForm.paid_on = new Date().toISOString().slice(0, 10);
+      paymentForm.company_id = preset?.company_id || defaultCompanyId() || activeCompanies.value[0]?.id || null;
+      paymentForm.paid_on = localToday();
       paymentForm.note = '';
       paymentForm.amount = 0;
       paymentForm.receivable_ids = [];
@@ -1886,8 +2884,10 @@ const app = createApp({
       if (exportFilters.kind) params.set('kind', exportFilters.kind);
       if (exportFilters.period_from) params.set('period_from', exportFilters.period_from);
       if (exportFilters.period_to) params.set('period_to', exportFilters.period_to);
-      try { await downloadBlob('/api/export/excel?' + params.toString(), {}, '应收明细.xlsx'); notify('Excel 已导出'); }
-      catch (error) { notify(errMsg(error), 'error'); }
+      return withPending('export-excel', async () => {
+        try { await downloadBlob('/api/export/excel?' + params.toString(), {}, '应收明细.xlsx'); notify('Excel 已导出'); }
+        catch (error) { notify(errMsg(error), 'error'); }
+      });
     }
     async function exportSelectedPdf() {
       if (!selectedReceivableIds.value.length) return notify('先勾选应收', 'error');
@@ -1904,11 +2904,37 @@ const app = createApp({
     }
     async function exportSelectedAttachments() {
       if (!selectedReceivableIds.value.length) return notify('先勾选应收', 'error');
-      try {
-        await downloadBlob('/api/export/attachments', { method: 'POST', body: { receivable_ids: selectedReceivableIds.value } }, '原始附件.zip');
-        notify('附件包已生成');
-        loadExportRecords();
-      } catch (error) { notify(errMsg(error), 'error'); }
+      return withPending('export-att', async () => {
+        try {
+          await downloadBlob('/api/export/attachments', { method: 'POST', body: { receivable_ids: selectedReceivableIds.value } }, '原始附件.zip');
+          notify('附件包已生成');
+          loadExportRecords();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
+    }
+    async function exportAttachmentsByFilter() {
+      const body = {
+        company_id: exportFilters.company_id || null,
+        period_from: exportFilters.period_from || null,
+        period_to: exportFilters.period_to || null,
+      };
+      if (!body.period_from && !body.period_to && !body.company_id) return notify('请先选择月份或公司', 'error');
+      return withPending('export-att', async () => {
+        try {
+          await downloadBlob('/api/export/attachments', { method: 'POST', body }, '原始附件.zip');
+          notify('附件包已生成');
+          loadExportRecords();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
+    }
+    async function exportBatchAttachments(batch) {
+      return withPending('export-' + batch.id, async () => {
+        try {
+          await downloadBlob('/api/export/attachments', { method: 'POST', body: { batch_id: batch.id } }, `原件_${batch.title || batch.id}.zip`);
+          notify('原件包已生成');
+          loadExportRecords();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
     }
     async function downloadExportRecord(record) {
       try { await downloadBlob(`/api/export/records/${record.id}/download`, {}, record.filename); }
@@ -1994,16 +3020,18 @@ const app = createApp({
       const name = (agentTokenForm.name || '').trim();
       if (!name) return notify('请填写令牌名称', 'error');
       if (!agentTokenForm.scopes.length) return notify('请至少选择一个权限范围', 'error');
-      try {
-        const created = await api('/api/settings/agent-tokens', { method: 'POST', body: { name, scopes: agentTokenForm.scopes, expires_at: agentTokenForm.expires_at || null } });
-        createdAgentToken.value = created.token;
-        agentTokenForm.name = '';
-        agentTokenForm.expires_at = '';
-        agentTokenForm.scopes = ['capture', 'ledger', 'export'];
-        showAgentCreate.value = false;
-        await loadAgentTokens();
-        openModal('agentTokenSecret');
-      } catch (e) { notify(errMsg(e), 'error'); }
+      return withPending('token-create', async () => {
+        try {
+          const created = await api('/api/settings/agent-tokens', { method: 'POST', body: { name, scopes: agentTokenForm.scopes, expires_at: agentTokenForm.expires_at || null } });
+          createdAgentToken.value = created.token;
+          agentTokenForm.name = '';
+          agentTokenForm.expires_at = '';
+          agentTokenForm.scopes = ['capture', 'ledger', 'export'];
+          showAgentCreate.value = false;
+          await loadAgentTokens();
+          openModal('agentTokenSecret');
+        } catch (e) { notify(errMsg(e), 'error'); }
+      });
     }
     async function copyAgentToken() {
       try {
@@ -2027,6 +3055,18 @@ const app = createApp({
         notify('令牌已吊销');
       } catch (e) { notify(errMsg(e), 'error'); }
     }
+    async function reissueAgentToken(item) {
+      if (!(await askConfirm('重新签发', '「' + item.name + '」的旧令牌将立即失效，新明文只显示一次。确定重新签发？'))) return;
+      return withPending('token-' + item.id, async () => {
+        try {
+          const created = await api('/api/settings/agent-tokens/' + item.id + '/reissue', { method: 'POST' });
+          createdAgentToken.value = created.token;
+          await loadAgentTokens();
+          openModal('agentTokenSecret');
+          notify(created.message || '已重新签发，请立即复制新令牌');
+        } catch (e) { notify(errMsg(e), 'error'); }
+      });
+    }
 
     async function loadAI() {
       try {
@@ -2035,30 +3075,41 @@ const app = createApp({
         Object.assign(aiForm, { enabled: data.enabled, base_url: data.base_url, model_name: data.model_name, api_key: '', has_key: data.has_key, system_prompt: data.system_prompt });
       } catch (e) {}
     }
+    function setAiResult(message, type) {
+      aiPanelResult.message = message || '';
+      aiPanelResult.type = type || 'success';
+      notify(message, type);
+    }
     async function saveAI() {
-      try {
-        await api('/api/settings/ai', { method: 'POST', body: { enabled: aiForm.enabled, base_url: aiForm.base_url, api_key: aiForm.api_key, model_name: aiForm.model_name, system_prompt: aiForm.system_prompt } });
-        aiForm.has_key = aiForm.has_key || !!aiForm.api_key;
-        aiForm.api_key = '';
-        notify('AI 配置已保存');
-      } catch (error) { notify(errMsg(error), 'error'); }
+      return withPending('ai-save', async () => {
+        try {
+          await api('/api/settings/ai', { method: 'POST', body: { enabled: aiForm.enabled, base_url: aiForm.base_url, api_key: aiForm.api_key, model_name: aiForm.model_name, system_prompt: aiForm.system_prompt } });
+          aiForm.has_key = aiForm.has_key || !!aiForm.api_key;
+          aiForm.api_key = '';
+          setAiResult('AI 配置已保存', 'success');
+        } catch (error) { setAiResult(errMsg(error), 'error'); }
+      });
     }
     async function fetchModels() {
-      if (!aiForm.base_url.trim() || (!aiForm.api_key && !aiForm.has_key)) return notify('请先填写接口地址和 API Key', 'error');
-      try {
-        const result = await api('/api/settings/ai/models', { method: 'POST', body: { base_url: aiForm.base_url, api_key: aiForm.api_key } });
-        if (result.success) { modelOptions.value = result.models || []; notify(result.message); }
-        else notify(result.message, 'error');
-      } catch (error) { notify(errMsg(error), 'error'); }
+      if (!aiForm.base_url.trim() || (!aiForm.api_key && !aiForm.has_key)) return setAiResult('请先填写接口地址和 API Key', 'error');
+      return withPending('ai-models', async () => {
+        try {
+          const result = await api('/api/settings/ai/models', { method: 'POST', body: { base_url: aiForm.base_url, api_key: aiForm.api_key } });
+          if (result.success) { modelOptions.value = result.models || []; setAiResult(result.message, 'success'); }
+          else setAiResult(result.message, 'error');
+        } catch (error) { setAiResult(errMsg(error), 'error'); }
+      });
     }
     async function testAI() {
       if (!aiForm.base_url.trim() || !aiForm.model_name.trim() || (!aiForm.api_key && !aiForm.has_key)) {
-        return notify('请先填写接口地址、API Key 和模型名称', 'error');
+        return setAiResult('请先填写接口地址、API Key 和模型名称', 'error');
       }
-      try {
-        const result = await api('/api/settings/ai/test', { method: 'POST', body: { base_url: aiForm.base_url, api_key: aiForm.api_key, model_name: aiForm.model_name } });
-        notify(result.message, result.success ? 'success' : 'error');
-      } catch (error) { notify(errMsg(error), 'error'); }
+      return withPending('ai-test', async () => {
+        try {
+          const result = await api('/api/settings/ai/test', { method: 'POST', body: { base_url: aiForm.base_url, api_key: aiForm.api_key, model_name: aiForm.model_name } });
+          setAiResult(result.message, result.success ? 'success' : 'error');
+        } catch (error) { setAiResult(errMsg(error), 'error'); }
+      });
     }
     function restoreDefaultPrompt() {
       if (!defaultAIPrompt.value) return notify('默认提示词暂不可用', 'error');
@@ -2069,8 +3120,13 @@ const app = createApp({
     const userForm = reactive({ username: '', password: '', role: 'user' });
     function openUserModal() { Object.assign(userForm, { username: '', password: '', role: 'user' }); openModal('user'); }
     async function saveUser() {
+      const body = { username: userForm.username, password: userForm.password, role: userForm.role || 'user' };
+      if (body.role === 'admin') {
+        if (!(await askConfirm('创建管理员', '管理员可以管理成员账号，但不能查看其他成员的账本。确定创建管理员？'))) return;
+        body.confirm_admin = true;
+      }
       try {
-        await api('/api/admin/users', { method: 'POST', body: userForm });
+        await api('/api/admin/users', { method: 'POST', body });
         notify('成员已创建'); closeModal(); await loadUsers();
       } catch (error) { notify(errMsg(error), 'error'); }
     }
@@ -2083,12 +3139,236 @@ const app = createApp({
       catch (error) { notify(errMsg(error), 'error'); }
     }
     async function deleteUser(target) {
-      if (!(await askConfirm('删除成员', `删除「${target.username}」及其全部账本数据，确定吗？`))) return;
-      try { await api(`/api/admin/users/${target.id}`, { method: 'DELETE' }); notify('已删除'); await loadUsers(); }
+      if (!(await askConfirm('删除成员', `将软删除「${target.username}」。账本数据保留，该成员无法再登录，其上传文件会被清理（不影响其他成员）。确定吗？`))) return;
+      try { await api(`/api/admin/users/${target.id}`, { method: 'DELETE' }); notify('已删除（账本数据保留）'); await loadUsers(); }
+      catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function disableUser(target) {
+      if (!(await askConfirm('停用成员', `停用「${target.username}」后将无法登录，现有会话立即失效，账本数据保留。确定吗？`))) return;
+      try { await api(`/api/admin/users/${target.id}/disable`, { method: 'POST' }); notify('已停用'); await loadUsers(); }
+      catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function enableUser(target) {
+      try { await api(`/api/admin/users/${target.id}/enable`, { method: 'POST' }); notify('已启用'); await loadUsers(); }
       catch (error) { notify(errMsg(error), 'error'); }
     }
 
+    const previewCache = {};
+    const preview = reactive({
+      open: false, title: '', url: '', page: 1, pages: 1, kind: '',
+      zoom: 1, dx: 0, dy: 0, dragging: false, loading: false, error: '', ofd: false,
+      source: null, _sx: 0, _sy: 0, _ox: 0, _oy: 0,
+    });
+    function openDraftPreview(draft) {
+      openPreview({
+        type: 'draft',
+        id: draft.id,
+        title: draft.original_filename || '草稿预览',
+        filename: draft.original_filename || 'draft',
+        downloadPath: `/api/capture/drafts/${draft.id}/file`,
+        contentType: draft.content_type || '',
+      });
+    }
+    function openAttachmentPreview(attachment) {
+      openPreview({
+        type: 'attachment',
+        id: attachment.id,
+        title: attachment.filename || '附件预览',
+        filename: attachment.filename || 'attachment',
+        downloadPath: `/api/attachments/${attachment.id}/file`,
+        contentType: attachment.content_type || '',
+      });
+    }
+    function openPreview(source) {
+      preview.source = source;
+      preview.title = source.title || '';
+      preview.open = true;
+      preview.page = 1;
+      preview.pages = 1;
+      preview.zoom = 1;
+      preview.dx = 0;
+      preview.dy = 0;
+      preview.error = '';
+      preview.ofd = false;
+      preview.url = '';
+      loadPreviewPage();
+    }
+    function closePreview() {
+      preview.open = false;
+      preview.dragging = false;
+    }
+    async function loadPreviewPage() {
+      const src = preview.source;
+      if (!src) return;
+      const name = (src.filename || src.title || '').toLowerCase();
+      if (name.endsWith('.ofd') || (src.contentType || '').includes('ofd')) {
+        preview.ofd = true;
+        preview.loading = false;
+        preview.url = '';
+        preview.error = '';
+        return;
+      }
+      const key = src.type + '-' + src.id + '-p' + preview.page;
+      if (previewCache[key]) {
+        preview.url = previewCache[key].url;
+        preview.pages = previewCache[key].pages;
+        preview.kind = previewCache[key].kind;
+        preview.loading = false;
+        preview.error = '';
+        preview.ofd = false;
+        return;
+      }
+      preview.loading = true;
+      preview.error = '';
+      preview.ofd = false;
+      const path = src.type === 'draft'
+        ? `/api/capture/drafts/${src.id}/preview?page=${preview.page}`
+        : `/api/attachments/${src.id}/preview?page=${preview.page}`;
+      beginFlight();
+      try {
+        const response = await fetch(path, { headers: token.value ? { Authorization: `Bearer ${token.value}` } : {} });
+        if (!response.ok) {
+          let detail = null;
+          try { detail = await response.json(); } catch (e) {}
+          let msg = detail && (detail.detail && detail.detail.message ? detail.detail.message : detail.detail);
+          if (typeof msg !== 'string') msg = (detail && detail.message) || '无法生成预览';
+          if (/OFD|ofd/.test(msg)) preview.ofd = true;
+          preview.error = msg;
+          preview.url = '';
+          return;
+        }
+        const pages = Number(response.headers.get('X-Preview-Pages') || 1);
+        const page = Number(response.headers.get('X-Preview-Page') || preview.page);
+        const kind = response.headers.get('X-Preview-Kind') || '';
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        previewCache[key] = { url, pages, kind };
+        preview.url = url;
+        preview.pages = pages;
+        preview.page = page;
+        preview.kind = kind;
+      } catch (e) {
+        preview.error = '预览失败';
+        preview.url = '';
+      } finally {
+        preview.loading = false;
+        endFlight();
+      }
+    }
+    function previewPage(delta) {
+      if (!preview.pages) return;
+      const next = Math.min(preview.pages, Math.max(1, preview.page + delta));
+      if (next === preview.page) return;
+      preview.page = next;
+      preview.dx = 0;
+      preview.dy = 0;
+      loadPreviewPage();
+    }
+    function previewZoom(delta) {
+      preview.zoom = Math.min(4, Math.max(0.4, Math.round((preview.zoom + delta) * 10) / 10));
+    }
+    function previewWheel(event) {
+      previewZoom(event.deltaY > 0 ? -0.1 : 0.1);
+    }
+    function previewDown(event) {
+      if (!preview.url) return;
+      preview.dragging = true;
+      preview._sx = event.clientX;
+      preview._sy = event.clientY;
+      preview._ox = preview.dx;
+      preview._oy = preview.dy;
+    }
+    function previewMove(event) {
+      if (!preview.dragging) return;
+      preview.dx = preview._ox + (event.clientX - preview._sx);
+      preview.dy = preview._oy + (event.clientY - preview._sy);
+    }
+    function previewUp() { preview.dragging = false; }
+    function downloadPreviewOriginal() {
+      if (!preview.source) return;
+      downloadBlob(preview.source.downloadPath, {}, preview.source.filename || 'download').catch((error) => notify(errMsg(error), 'error'));
+    }
+
+    const payrollForm = reactive({ id: null, company_id: null, amount: '', payday: 15, effective_from: '', effective_to: '', note: '' });
+    async function loadPayrollPlans() {
+      try { payrollPlans.value = await api('/api/payroll-plans'); }
+      catch (e) { payrollPlans.value = []; }
+    }
+    function openPayrollModal(plan = null) {
+      if (plan) {
+        Object.assign(payrollForm, {
+          id: plan.id, company_id: plan.company_id, amount: plan.amount, payday: plan.payday,
+          effective_from: plan.effective_from, effective_to: plan.effective_to || '', note: plan.note || '',
+        });
+      } else {
+        Object.assign(payrollForm, {
+          id: null, company_id: defaultCompanyId(), amount: '', payday: 15,
+          effective_from: localToday(), effective_to: '', note: '',
+        });
+      }
+      openModal('payroll');
+    }
+    async function savePayrollPlan() {
+      if (!payrollForm.company_id) return notify('请选择公司', 'error');
+      if (!Number(payrollForm.amount)) return notify('请填写月薪', 'error');
+      if (!payrollForm.effective_from) return notify('请填写生效日期', 'error');
+      const body = {
+        company_id: payrollForm.company_id,
+        amount: payrollForm.amount,
+        payday: payrollForm.payday || 15,
+        effective_from: payrollForm.effective_from,
+        effective_to: payrollForm.effective_to || '',
+        note: payrollForm.note || '',
+      };
+      return withPending('payroll-save', async () => {
+        try {
+          if (payrollForm.id) await api(`/api/payroll-plans/${payrollForm.id}`, { method: 'PUT', body });
+          else await api('/api/payroll-plans', { method: 'POST', body });
+          notify('薪资计划已保存');
+          closeModal();
+          await loadPayrollPlans();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
+    }
+    async function stopPayrollPlan(plan) {
+      if (!(await askConfirm('停发计划', `停发「${plan.company_name}」的薪资计划后，将不再生成新的工资应收，已生成的记录保留。确定吗？`))) return;
+      try {
+        await api(`/api/payroll-plans/${plan.id}`, { method: 'DELETE' });
+        notify('已停发');
+        await loadPayrollPlans();
+      } catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function syncPayrollPlans() {
+      return withPending('payroll-sync', async () => {
+        try {
+          const result = await api('/api/payroll-plans/sync', { method: 'POST' });
+          notify(result.message || '已同步');
+          await loadPayrollPlans();
+          await loadReceivables();
+          await loadDashboard();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
+    }
+    async function loadGuide() {
+      if (guideHtml.value) return;
+      try {
+        const data = await api('/api/help/user-guide');
+        guideMarkdown.value = data.markdown || '';
+        guideHtml.value = renderMarkdown(guideMarkdown.value);
+        guideError.value = '';
+      } catch (error) {
+        guideError.value = errMsg(error);
+      }
+    }
+
     onMounted(async () => {
+      window.addEventListener('keydown', (event) => {
+        if (!preview.open) return;
+        if (event.key === 'Escape') closePreview();
+        if (event.key === 'ArrowLeft') previewPage(-1);
+        if (event.key === 'ArrowRight') previewPage(1);
+      });
+
       let initialized = true;
       try {
         const init = await api('/api/system/init-status');
@@ -2109,31 +3389,36 @@ const app = createApp({
       view, settingTab, settingTabs, visibleSettingTabs, navItems, currentTitle,
       companies, activeCompanies, categories, dashboard, receivables, receivableTotal, receivableSummary,
       batches, payments, drafts, exportRecords, auditLogs, users, agentTokens, showAgentCreate, createdAgentToken, agentScopeOptions, agentTokenForm,
-      selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput,
-      filters, exportFilters, toast, notify, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount, canApplyPayment, applyDraftPayment,
+      selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput, cameraInput, uploadResult,
+      filters, exportFilters, toast, notify, closeToast, showProgress, isPending, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount, canApplyPayment, applyDraftPayment,
       readyDraftCount, allSelected, selectedAmount, selectedCompanyName, toggleSelectAll,
       draftTitleMismatch, appendForm, appendTargets, appendDrafts, appendTargetTitle, appendableDrafts, openAppendModal, doAppendDrafts, goMissingMaterials,
       modal, openModal, closeModal, confirmDialog, askConfirm, resolveConfirm,
       loadReceivables, loadBatches, loadPayments, loadExportRecords, loadAudit, loadUsers, loadAI, loadAgentTokens,
-      scopeText, agentStatusClass, createAgentToken, copyAgentToken, toggleAgentToken, revokeAgentToken,
-      submitAuth, logout, go, resetFilters, openQuickUpload, onFilePicked, uploadFiles, onDragOver, onDragLeave, onDrop,
-      saveDraft, retryDraft, discardDraft, applyDraftCompany, openDraftFile, confirmDrafts,
-      receivableForm, openReceivableModal, saveReceivable, deleteReceivable, duplicateReceivable, detail, openReceivableDetail,
-      uploadAttachments, deleteAttachment, openAttachment,
-      batchForm, openBatchModal, createBatch, batchDetail, openBatchDetail, submitBatch, doSubmitBatch,
-      batchSubmitTarget, batchSubmitForm, payBatch, exportBatchPack,
+      scopeText, agentStatusClass, createAgentToken, copyAgentToken, toggleAgentToken, revokeAgentToken, reissueAgentToken,
+      submitAuth, logout, go, goPendingThisMonth, goOverdue, goGuide, resetFilters, openQuickUpload, openCameraUpload, onFilePicked, uploadFiles, onDragOver, onDragLeave, onDrop,
+      saveDraft, retryDraft, discardDraft, applyDraftCompany, openDraftFile, openDraftPreview, onDraftOccurred, confirmDrafts, openConfirmSummary, doConfirmFromSummary, confirmSummary, selectAllDrafts, invertDraftSelection,
+      receivableForm, openReceivableModal, onReceivableOccurred, saveReceivable, deleteReceivable, abandonReceivable, duplicateReceivable, detail, openReceivableDetail,
+      uploadAttachments, deleteAttachment, openAttachment, openAttachmentPreview,
+      batchForm, openBatchModal, createBatch, batchDetail, batchAddCandidates, openBatchDetail, addBatchItem, removeBatchItem, submitBatch, doSubmitBatch,
+      batchSubmitTarget, batchSubmitForm, openPayBatch, doPayBatch, payBatchForm, openUnsubmitBatch, doUnsubmitBatch, unsubmitForm, cancelBatch, exportBatchPack, exportBatchAttachments,
       paymentForm, paymentCandidates, paymentAllocatedTotal, allocationMatches, canSavePayment, onPaymentCandidateToggle, autoAllocate, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
-      exportExcel, exportSelectedPdf, exportSelectedPack, exportSelectedAttachments, downloadExportRecord,
+      exportExcel, exportSelectedPdf, exportSelectedPack, exportSelectedAttachments, exportAttachmentsByFilter, downloadExportRecord,
       companyBarWidth, agingBarWidth, categoryBarWidth, trendHeight,
       companyForm, openCompanyModal, saveCompany, deleteCompany,
       categoryForm, openCategoryModal, saveCategory,
-      aiForm, modelOptions, visibleModelOptions, saveAI, fetchModels, testAI, restoreDefaultPrompt,
-      userForm, openUserModal, saveUser, resetTarget, resetPasswordValue, openResetPassword, doResetPassword, deleteUser,
+      aiForm, aiPanelResult, modelOptions, visibleModelOptions, saveAI, fetchModels, testAI, restoreDefaultPrompt,
+      userForm, openUserModal, saveUser, resetTarget, resetPasswordValue, openResetPassword, doResetPassword, deleteUser, disableUser, enableUser,
+      payrollPlans, payrollForm, openPayrollModal, savePayrollPlan, stopPayrollPlan, syncPayrollPlans, loadPayrollPlans,
+      guideHtml, guideError, loadGuide,
+      preview, closePreview, previewPage, previewZoom, previewWheel, previewDown, previewMove, previewUp, downloadPreviewOriginal,
       thumbCache,
     };
   }
 });
 app.component('AppIcon', AppIcon);
+app.component('DateField', DateField);
+app.component('MonthField', MonthField);
 app.mount('#app');
 </script>
 </body>
