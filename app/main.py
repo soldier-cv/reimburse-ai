@@ -40,6 +40,7 @@ from .models import (
     ExportRecord,
     Payment,
     PaymentItem,
+    PayrollPlan,
     Receivable,
     SystemSetting,
     User,
@@ -54,8 +55,10 @@ from .schemas import (
     AIModelFetchRequest,
     AISettingRequest,
     BatchCreate,
+    BatchItemsRequest,
     BatchPaymentRequest,
     BatchSubmit,
+    BatchUnsubmitRequest,
     BatchUpdate,
     CaptureConfirm,
     CapturePaymentApply,
@@ -70,6 +73,8 @@ from .schemas import (
     PasswordChangeRequest,
     PaymentCreate,
     PaymentAllocation,
+    PayrollPlanCreate,
+    PayrollPlanUpdate,
     ReceivableCreate,
     ReceivableUpdate,
     RegisterRequest,
@@ -106,9 +111,11 @@ from .services.capture import (
     get_extra_files,
     process_drafts_async,
     rebuild_draft_from_file,
+    remove_user_uploads,
     safe_filename,
     save_upload_bytes,
     user_dir,
+    create_thumbnail,
 )
 from .services.download_tokens import make_download_token, verify_download_token
 from .services.exporter import (
@@ -128,17 +135,48 @@ from .services.agent_tokens import (
     serialize_token,
     store_scopes,
 )
-from .services.migrations import ensure_auth_schema, ensure_agent_token_schema, ensure_receivable_schema
+from .services.migrations import ensure_auth_schema, ensure_agent_token_schema, ensure_receivable_schema, ensure_v33_schema
 from .services.payroll_match import propose_allocation
+from .services.payroll_plans import (
+    assert_no_overlap,
+    clamp_payday,
+    missing_summary,
+    parse_plan_dates,
+    parse_salary,
+    serialize_plan,
+    sync_user_plans,
+    _payroll_category,
+)
+from .services.preview import PreviewUnsupported, ensure_preview, inspect_source
+from .services.ledger import (
+    COLLECTABLE_STATUSES,
+    LOCKED_MESSAGE,
+    assert_batch_adjustable,
+    assert_can_delete,
+    assert_same_period,
+    assert_status_change,
+    assert_unlocked_for_edit,
+    batch_has_payments,
+    collectable,
+    collectable_reason,
+    has_payments,
+    is_locked,
+    receivable_period,
+    reset_receivable_to_pending,
+    resolve_item_period,
+)
 from .services.money import (
     add_days,
     cents_to_text,
     cents_to_yuan,
+    current_month,
     days_overdue,
     month_range,
     normalize_date,
+    normalize_period,
     parse_date,
     period_from_date,
+    today_local,
     today_str,
     yuan_to_cents,
 )
@@ -248,7 +286,7 @@ def _batch_or_404(db: Session, user: User, batch_id: int) -> Batch:
 
 
 def _next_pay_date(company: Company, submitted_on: str) -> str:
-    submitted = parse_date(submitted_on) or date.today()
+    submitted = parse_date(submitted_on) or today_local()
     payday = int(company.payday or 0)
     if 1 <= payday <= 31:
         def make_date(year: int, month: int) -> date:
@@ -349,6 +387,10 @@ def _serialize_receivable(receivable: Receivable, detail: bool = False) -> dict:
         "materials_ok": materials["materials_ok"],
         "days_overdue": days_overdue(receivable.expected_on) if receivable.status in ("submitted", "partial") else 0,
         "created_at": receivable.created_at.strftime("%Y-%m-%d %H:%M:%S") if receivable.created_at else "",
+        "created_on": receivable.created_at.strftime("%Y-%m-%d") if receivable.created_at else "",
+        "can_collect": collectable(receivable),
+        "collect_reason": collectable_reason(receivable),
+        "locked": is_locked(receivable),
     }
     if detail:
         data["attachments"] = [_serialize_attachment(a) for a in attachments]
@@ -431,25 +473,45 @@ def _filter_receivables(
 
 
 def _current_month() -> str:
-    return date.today().strftime("%Y-%m")
+    return current_month()
 
 
-def _resolve_export_receivables(db: Session, user: User, ids: list[int], batch_id: int | None) -> list[Receivable]:
+def _resolve_export_receivables(
+    db: Session,
+    user: User,
+    ids: list[int],
+    batch_id: int | None,
+    period: str | None = None,
+    period_from: str | None = None,
+    period_to: str | None = None,
+    company_id: int | None = None,
+) -> list[Receivable]:
     if batch_id:
         batch = _batch_or_404(db, user, batch_id)
         return [item for item in batch.receivables if item.deleted_at is None]
-    if not ids:
-        return []
-    return (
-        db.query(Receivable)
-        .filter(
-            Receivable.user_id == user.id,
-            Receivable.id.in_(ids),
-            Receivable.deleted_at.is_(None),
+    if ids:
+        return (
+            db.query(Receivable)
+            .filter(
+                Receivable.user_id == user.id,
+                Receivable.id.in_(ids),
+                Receivable.deleted_at.is_(None),
+            )
+            .order_by(Receivable.occurred_on.asc(), Receivable.id.asc())
+            .all()
         )
-        .order_by(Receivable.occurred_on.asc(), Receivable.id.asc())
-        .all()
+    start = normalize_period(period) or normalize_period(period_from or "")
+    end = normalize_period(period) or normalize_period(period_to or "")
+    if not start and not end and not company_id:
+        return []
+    query = _filter_receivables(
+        db,
+        user,
+        company_id=company_id,
+        period_from=start or None,
+        period_to=end or None,
     )
+    return query.order_by(Receivable.occurred_on.asc(), Receivable.id.asc()).all()
 
 
 @app.on_event("startup")
@@ -457,6 +519,7 @@ async def startup_event():
     ensure_auth_schema(engine)
     ensure_receivable_schema(engine)
     ensure_agent_token_schema(engine)
+    ensure_v33_schema(engine)
     db = next(get_db())
     try:
         init_default_admin(db)
@@ -568,6 +631,8 @@ def login(request: Request, req: LoginRequest, response: Response, db: Session =
     if not is_valid:
         record_auth_failure(client_ip)
         raise HTTPException(status_code=400, detail="用户名或密码错误")
+    if user.deleted_at is not None or not bool(getattr(user, "is_active", True)):
+        raise HTTPException(status_code=400, detail="账号已停用，请联系管理员")
     clear_auth_failures(client_ip)
     rehash_user_password_if_needed(db, user, req.password, needs_rehash)
     user.last_login = datetime.now()
@@ -630,6 +695,9 @@ def list_admin_users(current_user: User = Depends(get_current_user), db: Session
             "id": user.id,
             "username": user.username,
             "role": user.role,
+            "is_active": bool(getattr(user, "is_active", True)) and user.deleted_at is None,
+            "deleted": user.deleted_at is not None,
+            "status": "已删除" if user.deleted_at is not None else ("已停用" if not bool(getattr(user, "is_active", True)) else "正常"),
             "created_at": user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else "-",
             "last_login": user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else "-",
             "receivable_count": db.query(Receivable).filter(Receivable.user_id == user.id, Receivable.deleted_at.is_(None)).count(),
@@ -651,6 +719,8 @@ def admin_create_user(req: AdminCreateUserRequest, current_user: User = Depends(
     if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=400, detail="该用户名已存在")
     role = req.role if req.role in ("admin", "user") else "user"
+    if role == "admin" and not bool(req.confirm_admin):
+        raise HTTPException(status_code=400, detail="创建管理员需要二次确认")
     password_hash, salt = hash_password(req.password)
     new_user = User(username=username, password_hash=password_hash, salt=salt, session_version=0, role=role)
     db.add(new_user)
@@ -688,11 +758,48 @@ def admin_delete_user(user_id: int, current_user: User = Depends(get_current_use
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="目标用户不存在")
+    if target.deleted_at is not None:
+        return {"success": True, "message": f"用户 [{target.username}] 已删除"}
     username = target.username
-    db.delete(target)
+    target.is_active = False
+    target.deleted_at = datetime.now()
+    target.session_version = (target.session_version or 0) + 1
     db.commit()
-    record_audit(db, current_user.id, "删除用户", "user", user_id, f"删除用户 [{username}]")
-    return {"success": True, "message": f"用户 [{username}] 已删除"}
+    remove_user_uploads(target.id)
+    record_audit(db, current_user.id, "删除用户", "user", user_id, f"软删除用户 [{username}]，账本数据保留，上传文件已清理")
+    return {"success": True, "message": f"用户 [{username}] 已删除，账本数据保留"}
+
+
+@app.post("/api/admin/users/{user_id}/disable")
+def admin_disable_user(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="不能停用当前登录账号")
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target or target.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+    target.is_active = False
+    target.session_version = (target.session_version or 0) + 1
+    db.commit()
+    record_audit(db, current_user.id, "停用用户", "user", target.id, f"停用用户 [{target.username}]")
+    return {"success": True, "message": f"用户 [{target.username}] 已停用"}
+
+
+@app.post("/api/admin/users/{user_id}/enable")
+def admin_enable_user(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+    if target.deleted_at is not None:
+        raise HTTPException(status_code=400, detail="已删除的成员不能直接启用")
+    target.is_active = True
+    target.session_version = (target.session_version or 0) + 1
+    db.commit()
+    record_audit(db, current_user.id, "启用用户", "user", target.id, f"启用用户 [{target.username}]")
+    return {"success": True, "message": f"用户 [{target.username}] 已启用"}
 
 
 # ---------------------------------------------------------------------------
@@ -727,6 +834,35 @@ def list_companies(user: User = Depends(get_current_user), db: Session = Depends
             )
             .scalar()
         )
+        last_receivable = (
+            db.query(func.max(Receivable.created_at))
+            .filter(
+                Receivable.user_id == user.id,
+                Receivable.company_id == company.id,
+                Receivable.deleted_at.is_(None),
+            )
+            .scalar()
+        )
+        last_payment = (
+            db.query(func.max(Payment.created_at))
+            .filter(
+                Payment.user_id == user.id,
+                Payment.company_id == company.id,
+                Payment.deleted_at.is_(None),
+            )
+            .scalar()
+        )
+        last_confirm = (
+            db.query(func.max(CaptureDraft.updated_at))
+            .filter(
+                CaptureDraft.user_id == user.id,
+                CaptureDraft.company_id == company.id,
+                CaptureDraft.status == "confirmed",
+            )
+            .scalar()
+        )
+        last_used_dt = max([item for item in (last_receivable, last_payment, last_confirm) if item], default=None)
+        last_used = last_used_dt.strftime("%Y-%m-%d %H:%M:%S") if last_used_dt else ""
         stats = {
             "outstanding": cents_to_yuan(outstanding),
             "outstanding_cents": outstanding,
@@ -735,9 +871,13 @@ def list_companies(user: User = Depends(get_current_user), db: Session = Depends
             "overdue_count": len(overdue_items),
             "oldest_overdue_days": max([days_overdue(item.expected_on) for item in overdue_items] or [0]),
             "last_paid_on": last_paid or "",
+            "last_used_at": last_used,
         }
         result.append(_serialize_company(company, stats))
-    return result
+    active = [item for item in result if item.get("is_active")]
+    inactive = [item for item in result if not item.get("is_active")]
+    active.sort(key=lambda item: item.get("last_used_at") or "", reverse=True)
+    return active + inactive
 
 
 @app.post("/api/companies")
@@ -909,6 +1049,7 @@ async def capture_files(
         raise HTTPException(status_code=400, detail="一次最多上传 30 个文件")
 
     drafts: list[CaptureDraft] = []
+    skipped: list[dict] = []
     for upload in files:
         ext = file_ext(upload.filename)
         if ext not in (".pdf", ".ofd", ".zip") and ext not in IMAGE_EXTS:
@@ -919,7 +1060,11 @@ async def capture_files(
         if ext == ".zip":
             saved_zip = save_upload_bytes(user.id, upload.filename, data)
             try:
-                drafts.extend(create_drafts_from_zip(db, user.id, saved_zip["stored_path"], company_id, category_id))
+                zip_drafts, zip_skipped = create_drafts_from_zip(
+                    db, user.id, saved_zip["stored_path"], company_id, category_id
+                )
+                drafts.extend(zip_drafts)
+                skipped.extend(zip_skipped)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
             finally:
@@ -932,7 +1077,13 @@ async def capture_files(
             drafts.append(create_draft(db, user.id, saved, company_id, category_id))
 
     if not drafts:
-        raise HTTPException(status_code=400, detail="压缩包内没有可识别的文件")
+        detail = "压缩包内没有可识别的文件"
+        if skipped:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": detail, "skipped": skipped, "skipped_count": len(skipped)},
+            )
+        raise HTTPException(status_code=400, detail=detail)
 
     sync_mode = os.environ.get("CAPTURE_SYNC", "").strip().lower() in ("1", "true", "yes")
     if sync_mode:
@@ -942,7 +1093,29 @@ async def capture_files(
         background_tasks.add_task(process_drafts_async, [draft.id for draft in drafts])
     for draft in drafts:
         db.refresh(draft)
-    return {"success": True, "count": len(drafts), "drafts": [draft_payload(item, db) for item in drafts]}
+    payloads = [draft_payload(item, db) for item in drafts]
+    duplicates = []
+    for item in payloads:
+        for warning in item.get("duplicates") or []:
+            warning = dict(warning)
+            warning["draft_id"] = item["id"]
+            warning["filename"] = item["original_filename"]
+            duplicates.append(warning)
+    parts = [f"已生成 {len(drafts)} 条草稿"]
+    if skipped:
+        parts.append(f"跳过 {len(skipped)} 个文件")
+    if duplicates:
+        parts.append(f"{len(duplicates)} 条疑似重复")
+    return {
+        "success": True,
+        "count": len(drafts),
+        "drafts": payloads,
+        "skipped": skipped,
+        "skipped_count": len(skipped),
+        "duplicates": duplicates,
+        "duplicate_count": len(duplicates),
+        "message": "，".join(parts),
+    }
 
 
 @app.get("/api/capture/drafts")
@@ -981,6 +1154,10 @@ def update_draft(draft_id: int, req: DraftUpdate, user: User = Depends(get_curre
         draft.amount_cents = amount_cents
     if req.occurred_on is not None:
         draft.occurred_on = normalize_date(req.occurred_on)
+        if not (draft.period or "").strip():
+            draft.period = period_from_date(draft.occurred_on)
+    if req.period is not None:
+        draft.period = normalize_period(req.period, fallback="")
     if req.title is not None:
         draft.title = req.title.strip()[:200]
     if req.merchant is not None:
@@ -1077,6 +1254,37 @@ def get_draft_file(draft_id: int, user: User = Depends(get_current_user), db: Se
     return FileResponse(draft.stored_path, media_type=draft.content_type or "application/octet-stream", filename=draft.original_filename, content_disposition_type="inline")
 
 
+def _preview_http_error(exc: PreviewUnsupported) -> HTTPException:
+    code = 404 if exc.kind in ("missing",) else 400
+    return HTTPException(status_code=code, detail=exc.message)
+
+
+def _preview_response(info: dict) -> FileResponse:
+    return FileResponse(
+        info["path"],
+        media_type=info["media_type"],
+        content_disposition_type="inline",
+        headers={
+            "X-Preview-Page": str(info["page"]),
+            "X-Preview-Pages": str(info["pages"]),
+            "X-Preview-Kind": info["kind"],
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
+@app.get("/api/capture/drafts/{draft_id}/preview")
+def get_draft_preview(draft_id: int, page: int = 1, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    draft = db.query(CaptureDraft).filter(CaptureDraft.id == draft_id, CaptureDraft.user_id == user.id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    try:
+        info = ensure_preview(user.id, draft.stored_path, page, draft.original_filename)
+    except PreviewUnsupported as exc:
+        raise _preview_http_error(exc) from exc
+    return _preview_response(info)
+
+
 @app.post("/api/capture/confirm")
 def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not req.draft_ids:
@@ -1119,7 +1327,7 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
                 if draft.sha256 in seen_hash:
                     warnings.append({"type": "duplicate_in_batch", "message": f"本批里有重复文件 {draft.original_filename}"})
                 seen_hash.add(draft.sha256)
-            warnings.extend(find_duplicates(db, user.id, draft.sha256, draft.invoice_no, draft.invoice_code))
+            warnings.extend(find_duplicates(db, user.id, draft.sha256, draft.invoice_no, draft.invoice_code, exclude_draft_id=draft.id))
             warnings.extend(find_buyer_mismatch(db, user.id, draft, req.company_id or (target.company_id if target else None)))
         if warnings:
             has_duplicate = any(item.get("type") != "buyer_mismatch" for item in warnings)
@@ -1172,7 +1380,7 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
                 category_id=category.id if category else None,
                 kind=category.kind if category else ("payroll" if draft.doc_type == "salary" else "reimbursement"),
                 title=draft.title or draft.original_filename,
-                period=period_from_date(draft.occurred_on),
+                period=resolve_item_period(req.period or draft.period, draft.occurred_on),
                 occurred_on=draft.occurred_on,
                 amount_cents=draft.amount_cents,
                 status="pending",
@@ -1445,7 +1653,7 @@ def create_receivable(req: ReceivableCreate, user: User = Depends(get_current_us
         category_id=category.id if category else None,
         kind=category.kind if category else "reimbursement",
         title=req.title.strip()[:150],
-        period=period_from_date(occurred_on),
+        period=resolve_item_period(req.period, occurred_on),
         occurred_on=occurred_on,
         amount_cents=amount_cents,
         status="pending",
@@ -1463,6 +1671,19 @@ def create_receivable(req: ReceivableCreate, user: User = Depends(get_current_us
 @app.put("/api/receivables/{receivable_id}")
 def update_receivable(receivable_id: int, req: ReceivableUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     receivable = _receivable_or_404(db, user, receivable_id)
+    locked_touch = []
+    if req.company_id is not None:
+        locked_touch.append("company_id")
+    if req.category_id is not None:
+        locked_touch.append("category_id")
+    if req.title is not None:
+        locked_touch.append("title")
+    if req.amount is not None:
+        locked_touch.append("amount")
+    if req.period is not None:
+        locked_touch.append("period")
+    if locked_touch:
+        assert_unlocked_for_edit(receivable, locked_touch)
     if req.company_id is not None:
         receivable.company_id = _company_or_404(db, user, req.company_id).id
     if req.category_id is not None:
@@ -1474,8 +1695,14 @@ def update_receivable(receivable_id: int, req: ReceivableUpdate, user: User = De
             raise HTTPException(status_code=400, detail="事项名称不能为空")
         receivable.title = req.title.strip()[:150]
     if req.occurred_on is not None:
+        if receivable.status in ("abandoned",):
+            raise HTTPException(status_code=400, detail="已放弃的应收不能再修改")
         receivable.occurred_on = normalize_date(req.occurred_on)
-        receivable.period = period_from_date(receivable.occurred_on)
+        # 发生日与归属月独立，改发生日不再覆盖已确认的归属月
+        if not (receivable.period or "").strip():
+            receivable.period = period_from_date(receivable.occurred_on)
+    if req.period is not None:
+        receivable.period = normalize_period(req.period) or period_from_date(receivable.occurred_on)
     if req.amount is not None:
         amount_cents = yuan_to_cents(req.amount)
         if amount_cents <= 0:
@@ -1491,23 +1718,32 @@ def update_receivable(receivable_id: int, req: ReceivableUpdate, user: User = De
             receivable.status = "partial"
             receivable.paid_on = ""
     if req.expected_on is not None:
+        if receivable.status == "abandoned":
+            raise HTTPException(status_code=400, detail="已放弃的应收不能再修改")
         receivable.expected_on = normalize_date(req.expected_on) if req.expected_on else ""
     if req.note is not None:
+        if receivable.status == "abandoned":
+            raise HTTPException(status_code=400, detail="已放弃的应收不能再修改")
         receivable.note = req.note.strip()
     if req.status is not None:
-        if req.status not in ("pending", "submitted", "rejected", "abandoned"):
-            raise HTTPException(status_code=400, detail="只能手工切换待提交、已提交、被驳回、已放弃")
-        if (receivable.received_cents or 0) > 0:
-            raise HTTPException(status_code=400, detail="已有到账记录的应收不能手工改状态")
+        reason = (req.reason or "").strip()
+        assert_status_change(receivable, req.status, reason)
+        previous = receivable.status
         receivable.status = req.status
-        if req.status == "submitted":
-            if not receivable.submitted_on:
-                receivable.submitted_on = today_str()
-            if not receivable.expected_on and receivable.company:
-                receivable.expected_on = _next_pay_date(receivable.company, receivable.submitted_on)
         if req.status == "pending":
             receivable.submitted_on = ""
             receivable.expected_on = ""
+        if req.status in ("abandoned", "rejected") and receivable.batch_id:
+            receivable.batch_id = None
+        action = "放弃应收" if req.status == "abandoned" else ("驳回应收" if req.status == "rejected" else "修改应收")
+        summary = f"{action} [{receivable.title}]"
+        if reason:
+            summary += f"，原因：{reason}"
+        if previous != req.status:
+            summary += f"（{previous} → {req.status}）"
+        db.commit()
+        record_audit(db, user.id, action, "receivable", receivable.id, summary)
+        return _serialize_receivable(receivable, detail=True)
     db.commit()
     record_audit(db, user.id, "修改应收", "receivable", receivable.id, f"修改应收 [{receivable.title}]")
     return _serialize_receivable(receivable, detail=True)
@@ -1516,8 +1752,7 @@ def update_receivable(receivable_id: int, req: ReceivableUpdate, user: User = De
 @app.delete("/api/receivables/{receivable_id}")
 def delete_receivable(receivable_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     receivable = _receivable_or_404(db, user, receivable_id)
-    if (receivable.received_cents or 0) > 0:
-        raise HTTPException(status_code=400, detail="已有到账记录的应收不能删除，请先删除到账记录")
+    assert_can_delete(receivable)
     receivable.deleted_at = datetime.now()
     receivable.batch_id = None
     for attachment in receivable.attachments:
@@ -1614,18 +1849,27 @@ def get_attachment_thumb(attachment_id: int, user: User = Depends(get_current_us
     )
     if not attachment or not os.path.exists(attachment.stored_path):
         raise HTTPException(status_code=404, detail="文件不存在")
-    ext = file_ext(attachment.stored_path)
-    if ext == ".pdf" and fitz_available():
-        from .services.capture import create_thumbnail
+    ext = file_ext(attachment.stored_path or attachment.filename)
+    thumb = create_thumbnail(attachment.stored_path, user.id, ext)
+    if thumb and os.path.exists(thumb):
+        return FileResponse(thumb, media_type="image/jpeg")
+    raise HTTPException(status_code=404, detail="暂无缩略图")
 
-        thumb = create_thumbnail(attachment.stored_path, user.id, ext)
-        if thumb and os.path.exists(thumb):
-            return FileResponse(thumb, media_type="image/jpeg")
-    return FileResponse(
-        attachment.stored_path,
-        media_type=attachment.content_type or "application/octet-stream",
-        content_disposition_type="inline",
+
+@app.get("/api/attachments/{attachment_id}/preview")
+def get_attachment_preview(attachment_id: int, page: int = 1, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    attachment = (
+        db.query(Attachment)
+        .filter(Attachment.id == attachment_id, Attachment.user_id == user.id, Attachment.deleted_at.is_(None))
+        .first()
     )
+    if not attachment:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    try:
+        info = ensure_preview(user.id, attachment.stored_path, page, attachment.filename)
+    except PreviewUnsupported as exc:
+        raise _preview_http_error(exc) from exc
+    return _preview_response(info)
 
 
 def fitz_available() -> bool:
@@ -1682,6 +1926,22 @@ def list_batches(user: User = Depends(get_current_user), db: Session = Depends(g
                 "remaining": cents_to_yuan(sum((item.amount_cents or 0) - (item.received_cents or 0) for item in items)),
                 "overdue_count": len(overdue),
                 "note": batch.note or "",
+                "has_payments": sum(item.received_cents or 0 for item in items) > 0,
+                "partial": (
+                    sum(item.received_cents or 0 for item in items) > 0
+                    and any((item.received_cents or 0) < (item.amount_cents or 0) for item in items)
+                    and batch.status != "paid"
+                ),
+                "can_unsubmit": batch.status == "submitted" and all((item.received_cents or 0) == 0 for item in items),
+                "can_cancel": batch.status in ("draft", "submitted") and all((item.received_cents or 0) == 0 for item in items),
+                "can_edit_items": batch.status == "draft",
+                "status_label": (
+                    "部分到账"
+                    if batch.status != "paid"
+                    and sum(item.received_cents or 0 for item in items) > 0
+                    and any((item.received_cents or 0) < (item.amount_cents or 0) for item in items)
+                    else {"draft": "草稿", "submitted": "已提交", "paid": "已结清", "cancelled": "已取消"}.get(batch.status, batch.status)
+                ),
             }
         )
     return result
@@ -1710,7 +1970,7 @@ def create_batch(req: BatchCreate, user: User = Depends(get_current_user), db: S
     if any(item.status not in ("pending", "rejected") for item in receivables):
         raise HTTPException(status_code=400, detail="只有待提交或被驳回的应收可以归集")
 
-    period = req.period or (receivables[0].period if receivables else _current_month())
+    period = assert_same_period(receivables, req.period or "") or _current_month()
     title = (req.title or "").strip() or f"{company.name} {period} 报销"
     batch = Batch(user_id=user.id, company_id=company.id, title=title[:150], period=period, status="draft")
     db.add(batch)
@@ -1725,11 +1985,31 @@ def create_batch(req: BatchCreate, user: User = Depends(get_current_user), db: S
     return {"success": True, "batch_id": batch.id, "message": "批次已创建"}
 
 
+def _batch_flags(batch: Batch, items: list[Receivable]) -> dict:
+    received = sum(item.received_cents or 0 for item in items)
+    remaining = sum(max(0, (item.amount_cents or 0) - (item.received_cents or 0)) for item in items)
+    has_pay = received > 0
+    return {
+        "received": cents_to_yuan(received),
+        "remaining": cents_to_yuan(remaining),
+        "has_payments": has_pay,
+        "partial": has_pay and remaining > 0,
+        "can_unsubmit": batch.status == "submitted" and not has_pay,
+        "can_cancel": batch.status in ("draft", "submitted") and not has_pay,
+        "can_edit_items": batch.status == "draft" and not has_pay,
+        "status_label": (
+            "部分到账" if has_pay and remaining > 0 and batch.status != "paid"
+            else {"draft": "草稿", "submitted": "已提交", "paid": "已结清", "cancelled": "已取消"}.get(batch.status, batch.status)
+        ),
+    }
+
+
 @app.get("/api/batches/{batch_id}")
 def get_batch(batch_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     batch = _batch_or_404(db, user, batch_id)
     items = [item for item in batch.receivables if item.deleted_at is None]
-    return {
+    amount = sum(item.amount_cents or 0 for item in items)
+    data = {
         "id": batch.id,
         "company_id": batch.company_id,
         "company_name": batch.company.name if batch.company else "",
@@ -1740,9 +2020,13 @@ def get_batch(batch_id: int, user: User = Depends(get_current_user), db: Session
         "expected_on": batch.expected_on or "",
         "paid_on": batch.paid_on or "",
         "note": batch.note or "",
-        "amount": cents_to_yuan(sum(item.amount_cents or 0 for item in items)),
+        "amount": cents_to_yuan(amount),
+        "amount_cents": amount,
+        "count": len(items),
         "items": [_serialize_receivable(item) for item in sorted(items, key=lambda x: (x.occurred_on, x.id))],
     }
+    data.update(_batch_flags(batch, items))
+    return data
 
 
 @app.put("/api/batches/{batch_id}")
@@ -1751,7 +2035,13 @@ def update_batch(batch_id: int, req: BatchUpdate, user: User = Depends(get_curre
     if req.title is not None:
         batch.title = req.title.strip()[:150] or batch.title
     if req.period is not None:
-        batch.period = req.period
+        if batch.status != "draft":
+            raise HTTPException(status_code=400, detail="已提交批次的归属月不能直接修改，请先撤回提交")
+        items = [item for item in batch.receivables if item.deleted_at is None]
+        if items:
+            batch.period = assert_same_period(items, req.period)
+        else:
+            batch.period = normalize_period(req.period) or batch.period
     if req.expected_on is not None:
         batch.expected_on = normalize_date(req.expected_on) if req.expected_on else ""
         for item in batch.receivables:
@@ -1789,20 +2079,129 @@ def submit_batch(batch_id: int, req: BatchSubmit, user: User = Depends(get_curre
 @app.post("/api/batches/{batch_id}/cancel")
 def cancel_batch(batch_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     batch = _batch_or_404(db, user, batch_id)
+    if batch.status == "cancelled":
+        return {"success": True, "message": "批次已经取消"}
     if batch.status == "paid":
         raise HTTPException(status_code=400, detail="已结清的批次不能取消")
-    if any((item.received_cents or 0) > 0 for item in batch.receivables if item.deleted_at is None):
-        raise HTTPException(status_code=400, detail="批次内已有到账记录，不能取消")
-    for item in batch.receivables:
-        if item.deleted_at is None and (item.received_cents or 0) == 0:
-            item.status = "pending"
-            item.batch_id = None
-            item.submitted_on = ""
-            item.expected_on = ""
+    assert_batch_adjustable(batch, "取消")
+    items = [item for item in batch.receivables if item.deleted_at is None]
+    amount = sum(item.amount_cents or 0 for item in items)
+    for item in items:
+        reset_receivable_to_pending(item, unbind=True)
     batch.status = "cancelled"
     db.commit()
-    record_audit(db, user.id, "取消批次", "batch", batch.id, f"取消批次 [{batch.title}]")
-    return {"success": True, "message": "批次已取消，应收事项已退回待提交"}
+    record_audit(
+        db,
+        user.id,
+        "取消批次",
+        "batch",
+        batch.id,
+        f"取消批次 [{batch.title}]，退回 {len(items)} 笔、合计 ¥{cents_to_text(amount)}",
+    )
+    return {
+        "success": True,
+        "message": "批次已取消，应收事项已退回待提交",
+        "count": len(items),
+        "amount": cents_to_yuan(amount),
+    }
+
+
+@app.post("/api/batches/{batch_id}/unsubmit")
+def unsubmit_batch(batch_id: int, req: BatchUnsubmitRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="撤回提交必须填写原因")
+    batch = _batch_or_404(db, user, batch_id)
+    if batch.status != "submitted":
+        raise HTTPException(status_code=400, detail="只有已提交且尚未到账的批次可以撤回提交")
+    assert_batch_adjustable(batch, "撤回")
+    items = [item for item in batch.receivables if item.deleted_at is None]
+    amount = sum(item.amount_cents or 0 for item in items)
+    original = batch.submitted_on or ""
+    for item in items:
+        reset_receivable_to_pending(item, unbind=False)
+    batch.status = "draft"
+    batch.submitted_on = ""
+    batch.expected_on = ""
+    db.commit()
+    record_audit(
+        db,
+        user.id,
+        "撤回提交",
+        "batch",
+        batch.id,
+        f"撤回批次 [{batch.title}]，原提交日期 {original or '无'}，原因：{reason}，涉及 {len(items)} 笔、合计 ¥{cents_to_text(amount)}",
+        details=json.dumps(
+            {
+                "reason": reason,
+                "original_submitted_on": original,
+                "receivable_ids": [item.id for item in items],
+                "amount_cents": amount,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    return {
+        "success": True,
+        "message": "已撤回提交，批次回到草稿，可以继续调整",
+        "count": len(items),
+        "amount": cents_to_yuan(amount),
+        "original_submitted_on": original,
+    }
+
+
+@app.post("/api/batches/{batch_id}/items")
+def update_batch_items(batch_id: int, req: BatchItemsRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    batch = _batch_or_404(db, user, batch_id)
+    if batch.status != "draft":
+        raise HTTPException(status_code=400, detail="只有草稿批次可以增删应收；已提交的请先撤回提交")
+    assert_batch_adjustable(batch, "调整")
+    remove_ids = list(dict.fromkeys(req.remove_ids or []))
+    add_ids = list(dict.fromkeys(req.add_ids or []))
+    if not remove_ids and not add_ids:
+        raise HTTPException(status_code=400, detail="请指定要移出或添加的应收")
+
+    for rid in remove_ids:
+        item = _receivable_or_404(db, user, rid)
+        if item.batch_id != batch.id:
+            raise HTTPException(status_code=400, detail=f"应收 #{rid} 不属于该批次")
+        item.batch_id = None
+        if item.status == "submitted" and (item.received_cents or 0) == 0:
+            item.status = "pending"
+            item.submitted_on = ""
+            item.expected_on = ""
+
+    for rid in add_ids:
+        item = _receivable_or_404(db, user, rid)
+        if item.company_id != batch.company_id:
+            raise HTTPException(status_code=400, detail=f"应收「{item.title}」不属于同一家公司")
+        if item.batch_id and item.batch_id != batch.id:
+            raise HTTPException(status_code=400, detail=f"应收「{item.title}」已经属于其他批次")
+        if item.status not in COLLECTABLE_STATUSES:
+            raise HTTPException(status_code=400, detail=f"应收「{item.title}」当前不能归集：{collectable_reason(item)}")
+        item.batch_id = batch.id
+        if item.status == "rejected":
+            item.status = "pending"
+
+    remaining = [item for item in batch.receivables if item.deleted_at is None and item.batch_id == batch.id]
+    # 刷新刚改动的对象
+    remaining = (
+        db.query(Receivable)
+        .filter(Receivable.batch_id == batch.id, Receivable.deleted_at.is_(None), Receivable.user_id == user.id)
+        .all()
+    )
+    if remaining:
+        batch.period = assert_same_period(remaining, batch.period) or batch.period
+    db.commit()
+    record_audit(
+        db,
+        user.id,
+        "调整批次",
+        "batch",
+        batch.id,
+        f"调整批次 [{batch.title}]，添加 {len(add_ids)} 笔、移出 {len(remove_ids)} 笔",
+    )
+    return get_batch(batch_id, user, db)
 
 
 # ---------------------------------------------------------------------------
@@ -2112,8 +2511,116 @@ def pay_batch(batch_id: int, req: BatchPaymentRequest, user: User = Depends(get_
 
 
 # ---------------------------------------------------------------------------
+# 薪资计划
+# ---------------------------------------------------------------------------
+def _plan_or_404(db: Session, user: User, plan_id: int) -> PayrollPlan:
+    plan = db.query(PayrollPlan).filter(PayrollPlan.id == plan_id, PayrollPlan.user_id == user.id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="薪资计划不存在")
+    return plan
+
+
+@app.get("/api/payroll-plans")
+def list_payroll_plans(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    plans = (
+        db.query(PayrollPlan)
+        .filter(PayrollPlan.user_id == user.id)
+        .order_by(PayrollPlan.is_active.desc(), PayrollPlan.id.desc())
+        .all()
+    )
+    return [serialize_plan(plan) for plan in plans]
+
+
+@app.post("/api/payroll-plans")
+def create_payroll_plan(req: PayrollPlanCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    company = _company_or_404(db, user, req.company_id)
+    start, end = parse_plan_dates(req.effective_from, req.effective_to)
+    amount_cents = parse_salary(req.amount)
+    payday = clamp_payday(req.payday)
+    category = _payroll_category(db, user.id, req.category_id)
+    assert_no_overlap(db, user.id, company.id, start, end)
+    plan = PayrollPlan(
+        user_id=user.id,
+        company_id=company.id,
+        category_id=category.id if category else None,
+        amount_cents=amount_cents,
+        payday=payday,
+        effective_from=start,
+        effective_to=end,
+        note=(req.note or "").strip()[:300],
+        is_active=True,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    record_audit(db, user.id, "新建薪资计划", "payroll_plan", plan.id, f"{company.name} 月薪 ¥{cents_to_text(amount_cents)}，自 {start} 起")
+    return serialize_plan(plan)
+
+
+@app.put("/api/payroll-plans/{plan_id}")
+def update_payroll_plan(plan_id: int, req: PayrollPlanUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    plan = _plan_or_404(db, user, plan_id)
+    if req.company_id is not None:
+        plan.company_id = _company_or_404(db, user, req.company_id).id
+    if req.category_id is not None:
+        category = _payroll_category(db, user.id, req.category_id)
+        plan.category_id = category.id if category else None
+    if req.amount is not None:
+        plan.amount_cents = parse_salary(req.amount)
+    if req.payday is not None:
+        plan.payday = clamp_payday(req.payday)
+    start = plan.effective_from
+    end = plan.effective_to or ""
+    if req.effective_from is not None or req.effective_to is not None:
+        start, end = parse_plan_dates(
+            req.effective_from if req.effective_from is not None else plan.effective_from,
+            req.effective_to if req.effective_to is not None else plan.effective_to,
+        )
+        plan.effective_from = start
+        plan.effective_to = end
+    if req.note is not None:
+        plan.note = req.note.strip()[:300]
+    if req.is_active is not None:
+        plan.is_active = bool(req.is_active)
+    if plan.is_active:
+        assert_no_overlap(db, user.id, plan.company_id, plan.effective_from, plan.effective_to or "", exclude_id=plan.id)
+    db.commit()
+    db.refresh(plan)
+    record_audit(db, user.id, "修改薪资计划", "payroll_plan", plan.id, f"修改薪资计划 #{plan.id}")
+    return serialize_plan(plan)
+
+
+@app.delete("/api/payroll-plans/{plan_id}")
+def delete_payroll_plan(plan_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    plan = _plan_or_404(db, user, plan_id)
+    # 停用即可停止生成；已生成的工资应收保留
+    plan.is_active = False
+    if not plan.effective_to:
+        plan.effective_to = today_str()
+    db.commit()
+    record_audit(db, user.id, "停发薪资计划", "payroll_plan", plan.id, f"停发薪资计划 #{plan.id}")
+    return {"success": True, "message": "计划已停发，已生成的工资应收仍保留"}
+
+
+@app.post("/api/payroll-plans/sync")
+def sync_payroll_plans(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    result = sync_user_plans(db, user.id)
+    if result["created_count"]:
+        record_audit(
+            db,
+            user.id,
+            "补齐工资应收",
+            "payroll_plan",
+            None,
+            f"补齐 {result['created_count']} 笔工资应收：{', '.join(result['created_periods'])}",
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 看板
 # ---------------------------------------------------------------------------
+
 @app.get("/api/dashboard")
 def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     receivables = _receivable_query(db, user).all()
@@ -2217,6 +2724,34 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     outstanding_cents = sum(remaining_cents(item) for item in outstanding)
     overdue_cents = sum(remaining_cents(item) for item in overdue)
 
+    pending_this_month = [item for item in outstanding if item.status == "pending" and (item.period or "") == current_month]
+    unconfirmed_drafts = (
+        db.query(CaptureDraft)
+        .filter(
+            CaptureDraft.user_id == user.id,
+            CaptureDraft.status.in_(("pending", "processing", "ready", "failed")),
+        )
+        .count()
+    )
+    payroll_open = [item for item in outstanding if item.kind == "payroll"]
+    payroll_todo = missing_summary(db, user.id)
+    todos = {
+        "unconfirmed_drafts": unconfirmed_drafts,
+        "pending_this_month_count": len(pending_this_month),
+        "pending_this_month_cents": sum(remaining_cents(item) for item in pending_this_month),
+        "pending_this_month": cents_to_yuan(sum(remaining_cents(item) for item in pending_this_month)),
+        "pending_this_month_period": current_month,
+        "overdue_count": len(overdue),
+        "overdue_cents": overdue_cents,
+        "overdue": cents_to_yuan(overdue_cents),
+        "payroll_outstanding_count": len(payroll_open),
+        "payroll_outstanding_cents": sum(remaining_cents(item) for item in payroll_open),
+        "payroll_outstanding": cents_to_yuan(sum(remaining_cents(item) for item in payroll_open)),
+        "payroll_missing_count": payroll_todo["count"],
+        "payroll_missing_cents": payroll_todo["amount_cents"],
+        "payroll_missing": payroll_todo,
+    }
+
     return {
         "kpis": {
             "outstanding_cents": outstanding_cents,
@@ -2242,14 +2777,26 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         "trend": trend,
         "categories": categories[:8],
         "overdue": [_serialize_receivable(item) for item in overdue_items],
+        "todos": todos,
     }
 
 
 # ---------------------------------------------------------------------------
 # 导出
 # ---------------------------------------------------------------------------
-def _export_receivables_or_400(db: Session, user: User, ids: list[int], batch_id: int | None):
-    receivables = _resolve_export_receivables(db, user, ids, batch_id)
+def _export_receivables_or_400(
+    db: Session,
+    user: User,
+    ids: list[int],
+    batch_id: int | None,
+    period: str | None = None,
+    period_from: str | None = None,
+    period_to: str | None = None,
+    company_id: int | None = None,
+):
+    receivables = _resolve_export_receivables(
+        db, user, ids, batch_id, period=period, period_from=period_from, period_to=period_to, company_id=company_id
+    )
     if not receivables:
         raise HTTPException(status_code=400, detail="没有可导出的应收事项")
     return receivables
@@ -2307,7 +2854,10 @@ def export_pdf(
 
 @app.post("/api/export/finance-pack")
 def export_finance_pack(req: FinancePackRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    receivables = _export_receivables_or_400(db, user, req.receivable_ids, req.batch_id)
+    receivables = _export_receivables_or_400(
+        db, user, req.receivable_ids, req.batch_id,
+        period=req.period, period_from=req.period_from, period_to=req.period_to, company_id=req.company_id,
+    )
     output_dir = user_dir(user.id, "exports")
     info = build_finance_zip(receivables, db, output_dir, "财务报销包")
     record = ExportRecord(
@@ -2334,7 +2884,10 @@ def export_finance_pack(req: FinancePackRequest, user: User = Depends(get_curren
 
 @app.post("/api/export/attachments")
 def export_attachments(req: FinancePackRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    receivables = _export_receivables_or_400(db, user, req.receivable_ids, req.batch_id)
+    receivables = _export_receivables_or_400(
+        db, user, req.receivable_ids, req.batch_id,
+        period=req.period, period_from=req.period_from, period_to=req.period_to, company_id=req.company_id,
+    )
     output_dir = user_dir(user.id, "exports")
     info = build_attachments_zip(receivables, output_dir, "原始附件")
     record = ExportRecord(
@@ -2487,6 +3040,27 @@ def revoke_agent_token(token_id: int, user: User = Depends(get_current_user), db
     return {"success": True, "message": "令牌已吊销"}
 
 
+@app.post("/api/settings/agent-tokens/{token_id}/reissue")
+@limiter.limit("10/minute")
+def reissue_agent_token(request: Request, token_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.query(AgentToken).filter(AgentToken.id == token_id, AgentToken.user_id == user.id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="令牌不存在")
+    if row.revoked_at is not None:
+        raise HTTPException(status_code=400, detail="已吊销的令牌不能重新签发")
+    plaintext = generate_plaintext_token()
+    row.token_prefix = display_prefix(plaintext)
+    row.token_hash = hash_token(plaintext)
+    row.last_used_at = None
+    db.commit()
+    db.refresh(row)
+    record_audit(db, user.id, "重新签发 Agent 令牌", "agent_token", row.id, f"重新签发 Agent 令牌 [{row.name}]，旧令牌已立即失效")
+    payload = serialize_token(row)
+    payload["token"] = plaintext
+    payload["message"] = "旧令牌已立即失效，请立即复制并妥善保存，关闭后将无法再次查看明文"
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # 设置
 # ---------------------------------------------------------------------------
@@ -2501,6 +3075,17 @@ def get_ai_settings(user: User = Depends(get_current_user), db: Session = Depend
         "system_prompt": config["system_prompt"] or DEFAULT_SYSTEM_PROMPT,
         "default_system_prompt": DEFAULT_SYSTEM_PROMPT,
         "can_call": config["can_call"],
+    }
+
+
+@app.get("/api/settings/ai/summary")
+def get_ai_settings_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """给 Agent 的只读摘要：是否启用和模型名称，不含密钥与接口地址。"""
+    config = get_ai_config(db, user.id)
+    return {
+        "enabled": bool(config["enabled"]),
+        "model_name": config["model_name"] if config["enabled"] else "",
+        "can_call": bool(config["can_call"]),
     }
 
 
@@ -2596,6 +3181,16 @@ def download_signed_file(token: str, db: Session = Depends(get_db)):
         if row and os.path.exists(row.stored_path):
             return FileResponse(row.stored_path, media_type="application/zip", filename=row.filename)
     raise HTTPException(status_code=404, detail="文件不存在")
+
+
+@app.get("/api/help/user-guide")
+def get_user_guide(user: User = Depends(get_current_user)):
+    path = os.path.join(BASE_DIR, "docs", "USER_GUIDE.md")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="使用指南暂未提供")
+    with open(path, "r", encoding="utf-8") as handle:
+        content = handle.read()
+    return {"title": "使用指南", "markdown": content, "version": app.version}
 
 
 # ---------------------------------------------------------------------------

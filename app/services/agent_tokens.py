@@ -39,7 +39,7 @@ AGENT_BLOCKED_PREFIXES = (
 )
 
 # 已鉴权的 Agent 可访问、且不要求业务范围的路径
-AGENT_OPEN_PATHS = {"/api/auth/me"}
+AGENT_OPEN_PATHS = {"/api/auth/me", "/api/settings/ai/summary", "/api/help/user-guide"}
 
 # 按前缀匹配业务范围；更长的前缀应排在前面
 AGENT_SCOPE_PREFIXES = (
@@ -53,6 +53,7 @@ AGENT_SCOPE_PREFIXES = (
     ("/api/dashboard", "ledger"),
     ("/api/attachments", "ledger"),
     ("/api/audit-logs", "ledger"),
+    ("/api/payroll-plans", "ledger"),
 )
 
 
@@ -239,11 +240,11 @@ def required_scope_for_path(path: str, request=None) -> str | None:
 
 def enforce_agent_access(path: str, scopes: list[str], request=None) -> None:
     normalized = (path or "").rstrip("/") or "/"
+    if normalized in AGENT_OPEN_PATHS:
+        return
     for prefix in AGENT_BLOCKED_PREFIXES:
         if normalized == prefix or normalized.startswith(prefix + "/"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=AGENT_FORBIDDEN_MESSAGE)
-    if normalized in AGENT_OPEN_PATHS:
-        return
     scope = required_scope_for_path(normalized, request)
     if not scope:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=AGENT_FORBIDDEN_MESSAGE)
