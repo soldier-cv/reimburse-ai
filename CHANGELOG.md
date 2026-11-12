@@ -7,6 +7,9 @@
 
 ## [未发布] (Unreleased)
 
+### 修复 (Fixed)
+- 补充 `app/static/favicon.svg`，便于 OpenChamber 等工具按 `favicon.*` 规则发现项目图标；`/favicon.ico` 改为返回现有 PNG 图标，不再返回 204。
+
 ### 文档 (Docs)
 - 新增 `skills/reimburse-ai/SKILL.md`：给外部 Agent 的接口、权限范围与工作流说明，对齐应用 3.2.0。
 

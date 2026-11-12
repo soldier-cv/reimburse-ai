@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="应收管理台">
+  <path d="M12 17a9 9 0 0 1 9-9h22a9 9 0 0 1 9 9v29l-6.67 6-6.67-6-6.66 6-6.67-6-6.66 6-6.67-6z" fill="#0f172a"/>
+  <g fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22.5 15.5 32 26l9.5-10.5"/>
+    <path d="M32 26v13"/>
+    <path d="M22.5 30h19M22.5 36h19"/>
+  </g>
+</svg>
