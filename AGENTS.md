@@ -23,10 +23,11 @@
 - **应收事项 `Receivable` 是唯一账本事实**；发票、截图、聊天记录只是附件。
 - 一笔应收只属于一个批次；批次是向公司的一次提交。
 - **支持部分到账**：一笔应收可以被多笔到账分次核销；每笔到账必须分摊到具体应收，分摊合计必须等于到账金额，单笔分摊不得超过该应收待收余额。
-- 状态：`待提交 / 已提交 / 部分到账 / 已到账 / 被驳回 / 已放弃`。
-- 逾期不单独存状态，由「今天 > 预计到账日 且 未结清」实时计算。
+- 状态：`待提交 / 已提交 / 部分到账 / 已到账 / 被驳回 / 已放弃`。只有待提交、被驳回可归集；已提交后锁定金额、事项、公司、类别和归属月；已提交不能删除，只能放弃并留审计。非法状态变更由后端拒绝。已提交的应收不能直接退回待提交，须通过批次「撤回提交」。
+- **归属月**独立于发生日期：草稿 `CaptureDraft.period` 默认由发生日带出，确认入账时可改；历史 `Receivable.period` 保持现值。批次归属月由所选应收汇总，必须一致。
+- 逾期不单独存状态，由「今天 > 预计到账日 且 未结清」实时计算。「今天」一律用 Asia/Shanghai。
 - 待收 = 应收金额 - 已收金额；草稿、被驳回、已放弃不计入。
-- 工资与报销共用应收模型，用 `kind` 区分 `reimbursement / payroll / other`。
+- 工资与报销共用应收模型，用 `kind` 区分 `reimbursement / payroll / other`。固定月薪通过 `PayrollPlan` 按月生成待提交工资应收；打开应用或手动调用 `POST /api/payroll-plans/sync` 补齐缺失月份，同一公司同一归属月不重复，停发后不再生成。不上后台定时任务。
 - 金额全库使用整数分 `*_cents`，禁止 Float 存金额；展示与导出时转元。
 
 ---
@@ -42,10 +43,12 @@
 | `Payment` | 一笔实际到账 |
 | `PaymentItem` | 该笔到账分摊到各应收的金额，支持一笔应收多次到账 |
 | `Attachment` | 发票、截图、聊天记录、回单 |
-| `CaptureDraft` | 已上传未确认的采集草稿，承载 AI 识别结果 |
+| `CaptureDraft` | 已上传未确认的采集草稿，承载 AI 识别结果与独立归属月 |
+| `PayrollPlan` | 薪资计划：公司、月薪、发薪日、生效/停发日期 |
 | `ExportRecord` | 导出快照：清单、金额、文件哈希、路径 |
 | `AgentToken` | 用户签发的 Agent 访问令牌，只存哈希与前缀 |
 | `AuditLog` / `UserSetting` / `SystemSetting` | 审计与配置 |
+| `User` | 含 `is_active`、`deleted_at`、`session_version`；停用或软删除会提升 session_version |
 
 ---
 
@@ -60,24 +63,27 @@
 - 工资到账截图（`direction=in`）：不建应收，按「备注月份 → 最早欠发顺序 → 金额对月薪」推断归属月，给出核销建议；点「核销到账」才写入到账记录，规则见 `app/services/payroll_match.py`。
 - AI 输出必须是严格 JSON，字段见 `app/services/ai_service.py`；金额取支付实付、发票价税合计、工资实发。
 - AI 置信度不可信，金额必须可编辑、可看原图；金额为空不允许确认；模型没给出金额时不拿候选值顶替，候选只作可点选的建议。
-- 去重：文件哈希 + 发票代码/号码 + 同批重复；命中只提示，不自动删除。
-- 确认时生成 `Receivable + Attachment`，草稿状态置为 `confirmed`；支持把草稿追加到已有应收。
+- 去重：文件哈希 + 发票代码/号码 + 同批重复；命中只提示，不自动删除，确认时未传 `force` 则 409。
+- 压缩包内嵌套 zip 与不支持的格式写入跳过原因，不得静默丢弃。
+- 确认时生成 `Receivable + Attachment`，草稿状态置为 `confirmed`；可传 `period` 覆盖整组归属月。支持把草稿追加到已有应收（只从应收详情发起，不改原金额）。
+- 预览：`GET /api/capture/drafts/{id}/preview`、`GET /api/attachments/{id}/preview`，本机生成 JPEG 缓存到 `uploads/user_N/previews/`；OFD 不支持在线预览。缩略图不得返回原图。
 
 ## Agent 接口
 
-- 用户在「设置 -> Agent 令牌」签发、停用、启用或吊销自己的令牌；管理员不能管理其他用户的令牌。
+- 用户在「设置 -> Agent 令牌」签发、停用、启用、吊销或重新签发自己的令牌；重新签发后旧令牌立即失效，新明文只出现一次。管理员不能管理其他用户的令牌。令牌只存 SHA-256，不明文回显，不做可逆加密。
 - 请求头：`Authorization: Bearer ragt_...`。`GET /api/auth/me` 对 Agent 调用返回 `auth_method`、令牌名称和范围。
-- 默认签发全部三个范围：`capture`（`/api/capture*`，含确认与核销到账）、`ledger`（公司、类别、应收、批次、到账、看板、附件）、`export`（Excel、PDF、财务包、附件压缩包、导出记录与下载）。缺少范围返回 403。
-- Agent 令牌禁止用于：管理员账号管理、初始化管理员、注册、改密、退出登录、AI 设置（含密钥与测连）、以及令牌本身的签发/列举/吊销。
-- 吊销、停用或过期的令牌返回 401。已有数据库启动时自动创建 `agent_tokens` 表，无需破坏性迁移。
-- 不要在生产库自动写入测试用户。如需给 Agent 或故事测试准备专用账本，由管理员创建独立成员，再由该成员自己签发令牌。
+- 默认签发全部三个范围：`capture`（`/api/capture*`，含确认、核销到账与草稿预览）、`ledger`（公司、类别、应收、批次、到账、看板、附件、薪资计划、附件预览）、`export`（Excel、PDF、财务包、按应收/批次/月份打包原件、导出记录与下载）。缺少范围返回 403。
+- 开放只读：`GET /api/settings/ai/summary`（是否启用、模型名称，不含密钥）、`GET /api/help/user-guide`。这两条在禁止前缀之前放行。
+- Agent 令牌禁止用于：管理员账号管理、初始化管理员、注册、改密、退出登录、AI 密钥读写与测连、以及令牌本身的签发/列举/重新签发/吊销。
+- 吊销、停用、重新签发后的旧令牌或过期令牌返回 401。批次撤回：`POST /api/batches/{id}/unsubmit`（未到账，必须填原因）；草稿批次增删：`POST /api/batches/{id}/items`。已到账/部分到账不可撤回、不可拆。
+- 不要在生产库自动写入测试用户。如需给 Agent 或故事测试准备专用账本，由管理员创建独立成员，再由该成员自己签发令牌。默认只创建普通成员，创建管理员需 `confirm_admin`。
 
 ## 技能文档（skills/）
 
 `skills/reimburse-ai/SKILL.md` 是发给外部 Agent 的用法说明，**真源就在本仓库**，随代码一起版本化：
 
 - 改 Agent 可见的接口、权限范围或业务规则时，**同一个提交里**把技能改掉，别让它落后于代码。
-- 技能版本号独立于应用版本，按 patch（措辞）/ minor（新增章节或接口）/ major（推翻既有结论）递增。当前技能 1.0.0 对齐应用 3.2.0+。
+- 技能版本号独立于应用版本，按 patch（措辞）/ minor（新增章节或接口）/ major（推翻既有结论）递增。当前技能 1.1.0 对齐应用 3.3.0+。
 - 本仓库不带用于同步技能目录的 git hooks。要挂到公共技能注册，只需在宿主上建立符号链接：`/opt/code/static-deploy/skills/reimburse-ai` → 本仓库的 `skills/reimburse-ai`。之后由宿主已有的 index 同步机制纳入 `http://100.64.0.88:8088/.well-known/skills/`。在完成这一步之前，不要假定线上已提供这份技能。
 - 判断线上是否最新：`curl -s http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md | sha256sum` 与本地 `sha256sum skills/reimburse-ai/SKILL.md` 一致。
 
@@ -85,8 +91,9 @@
 
 - `GET /api/export/excel`：筛选条件导出明细 Excel。
 - `GET /api/export/pdf`：合并票据 PDF，按清单编号。
-- `POST /api/export/finance-pack`：财务包 ZIP，包含封面、Excel、合并 PDF、原件、截图。
-- 每次财务包写入 `ExportRecord`，保留文件哈希与路径。
+- `POST /api/export/finance-pack`：财务包 ZIP，包含封面、Excel、合并 PDF、原件、截图；可按应收 id、批次或归属月筛选。
+- `POST /api/export/attachments`：只打包原始文件，同样支持应收 id、批次或归属月/公司筛选。
+- 每次导出写入 `ExportRecord`，保留文件哈希与路径。
 - PDF 合成使用 Pillow + PyMuPDF；容器必须安装中文字体（Dockerfile 已安装 `fonts-noto-cjk`）。
 
 ---
@@ -124,5 +131,6 @@ python -m pytest -q
 - 单币种人民币，不做汇率。
 - 不做退款/红冲、预算、账户余额、邮件微信提醒、分享链接。
 - 不做发票税务验真。
-- OFD 只保存原件，不做自动识别。
+- OFD 只保存原件，不做自动识别，也不支持在线预览。
 - AI 需要用户自行配置 OpenAI 兼容接口；未配置时手动填金额。
+- 使用指南正文只维护 `docs/USER_GUIDE.md` 一份；规则变化时同步改指南、本文件和技能文档。
