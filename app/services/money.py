@@ -2,7 +2,11 @@
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from zoneinfo import ZoneInfo
 import re
+
+# 业务「今天」统一按上海时区，避免服务器 UTC 在夜间把日期算成昨天。
+APP_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def yuan_to_cents(value) -> int:
@@ -41,12 +45,39 @@ def cents_to_text(cents) -> str:
     return f"{int(cents) / 100:.2f}"
 
 
+def today_local() -> date:
+    """返回 Asia/Shanghai 的今天。"""
+    return datetime.now(APP_TZ).date()
+
+
 def today_str() -> str:
-    return date.today().isoformat()
+    return today_local().isoformat()
 
 
 def now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def current_month() -> str:
+    return today_local().strftime("%Y-%m")
+
+
+def normalize_period(value: str, fallback: str = "") -> str:
+    """把各种月份写法规范为 YYYY-MM；无法解析时返回 fallback。"""
+    if value is None or str(value).strip() == "":
+        return fallback
+    text = str(value).strip()
+    for fmt in ("%Y-%m", "%Y/%m", "%Y.%m", "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m")
+        except ValueError:
+            continue
+    m = re.search(r"(20\d{2})[-/.年]?\s*(\d{1,2})", text)
+    if m:
+        year, month = int(m.group(1)), int(m.group(2))
+        if 1 <= month <= 12:
+            return f"{year:04d}-{month:02d}"
+    return fallback
 
 
 def parse_date(value: str) -> date | None:
@@ -79,11 +110,11 @@ def period_from_date(value: str) -> str:
     parsed = parse_date(value)
     if parsed:
         return parsed.strftime("%Y-%m")
-    return datetime.now().strftime("%Y-%m")
+    return current_month()
 
 
 def add_days(value: str, days: int) -> str:
-    parsed = parse_date(value) or date.today()
+    parsed = parse_date(value) or today_local()
     return (parsed + timedelta(days=int(days or 0))).isoformat()
 
 
@@ -94,13 +125,43 @@ def days_overdue(expected_on: str, today: date | None = None) -> int:
     parsed = parse_date(expected_on)
     if not parsed:
         return 0
-    current = today or date.today()
+    current = today or today_local()
     return max(0, (current - parsed).days)
+
+
+def months_between(start: str, end: str) -> list[str]:
+    """含起止的 YYYY-MM 列表；非法输入返回空列表。"""
+    start_p = normalize_period(start)
+    end_p = normalize_period(end)
+    if not start_p or not end_p or start_p > end_p:
+        return []
+    year, month = [int(part) for part in start_p.split("-")]
+    end_year, end_month = [int(part) for part in end_p.split("-")]
+    result = []
+    while (year, month) <= (end_year, end_month):
+        result.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month == 13:
+            month = 1
+            year += 1
+    return result
+
+
+def month_payday(period: str, payday: int) -> str:
+    """某归属月对应的发薪日（超出当月天数则取月末）。"""
+    import calendar as _cal
+    normalized = normalize_period(period)
+    if not normalized:
+        return today_str()
+    year, month = [int(part) for part in normalized.split("-")]
+    last = _cal.monthrange(year, month)[1]
+    day = min(max(int(payday or 1), 1), last)
+    return date(year, month, day).isoformat()
 
 
 def month_range(months: int = 6) -> list[str]:
     """返回最近 N 个月的 YYYY-MM 列表（含当月，升序）。"""
-    today = date.today()
+    today = today_local()
     result = []
     year, month = today.year, today.month
     for _ in range(months):

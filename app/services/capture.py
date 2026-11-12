@@ -107,6 +107,20 @@ def user_dir(user_id: int, sub: str = "drafts") -> str:
     return path
 
 
+def remove_user_uploads(user_id: int) -> None:
+    """仅删除该用户自己的上传目录，绝不触碰其他用户文件。"""
+    import shutil
+
+    root = os.path.realpath(UPLOAD_ROOT)
+    target = os.path.realpath(os.path.join(UPLOAD_ROOT, f"user_{int(user_id)}"))
+    if not target.startswith(root + os.sep):
+        return
+    if os.path.basename(target) != f"user_{int(user_id)}":
+        return
+    if os.path.isdir(target):
+        shutil.rmtree(target)
+
+
 def safe_filename(filename: str) -> str:
     name = os.path.basename(filename or "file")
     name = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", name).strip(" .")
@@ -223,9 +237,23 @@ def get_extra_files(draft: CaptureDraft) -> list[dict]:
         return []
 
 
-def create_drafts_from_zip(db: Session, user_id: int, zip_path: str, company_id=None, category_id=None) -> list[CaptureDraft]:
-    """安全解压 ZIP；通行费包自动把行程单与原始发票包挂到主汇总单。"""
+def _is_junk_zip_name(filename: str) -> bool:
+    name = (filename or "").replace("\\", "/")
+    base = name.split("/")[-1]
+    if not base or base.startswith("."):
+        return True
+    if "__MACOSX" in name.split("/"):
+        return True
+    return base.lower() in (".ds_store", "thumbs.db", "desktop.ini")
+
+
+def create_drafts_from_zip(db: Session, user_id: int, zip_path: str, company_id=None, category_id=None) -> tuple[list[CaptureDraft], list[dict]]:
+    """安全解压 ZIP；通行费包自动把行程单与原始发票包挂到主汇总单。
+
+    返回 (drafts, skipped)，skipped 中说明嵌套压缩包与不支持的格式，不再静默丢弃。
+    """
     members_data = []
+    skipped: list[dict] = []
     total_bytes = 0
     try:
         with zipfile.ZipFile(zip_path, "r") as archive:
@@ -235,18 +263,22 @@ def create_drafts_from_zip(db: Session, user_id: int, zip_path: str, company_id=
                     raw_name = raw_name.encode("cp437").decode("gbk")
                 except Exception:
                     pass
-                ext = file_ext(raw_name)
-                if ext not in SUPPORTED_EXTS:
+                if _is_junk_zip_name(raw_name):
                     continue
-                # 按声明的解压大小拦截压缩炸弹
+                ext = file_ext(raw_name)
+                display = os.path.basename(raw_name) or raw_name
+                if ext not in SUPPORTED_EXTS:
+                    skipped.append({"filename": display, "reason": f"不支持的文件类型: {ext or '无扩展名'}"})
+                    continue
                 if member.file_size > ZIP_MAX_MEMBER_BYTES:
-                    raise ValueError(f"压缩包内文件超过 25MB: {os.path.basename(raw_name)}")
+                    raise ValueError(f"压缩包内文件超过 25MB: {display}")
                 total_bytes += member.file_size
                 if total_bytes > ZIP_MAX_TOTAL_BYTES:
                     raise ValueError("压缩包解压后超过 300MB，请分批上传")
                 try:
                     data = archive.read(member)
                 except Exception:
+                    skipped.append({"filename": display, "reason": "文件损坏，无法读取"})
                     continue
                 members_data.append((raw_name, ext, data))
     except zipfile.BadZipFile as exc:
@@ -266,6 +298,7 @@ def create_drafts_from_zip(db: Session, user_id: int, zip_path: str, company_id=
 
     for index in ordered_indexes:
         filename, ext, data = members_data[index]
+        display = os.path.basename(filename) or filename
         if toll_package and index == main_index:
             saved = save_upload_bytes(user_id, filename, data)
             main_draft = create_draft(db, user_id, saved, company_id, category_id)
@@ -286,6 +319,7 @@ def create_drafts_from_zip(db: Session, user_id: int, zip_path: str, company_id=
             )
             continue
         if ext == ".zip":
+            skipped.append({"filename": display, "reason": "嵌套压缩包暂不支持，请先解压后再上传"})
             continue
         saved = save_upload_bytes(user_id, filename, data)
         draft = create_draft(db, user_id, saved, company_id, category_id)
@@ -297,7 +331,7 @@ def create_drafts_from_zip(db: Session, user_id: int, zip_path: str, company_id=
     if main_draft and extras:
         _set_extra_files(main_draft, extras)
         db.commit()
-    return drafts
+    return drafts, skipped
 
 
 def _guess_category_id(db: Session, user_id: int, data: dict) -> int | None:
@@ -383,6 +417,8 @@ def _apply_extraction(db: Session, draft: CaptureDraft, data: dict) -> None:
     occurred = parse_date(data.get("date") or "")
     if occurred:
         draft.occurred_on = occurred.isoformat()
+        if not (draft.period or "").strip():
+            draft.period = occurred.strftime("%Y-%m")
     else:
         data["date_missing"] = True
 
@@ -544,6 +580,8 @@ def _finish(db: Session, draft_id: int, plan: dict, ai_result: dict | None) -> N
 
     if not draft.occurred_on:
         draft.occurred_on = today_str()
+    if not (draft.period or "").strip() and draft.occurred_on:
+        draft.period = period_from_date(draft.occurred_on)
     draft.error = error
     draft.status = "ready"
     draft.updated_at = datetime.now()
@@ -608,8 +646,18 @@ def rebuild_draft_from_file(db: Session, draft: CaptureDraft) -> None:
     db.commit()
 
 
-def find_duplicates(db: Session, user_id: int, sha256: str, invoice_no: str, invoice_code: str) -> list[dict]:
+def find_duplicates(db: Session, user_id: int, sha256: str, invoice_no: str, invoice_code: str, exclude_draft_id: int | None = None) -> list[dict]:
+    """查找相同文件或相同发票号的已有记录，只提示不自动删除。"""
     warnings = []
+    seen = set()
+
+    def add(item: dict) -> None:
+        key = (item.get("type"), item.get("receivable_id"), item.get("draft_id"), item.get("message"))
+        if key in seen:
+            return
+        seen.add(key)
+        warnings.append(item)
+
     if invoice_no:
         query = db.query(Attachment).filter(
             Attachment.user_id == user_id,
@@ -620,39 +668,87 @@ def find_duplicates(db: Session, user_id: int, sha256: str, invoice_no: str, inv
             query = query.filter(Attachment.invoice_code == invoice_code)
         existing = query.first()
         if existing:
-            warnings.append(
+            add(
                 {
                     "type": "invoice_no",
                     "message": f"发票号 {invoice_no} 已经存在于应收 #{existing.receivable_id}",
                     "receivable_id": existing.receivable_id,
+                    "invoice_code": invoice_code or "",
+                    "invoice_no": invoice_no,
                 }
             )
+        draft_query = db.query(CaptureDraft).filter(
+            CaptureDraft.user_id == user_id,
+            CaptureDraft.invoice_no == invoice_no,
+            CaptureDraft.status.in_(("pending", "processing", "ready", "failed", "confirmed")),
+        )
+        if invoice_code:
+            draft_query = draft_query.filter(CaptureDraft.invoice_code == invoice_code)
+        if exclude_draft_id:
+            draft_query = draft_query.filter(CaptureDraft.id != exclude_draft_id)
+        other_draft = draft_query.first()
+        if other_draft:
+            if other_draft.status == "confirmed" and other_draft.receivable_id:
+                add(
+                    {
+                        "type": "invoice_no",
+                        "message": f"发票号 {invoice_no} 已经入账到应收 #{other_draft.receivable_id}",
+                        "receivable_id": other_draft.receivable_id,
+                        "draft_id": other_draft.id,
+                        "invoice_no": invoice_no,
+                    }
+                )
+            else:
+                add(
+                    {
+                        "type": "invoice_no",
+                        "message": f"发票号 {invoice_no} 已在收件箱草稿「{other_draft.original_filename}」中出现",
+                        "draft_id": other_draft.id,
+                        "invoice_no": invoice_no,
+                    }
+                )
     if sha256:
         existing_attachment = (
             db.query(Attachment)
             .filter(Attachment.user_id == user_id, Attachment.sha256 == sha256, Attachment.deleted_at.is_(None))
             .first()
         )
-        existing_draft = (
-            db.query(CaptureDraft)
-            .filter(
-                CaptureDraft.user_id == user_id,
-                CaptureDraft.sha256 == sha256,
-                CaptureDraft.status == "confirmed",
-            )
-            .first()
-        )
-        target_id = existing_attachment.receivable_id if existing_attachment else (
-            existing_draft.receivable_id if existing_draft else None
-        )
-        if target_id:
-            warnings.append(
+        if existing_attachment:
+            add(
                 {
                     "type": "file_hash",
-                    "message": f"这个文件已经上传过，关联应收 #{target_id}",
-                    "receivable_id": target_id,
+                    "message": f"这个文件已经上传过，关联应收 #{existing_attachment.receivable_id}",
+                    "receivable_id": existing_attachment.receivable_id,
+                    "sha256": sha256,
                 }
             )
+        draft_query = db.query(CaptureDraft).filter(
+            CaptureDraft.user_id == user_id,
+            CaptureDraft.sha256 == sha256,
+        )
+        if exclude_draft_id:
+            draft_query = draft_query.filter(CaptureDraft.id != exclude_draft_id)
+        other_draft = draft_query.order_by(CaptureDraft.id.desc()).first()
+        if other_draft:
+            if other_draft.status == "confirmed" and other_draft.receivable_id:
+                add(
+                    {
+                        "type": "file_hash",
+                        "message": f"这个文件已经入账，关联应收 #{other_draft.receivable_id}",
+                        "receivable_id": other_draft.receivable_id,
+                        "draft_id": other_draft.id,
+                        "sha256": sha256,
+                    }
+                )
+            elif other_draft.status != "discarded":
+                add(
+                    {
+                        "type": "file_hash",
+                        "message": f"这个文件与收件箱中的「{other_draft.original_filename}」相同",
+                        "draft_id": other_draft.id,
+                        "sha256": sha256,
+                    }
+                )
     return warnings
 
 
@@ -745,6 +841,17 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
         hints.append("未识别到日期，已暂填今天")
     if is_inflow and draft.status == "ready" and not (payroll_match or {}).get("allocations"):
         hints.append("这是到账记录，没有匹配的工资应收；可先在应收台账补建对应月份")
+    period = (draft.period or "").strip() or (period_from_date(draft.occurred_on) if draft.occurred_on else "")
+    duplicates = []
+    if db is not None:
+        duplicates = find_duplicates(
+            db,
+            draft.user_id,
+            draft.sha256,
+            draft.invoice_no or "",
+            draft.invoice_code or "",
+            exclude_draft_id=draft.id,
+        )
     return {
         "id": draft.id,
         "company_id": draft.company_id,
@@ -765,6 +872,8 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
         "amount": round((draft.amount_cents or 0) / 100, 2) if draft.amount_cents else None,
         "amount_cents": draft.amount_cents,
         "occurred_on": draft.occurred_on or "",
+        "period": period,
+        "duplicates": duplicates,
         "title": draft.title or "",
         "merchant": draft.merchant or "",
         "buyer": extract_buyer(draft),

@@ -27,6 +27,7 @@ class AdminCreateUserRequest(BaseModel):
     username: str
     password: str
     role: Optional[str] = "user"
+    confirm_admin: bool = False
 
 
 class AdminResetPasswordRequest(BaseModel):
@@ -90,6 +91,7 @@ class ReceivableCreate(BaseModel):
     category_id: Optional[int] = None
     title: str
     occurred_on: Optional[str] = ""
+    period: Optional[str] = ""
     amount: Union[float, str]
     expected_on: Optional[str] = ""
     note: Optional[str] = ""
@@ -100,10 +102,12 @@ class ReceivableUpdate(BaseModel):
     category_id: Optional[int] = None
     title: Optional[str] = None
     occurred_on: Optional[str] = None
+    period: Optional[str] = None
     amount: Optional[Union[float, str]] = None
     status: Optional[str] = None
     expected_on: Optional[str] = None
     note: Optional[str] = None
+    reason: Optional[str] = None
 
 
 class BatchCreate(BaseModel):
@@ -118,6 +122,15 @@ class BatchUpdate(BaseModel):
     period: Optional[str] = None
     expected_on: Optional[str] = None
     note: Optional[str] = None
+
+
+class BatchItemsRequest(BaseModel):
+    add_ids: List[int] = Field(default_factory=list)
+    remove_ids: List[int] = Field(default_factory=list)
+
+
+class BatchUnsubmitRequest(BaseModel):
+    reason: str
 
 
 class BatchSubmit(BaseModel):
@@ -151,6 +164,7 @@ class DraftUpdate(BaseModel):
     category_id: Optional[int] = None
     amount: Optional[Union[float, str]] = None
     occurred_on: Optional[str] = None
+    period: Optional[str] = None
     title: Optional[str] = None
     merchant: Optional[str] = None
     doc_type: Optional[str] = None
@@ -165,6 +179,7 @@ class CaptureConfirm(BaseModel):
     category_id: Optional[int] = None
     target_receivable_id: Optional[int] = None
     force: bool = False
+    period: Optional[str] = None
 
 
 class CapturePaymentApply(BaseModel):
@@ -178,6 +193,10 @@ class FinancePackRequest(BaseModel):
     receivable_ids: List[int] = Field(default_factory=list)
     batch_id: Optional[int] = None
     include_originals: bool = True
+    period: Optional[str] = None
+    period_from: Optional[str] = None
+    period_to: Optional[str] = None
+    company_id: Optional[int] = None
 
 
 class AgentTokenCreate(BaseModel):
@@ -190,3 +209,24 @@ class AgentTokenUpdate(BaseModel):
     enabled: Optional[bool] = None
     name: Optional[str] = None
 
+
+
+class PayrollPlanCreate(BaseModel):
+    company_id: int
+    category_id: Optional[int] = None
+    amount: Union[float, str]
+    payday: Optional[int] = 15
+    effective_from: str
+    effective_to: Optional[str] = ""
+    note: Optional[str] = ""
+
+
+class PayrollPlanUpdate(BaseModel):
+    company_id: Optional[int] = None
+    category_id: Optional[int] = None
+    amount: Optional[Union[float, str]] = None
+    payday: Optional[int] = None
+    effective_from: Optional[str] = None
+    effective_to: Optional[str] = None
+    note: Optional[str] = None
+    is_active: Optional[bool] = None

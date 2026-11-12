@@ -147,6 +147,22 @@ def decode_access_token(token: str) -> dict:
     except jwt.PyJWTError:
         return None
 
+def ensure_user_active(user) -> None:
+    """停用或已删除的账号不能登录，已有会话也立即失效。"""
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if getattr(user, "deleted_at", None) is not None or not bool(getattr(user, "is_active", True)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="账号已停用，请联系管理员",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def get_current_user(
     request: Request,
     auth: HTTPAuthorizationCredentials = Depends(security),
@@ -176,12 +192,7 @@ def get_current_user(
     if token.startswith(TOKEN_PREFIX):
         row = authenticate_agent_token(db, token)
         user = db.query(User).filter(User.id == row.user_id).first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="用户不存在",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        ensure_user_active(user)
         scopes = scopes_from_row(row)
         request.state.auth_method = "agent"
         request.state.agent_scopes = scopes
@@ -214,6 +225,7 @@ def get_current_user(
             detail="用户不存在",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    ensure_user_active(user)
 
     # 校验 session_version：缺失或与数据库不一致时判 401（改密即失效旧 token，存量旧 token 统一要求重新登录）
     token_sv = payload.get("sv")

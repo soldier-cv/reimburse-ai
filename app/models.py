@@ -26,6 +26,8 @@ class User(Base):
     salt = Column(String(64), nullable=False, default="")
     session_version = Column(Integer, nullable=False, default=0, server_default="0")
     role = Column(String(20), default="user")
+    is_active = Column(Boolean, default=True, nullable=False, server_default="1")
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     last_login = Column(DateTime, nullable=True)
 
@@ -40,6 +42,7 @@ class User(Base):
     settings = relationship("UserSetting", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
     agent_tokens = relationship("AgentToken", back_populates="user", cascade="all, delete-orphan")
+    payroll_plans = relationship("PayrollPlan", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserSetting(Base):
@@ -256,6 +259,7 @@ class CaptureDraft(Base):
     extracted_json = Column(Text, nullable=True)
     amount_cents = Column(Integer, nullable=True)
     occurred_on = Column(String(10), default="")
+    period = Column(String(7), default="")  # YYYY-MM 归属月，确认时可与发生日不同
     title = Column(String(200), default="")
     merchant = Column(String(150), default="")
     invoice_code = Column(String(50), default="")
@@ -339,6 +343,29 @@ class AgentToken(Base):
     revoked_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="agent_tokens")
+
+
+class PayrollPlan(Base):
+    """固定月薪计划：按月补齐待提交的工资应收。"""
+
+    __tablename__ = "payroll_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"), index=True, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    amount_cents = Column(Integer, nullable=False, default=0)
+    payday = Column(Integer, nullable=False, default=15)
+    effective_from = Column(String(10), nullable=False, default="")  # YYYY-MM-DD
+    effective_to = Column(String(10), default="")  # 停发日期，空表示仍有效
+    note = Column(String(300), default="")
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    user = relationship("User", back_populates="payroll_plans")
+    company = relationship("Company")
+    category = relationship("Category")
 
 
 def materials_status(receivable: "Receivable") -> dict:
