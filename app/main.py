@@ -2617,4 +2617,9 @@ def health():
 
 @app.get("/favicon.ico")
 def favicon():
-    return Response(status_code=204)
+    return FileResponse(os.path.join(STATIC_DIR, "icon-192.png"), media_type="image/png")
+
+
+@app.get("/favicon.svg")
+def favicon_svg():
+    return FileResponse(os.path.join(STATIC_DIR, "favicon.svg"), media_type="image/svg+xml")
