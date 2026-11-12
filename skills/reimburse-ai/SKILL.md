@@ -1,7 +1,7 @@
 ---
 name: reimburse-ai
 description: Use when 采集报销票据、维护个人对公应收台账、提交批次、核销到账或导出财务包。
-version: 1.0.0
+version: 1.1.0
 author: soldier-cv
 license: MIT
 metadata:
@@ -32,7 +32,7 @@ metadata:
 | 项 | 值 |
 |---|---|
 | 当前版本 | 见 frontmatter 的 `version` |
-| 对齐应用 | `3.2.0` 及以上 |
+| 对齐应用 | `3.3.0` 及以上 |
 | 更新源 | `http://100.64.0.88:8088/.well-known/skills/index.json` |
 | 安装根 | `http://100.64.0.88:8088/.well-known/skills/reimburse-ai/` |
 
@@ -48,6 +48,8 @@ print(s['version'], s['updated_at'])"
 # 升级（单文件）
 curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <你的技能目录>/reimburse-ai/SKILL.md
 ```
+
+**1.1.0 对齐应用 3.3.0**：新增草稿/附件在线预览、确认时独立归属月、批次撤回与草稿增删、薪资计划补齐、按月份/批次打包原件、只读 AI 摘要与使用指南；收紧应收状态机（已提交锁定、不能删除只能放弃）；上传结果报告跳过与重复。令牌可重新签发（旧令牌立即失效），仍不能由 Agent 自己签发、重新签发或吊销。
 
 **1.0.0 对齐应用 3.2.0**：引入用户级 `ragt_` Agent 令牌与 `capture` / `ledger` / `export` 三个范围；令牌管理只在 Web「设置 -> Agent 令牌」，Agent 不能签发或吊销令牌。
 
@@ -128,17 +130,19 @@ Agent 的 POST / PUT / PATCH / DELETE 按令牌 ID 限流：每分钟 60 次，�
 
 | 范围 | 覆盖路径 | 能做什么 |
 |---|---|---|
-| `capture` | `/api/capture` 及其子路径 | 上传采集、列/改/删草稿、重试识别、看原件与缩略图、确认入账、工资到账截图核销 |
-| `ledger` | `/api/companies`、`/api/categories`、`/api/receivables`、`/api/batches`、`/api/payments`、`/api/dashboard`、`/api/attachments`、`/api/audit-logs`；以及 `GET /api/files/sign?kind=attachment`（或未传 / 非 `export` 的 `kind`） | 公司与类别、应收台账、附件、批次、到账、看板、本用户审计日志、为附件签发下载链接 |
-| `export` | `/api/export` 及其子路径；以及 `GET /api/files/sign?kind=export` | Excel、合并 PDF、财务包、附件压缩包、导出记录与下载、为导出文件签发下载链接 |
+| `capture` | `/api/capture` 及其子路径 | 上传采集、列/改/删草稿、重试识别、看原件/缩略图/预览、确认入账、工资到账截图核销 |
+| `ledger` | `/api/companies`、`/api/categories`、`/api/receivables`、`/api/batches`、`/api/payments`、`/api/dashboard`、`/api/attachments`、`/api/payroll-plans`、`/api/audit-logs`；以及 `GET /api/files/sign?kind=attachment`（或未传 / 非 `export` 的 `kind`） | 公司与类别、应收台账、附件与预览、批次（含撤回与草稿增删）、到账、看板、薪资计划、本用户审计日志、为附件签发下载链接 |
+| `export` | `/api/export` 及其子路径；以及 `GET /api/files/sign?kind=export` | Excel、合并 PDF、财务包、按应收/批次/月份打包原件、导出记录与下载、为导出文件签发下载链接 |
 
 不要求业务范围、已鉴权即可访问：
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | GET | `/api/auth/me` | 校验令牌，返回 `auth_method`、令牌名称与范围 |
+| GET | `/api/settings/ai/summary` | 只读摘要：是否启用、模型名称、能否调用；**不含密钥** |
+| GET | `/api/help/user-guide` | 使用指南 Markdown（与仓库 `docs/USER_GUIDE.md` 同一份） |
 
-`GET /api/files/download/{token}` 不走 Bearer，只用签名链接（见第 5.6 节）。
+这三条开放路径在禁止前缀之前判定，因此 `/api/settings/ai/summary` 不会被 `/api/settings/ai` 挡住。`GET /api/files/download/{token}` 不走 Bearer，只用签名链接（见第 6.10 节）。
 
 ### Agent 禁止访问（一律 403）
 
@@ -151,8 +155,8 @@ Agent 的 POST / PUT / PATCH / DELETE 按令牌 ID 限流：每分钟 60 次，�
 | `/api/auth/register` | 自主注册 |
 | `/api/auth/change-password` | 改密码 |
 | `/api/auth/logout` | 退出登录 |
-| `/api/settings/ai` | 读写 AI 配置与密钥、拉模型、测连 |
-| `/api/settings/agent-tokens` | 签发、列举、改名、启用/停用、吊销令牌 |
+| `/api/settings/ai`（不含 `/api/settings/ai/summary`） | 读写 AI 配置与密钥、拉模型、测连 |
+| `/api/settings/agent-tokens` | 签发、列举、改名、启用/停用、重新签发、吊销令牌 |
 
 未列入范围表、也不在开放名单里的已鉴权路径（例如 `/api/system/init-status`）同样 403。不要尝试用 Cookie 里的会话 JWT 冒充 Agent，也不要把 `ragt_` 令牌写进 Cookie。
 
@@ -168,12 +172,13 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 |---|---|---|
 | POST | `/api/capture` | 上传文件，立即返回草稿，后台识别 |
 | GET | `/api/capture/drafts` | 列草稿。查询参数：`status_value`、`limit`（默认 60，最大 200）。不传 `status_value` 时返回 `pending` / `processing` / `ready` / `failed`，不含已入账 |
-| PATCH | `/api/capture/drafts/{draft_id}` | 核对并改草稿字段 |
+| PATCH | `/api/capture/drafts/{draft_id}` | 核对并改草稿字段（含独立 `period`） |
 | POST | `/api/capture/drafts/{draft_id}/retry` | 重新识别（不复用同文件历史结果） |
 | DELETE | `/api/capture/drafts/{draft_id}` | 丢弃未入账草稿 |
 | GET | `/api/capture/drafts/{draft_id}/thumb` | 缩略图 |
 | GET | `/api/capture/drafts/{draft_id}/file` | 原件（inline） |
-| POST | `/api/capture/confirm` | 确认入账，生成应收与附件；可追加到已有应收 |
+| GET | `/api/capture/drafts/{draft_id}/preview` | 在线预览 JPEG。查询参数 `page`（从 1 起）。响应头 `X-Preview-Page`、`X-Preview-Pages`、`X-Preview-Kind`。OFD 返回 400 |
+| POST | `/api/capture/confirm` | 确认入账，生成应收与附件；可追加到已有应收；可传 `period` 指定整组归属月 |
 | POST | `/api/capture/drafts/{draft_id}/apply-payment` | 把到账截图核销到已有应收（主要为工资到账） |
 
 ### 5.2 台账（`ledger`）
@@ -192,23 +197,31 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 | GET | `/api/receivables/{receivable_id}` | 详情（含附件与到账明细） |
 | POST | `/api/receivables` | 手工新建应收 |
 | PUT | `/api/receivables/{receivable_id}` | 修改应收 |
-| DELETE | `/api/receivables/{receivable_id}` | 软删（已有到账则拒绝） |
+| DELETE | `/api/receivables/{receivable_id}` | 软删（已提交或已有到账则拒绝；已提交只能放弃并传 `reason`） |
 | POST | `/api/receivables/{receivable_id}/attachments` | 给已有应收补传附件 |
 | DELETE | `/api/attachments/{attachment_id}` | 软删附件 |
 | GET | `/api/attachments/{attachment_id}/file` | 附件原件 |
-| GET | `/api/attachments/{attachment_id}/thumb` | 附件缩略图 |
+| GET | `/api/attachments/{attachment_id}/thumb` | 附件缩略图（小图，不会返回原图） |
+| GET | `/api/attachments/{attachment_id}/preview` | 附件在线预览，参数与草稿预览相同 |
 | GET | `/api/batches` | 列批次 |
-| POST | `/api/batches` | 按公司归集应收为草稿批次 |
-| GET | `/api/batches/{batch_id}` | 批次详情 |
-| PUT | `/api/batches/{batch_id}` | 改标题、期间、预计到账日、备注 |
+| POST | `/api/batches` | 按公司归集应收为草稿批次；所选应收归属月必须一致 |
+| GET | `/api/batches/{batch_id}` | 批次详情（含 `can_unsubmit`、`can_cancel`、`can_edit_items`、`has_payments`） |
+| PUT | `/api/batches/{batch_id}` | 改标题、期间、预计到账日、备注（归属月仅草稿可改） |
 | POST | `/api/batches/{batch_id}/submit` | 提交批次 |
-| POST | `/api/batches/{batch_id}/cancel` | 取消批次，应收退回待提交 |
-| POST | `/api/batches/{batch_id}/payment` | 按待收余额一次性结清该批 |
+| POST | `/api/batches/{batch_id}/unsubmit` | 撤回提交（仅未到账；body 必须有 `reason`），批次回到草稿，应收回到待提交 |
+| POST | `/api/batches/{batch_id}/items` | 草稿批次增删应收：`{add_ids, remove_ids}` |
+| POST | `/api/batches/{batch_id}/cancel` | 取消批次（未到账），应收退回待提交并解绑 |
+| POST | `/api/batches/{batch_id}/payment` | 按待收余额一次性结清该批；`paid_on` 可选，空则默认当天（上海时区） |
 | GET | `/api/payments` | 列到账 |
 | POST | `/api/payments` | 记录到账并分摊 |
 | GET | `/api/payments/{payment_id}` | 到账详情（含分摊到的应收） |
 | DELETE | `/api/payments/{payment_id}` | 删除到账并回退应收状态 |
-| GET | `/api/dashboard` | 看板 KPI、公司待收、账龄、近 6 个月趋势、类别占比、逾期清单 |
+| GET | `/api/dashboard` | 看板 KPI、公司待收、账龄、近 6 个月趋势、类别占比、逾期清单、`todos` 待办（不自动补齐工资，补齐请 `POST /api/payroll-plans/sync`） |
+| GET | `/api/payroll-plans` | 列薪资计划 |
+| POST | `/api/payroll-plans` | 新建计划：`company_id`、`amount`（元）、`payday`、`effective_from`、可选 `effective_to` / `category_id` / `note`。同一公司有效区间不能重叠 |
+| PUT | `/api/payroll-plans/{plan_id}` | 修改计划 |
+| DELETE | `/api/payroll-plans/{plan_id}` | 停发（不再生成，已生成的工资应收保留） |
+| POST | `/api/payroll-plans/sync` | 补齐该用户所有有效计划的缺失月份，同一公司同一归属月不重复 |
 | GET | `/api/audit-logs` | 本用户审计。`limit` 默认 100，最大 500 |
 | GET | `/api/files/sign` | 签发限时下载链接。查询参数：`kind`、`obj_id` |
 
@@ -279,7 +292,9 @@ curl -sS -X POST "$BASE/api/capture" -H "$H" \
   -F "files=@taxi.png;type=image/png" \
   -F "company_id=1" \
   -F "category_id=2"
-# → {"success":true,"count":1,"drafts":[{id,status,amount,amount_cents,...}]}
+# → {"success":true,"count":1,"drafts":[...],"skipped":[],"duplicates":[],"message":"已生成 1 条草稿"}
+# skipped 列出嵌套 zip、不支持格式等被跳过的文件及原因，不会静默丢掉
+# drafts[].duplicates / 顶层 duplicates 是疑似重复线索（相同哈希或发票号），只提示不自动删除
 ```
 
 一次最多 30 个文件，单文件不超过 25MB。允许的扩展名：`.jpg` `.jpeg` `.png` `.webp` `.bmp` `.gif` `.heic` `.pdf` `.ofd` `.zip`。ZIP 会在服务端解开后再为其中的可识别文件建草稿。默认异步识别；上传响应里的草稿可能仍是 `pending` / `processing`。
@@ -305,6 +320,7 @@ curl -sS -X PATCH "$BASE/api/capture/drafts/12" -H "$H" -H 'Content-Type: applic
     "category_id":2,
     "amount":"128.00",
     "occurred_on":"2026-11-08",
+    "period":"2026-11",
     "title":"市内交通费",
     "merchant":"杭州出租汽车",
     "doc_type":"invoice",
@@ -328,7 +344,7 @@ curl -sS -X POST "$BASE/api/capture/drafts/12/retry" -H "$H"
 
 ```bash
 curl -sS -X POST "$BASE/api/capture/confirm" -H "$H" -H 'Content-Type: application/json' \
-  -d '{"draft_ids":[12],"company_id":1,"category_id":2}'
+  -d '{"draft_ids":[12],"company_id":1,"category_id":2,"period":"2026-11"}'
 # → {"success":true,"created":[{id,amount,amount_cents,status:"pending",...}],"warnings":[],"already_confirmed":[]}
 ```
 
@@ -337,6 +353,8 @@ curl -sS -X POST "$BASE/api/capture/confirm" -H "$H" -H 'Content-Type: applicati
 - 一次确认的草稿必须属于同一家公司；未指定 `company_id` 时用草稿上的公司，仍缺则 400，并在 `detail.draft_ids` 指出哪些草稿缺公司。
 - 未指定 `category_id` 时用草稿上的类别；再缺则回落到该用户第一个启用中的同类默认类别（工资条走 `payroll`，其它走 `reimbursement`）。
 - 发生日为空时填今天；标题为空时用商户名或「凭证」。
+- 归属月独立于发生日：请求可传 `period` 覆盖整组；否则用各草稿自己的 `period`（空则由发生日推导）。
+- 草稿 PATCH 也可改 `period`。
 - 已确认过的草稿不会重复建账，id 出现在 `already_confirmed`。
 - **去重只警告、不自动删除**：同批重复发票号/文件、或库中已有相同发票号/文件哈希时，若未传 `"force": true`，返回 **409**，`detail` 为 `{message, warnings}`，`warnings[].type` 可能是 `duplicate_in_batch`、`invoice_no`、`file_hash`。
 - **购买方与公司抬头不一致**：仅当草稿 `doc_type` 为 `invoice` 且识别到了购买方时检查；不匹配则 409，`warnings[].type` 为 `buyer_mismatch`（含 `buyer`、`invoice_title`、`draft_id`）。确认无误后加 `"force": true` 再提交：
@@ -369,7 +387,7 @@ curl -sS "$BASE/api/receivables/40" -H "$H"
 
 ```bash
 curl -sS -X POST "$BASE/api/receivables" -H "$H" -H 'Content-Type: application/json' \
-  -d '{"company_id":1,"category_id":1,"title":"待补发票的住宿费","amount":"320.00","occurred_on":"2026-11-08"}'
+  -d '{"company_id":1,"category_id":1,"title":"待补发票的住宿费","amount":"320.00","occurred_on":"2026-11-08","period":"2026-11"}'
 ```
 
 给已有应收补传附件，字段名是 **`files`**，另有表单字段 `kind`（默认 `screenshot`；允许 `invoice` / `screenshot` / `receipt` / `chat` / `payment_proof` / `other`）、`invoice_no`、`invoice_code`、`note`。附件允许图片、PDF、OFD，单文件 25MB；PDF 且 `kind=screenshot` 时会记成 `invoice`。
@@ -383,7 +401,16 @@ curl -sS -X POST "$BASE/api/receivables/40/attachments" -H "$H" \
 
 ### 6.6 组批次并提交
 
-只有状态为 `pending` 或 `rejected` 的应收可以归集；必须属于同一家公司，且尚未加入其它批次。被驳回的条目加入批次后会回到 `pending`。
+只有状态为 `pending` 或 `rejected` 的应收可以归集；必须属于同一家公司、同一归属月，且尚未加入其它批次。被驳回的条目加入批次后会回到 `pending`。已提交的应收已锁定金额、事项、公司、类别和归属月，不能直接改，也不能删除（只能放弃并传 `reason`）。要从已提交批次中调整，先撤回提交：
+
+```bash
+curl -sS -X POST "$BASE/api/batches/7/unsubmit" -H "$H" -H 'Content-Type: application/json'   -d '{"reason":"漏了一笔发票，需要补进本批"}'
+# 批次回到草稿，应收回到待提交；原提交日写入审计。已到账或部分到账不能撤回。
+
+# 草稿批次增删应收
+curl -sS -X POST "$BASE/api/batches/7/items" -H "$H" -H 'Content-Type: application/json'   -d '{"add_ids":[43],"remove_ids":[41]}'
+```
+
 
 ```bash
 curl -sS -X POST "$BASE/api/batches" -H "$H" -H 'Content-Type: application/json' \
@@ -395,7 +422,7 @@ curl -sS -X POST "$BASE/api/batches/7/submit" -H "$H" -H 'Content-Type: applicat
 # → {"success":true,"message":"批次已提交","expected_on":"2026-11-15"}
 ```
 
-未传 `expected_on` 时，按公司规则推算预计到账日：`payday` 在 1–31 则取提交日当天或之后最近一个打款日（跨月时进入下月，月份天数不足则取月末）；否则为提交日加上 `payment_days`。批次内应收同步改为 `submitted`，并写入相同的提交日与预计到账日。已结清或已取消的批次不能再提交。有到账记录的批次不能取消。
+未传 `expected_on` 时，按公司规则推算预计到账日：`payday` 在 1–31 则取提交日当天或之后最近一个打款日（跨月时进入下月，月份天数不足则取月末）；否则为提交日加上 `payment_days`。批次内应收同步改为 `submitted`，并写入相同的提交日与预计到账日。已结清或已取消的批次不能再提交。有到账记录的批次不能取消、不能撤回、不能拆。批次到账可传 `paid_on`，空则默认为当天（上海时区）。
 
 ### 6.7 记录到账（含部分到账）
 
@@ -458,7 +485,9 @@ curl -sS -X POST "$BASE/api/capture/drafts/20/apply-payment" -H "$H" \
 curl -sS "$BASE/api/dashboard" -H "$H"
 # kpis：outstanding / overdue / paid_this_month / avg_days / pending_* / partial_count /
 #        missing_attachment_count / missing_materials_count / salary_outstanding / drafts_ready
-# 另有 companies、aging、trend、categories、overdue（最多 10 笔）
+# 另有 companies、aging、trend、categories、overdue（最多 10 笔）、todos
+# todos：unconfirmed_drafts、pending_this_month_*、overdue_*、payroll_outstanding_*、payroll_missing_*
+# GET /api/dashboard 不会自动补齐工资；登录后或需要时请先 POST /api/payroll-plans/sync
 ```
 
 待收只统计状态为 `pending` / `submitted` / `partial` 的应收；`rejected`、`abandoned` 以及已到账不计入。平均回款天数只统计已结清且同时有提交日与到账日的应收。
@@ -475,6 +504,12 @@ curl -sS "$BASE/api/export/pdf?ids=40,41,42" -H "$H" -o receipts.pdf
 # 财务包：响应体就是 zip，同时写入导出记录
 curl -sS -X POST "$BASE/api/export/finance-pack" -H "$H" -H 'Content-Type: application/json' \
   -d '{"receivable_ids":[40,41,42]}' -o finance-pack.zip
+
+# 只打包原件：可按应收、批次或归属月（无需先给 id）
+curl -sS -X POST "$BASE/api/export/attachments" -H "$H" -H 'Content-Type: application/json' \
+  -d '{"period":"2026-11","company_id":1}' -o originals.zip
+curl -sS -X POST "$BASE/api/export/attachments" -H "$H" -H 'Content-Type: application/json' \
+  -d '{"batch_id":7}' -o batch-originals.zip
 
 curl -sS "$BASE/api/export/records" -H "$H"
 curl -sS "$BASE/api/export/records/3/download" -H "$H" -o finance-pack-again.zip
@@ -503,10 +538,12 @@ Agent 必须遵守，不要靠猜测绕过：
 - **确认新建应收前金额必须大于 0**；金额为空就停止，让人对照原件填写，不要用 AI 置信度或候选值顶替。
 - 去重（文件哈希、发票代码/号码、同批重复）只警告；要继续必须 `force=true`。购买方抬头不符同样先 409，确认后再强制。
 - 状态：应收为 `pending` 待提交 / `submitted` 已提交 / `partial` 部分到账 / `paid` 已到账 / `rejected` 被驳回 / `abandoned` 已放弃。批次为 `draft` / `submitted` / `paid` / `cancelled`。
-- 手工改应收状态只允许切到 `pending`、`submitted`、`rejected`、`abandoned`，且已有到账金额时不能改。到账状态由核销自动维护，不要手工改成 `partial` 或 `paid`。
+- 手工改应收状态：待提交可改为被驳回或已放弃；被驳回可退回待提交或放弃；已提交不能直接改回待提交（走批次撤回），不能手工改成已提交；已放弃是终态。放弃已提交记录必须传 `reason`。已有到账时不能手工改状态。到账状态由核销自动维护，不要手工改成 `partial` 或 `paid`。
+- 已提交后锁定 `amount`、`title`、`company_id`、`category_id`、`period`；发生日不再覆盖归属月。
 - **逾期不单独存状态**：已提交或部分到账，且今天晚于预计到账日，即为逾期；`days_overdue` 按此实时计算。
 - 待收 = 应收金额 - 已收金额；草稿、被驳回、已放弃不计入。
-- 一笔应收只属于一个批次；只有待提交或被驳回的可以归集。
+- 一笔应收只属于一个批次；只有待提交或被驳回的可以归集，且同一批次归属月必须一致。
+- 薪资计划按月生成待提交工资应收，须先 `POST /api/payroll-plans/sync` 再依赖当月工资记录；不要为同一公司同一归属月重复创建工资应收。
 - **分摊合计必须等于到账金额**；单笔分摊不得超过该应收待收余额；不能重复分摊同一笔；只能核销同一家公司的未关闭应收。
 - 删除到账会回退已收与状态；删除已有到账的应收会被拒绝，须先删到账。
 - 所有业务查询都隔离在令牌所属用户；访问他人资源返回 404 或空列表，不会串账。
@@ -538,14 +575,17 @@ Agent 必须遵守，不要靠猜测绕过：
 | 采集图片 / PDF / ZIP，后台识别后确认入账 | 支持 |
 | 追加附件到已有应收、部分到账、批次提交与核销 | 支持 |
 | 工资到账截图推断并核销 | 支持（建议，不自动入账） |
-| 导出 Excel、合并 PDF、财务包，导出记录可追溯 | 支持 |
+| 薪资计划按月补齐待提交工资应收 | 支持（调用 sync，不靠后台定时任务） |
+| 在线预览图片与 PDF | 支持；OFD 不支持在线预览 |
+| 导出 Excel、合并 PDF、财务包，按月份打包原件 | 支持，导出记录可追溯 |
+| 读取 AI 是否启用与模型名称 | 支持（`/api/settings/ai/summary`，不含密钥） |
 | 单币种以外的货币与汇率 | 不支持，仅人民币 |
 | 退款、红冲、预算、账户余额 | 不支持 |
 | 发票税务验真 | 不支持 |
 | OFD 自动识别 | 不支持，只保存原件 |
 | 邮件 / 即时消息提醒、分享链接 | 不支持 |
 | MCP / tools/list / 独立 Agent 网关 | 不支持，统一用本技能描述的 HTTP 接口 |
-| 用 Agent 令牌管理账号、令牌或 AI 密钥 | 不支持，一律 403 |
+| 用 Agent 令牌管理账号、签发/重新签发/吊销令牌或写入 AI 密钥 | 不支持，一律 403 |
 | 在生产库自动创建测试用户 | 不支持；测试请用独立成员账号 |
 
 未配置 AI 时仍可采集：草稿会保留原件，金额必须手工填写。识别请求会发到用户自己配置的模型服务商，本技能不负责配置密钥。
