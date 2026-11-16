@@ -142,6 +142,7 @@ class Receivable(Base):
     company_id = Column(Integer, ForeignKey("companies.id"), index=True, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), index=True, nullable=True)
     batch_id = Column(Integer, ForeignKey("submit_batches.id"), index=True, nullable=True)
+    payroll_plan_id = Column(Integer, ForeignKey("payroll_plans.id"), index=True, nullable=True)
 
     kind = Column(String(20), default="reimbursement")  # reimbursement / payroll / other
     title = Column(String(150), nullable=False)

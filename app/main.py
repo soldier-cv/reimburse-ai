@@ -2630,7 +2630,12 @@ def update_payroll_plan(plan_id: int, req: PayrollPlanUpdate, user: User = Depen
         category = _payroll_category(db, user.id, req.category_id)
         plan.category_id = category.id if category else None
     if req.amount is not None:
-        plan.amount_cents = parse_salary(req.amount)
+        new_amount = parse_salary(req.amount)
+        amount_changed = new_amount != plan.amount_cents
+        plan.amount_cents = new_amount
+    else:
+        amount_changed = False
+    updated_receivables = 0
     if req.payday is not None:
         plan.payday = clamp_payday(req.payday)
     start = plan.effective_from
@@ -2648,10 +2653,36 @@ def update_payroll_plan(plan_id: int, req: PayrollPlanUpdate, user: User = Depen
         plan.is_active = bool(req.is_active)
     if plan.is_active:
         assert_no_overlap(db, user.id, plan.company_id, plan.effective_from, plan.effective_to or "", exclude_id=plan.id)
+
+    if amount_changed and req.apply_amount_to_pending:
+        pending = (
+            db.query(Receivable)
+            .filter(
+                Receivable.user_id == user.id,
+                Receivable.payroll_plan_id == plan.id,
+                Receivable.status == "pending",
+                Receivable.batch_id.is_(None),
+                Receivable.deleted_at.is_(None),
+            )
+            .all()
+        )
+        for item in pending:
+            item.amount_cents = plan.amount_cents
+        updated_receivables = len(pending)
+
     db.commit()
     db.refresh(plan)
-    record_audit(db, user.id, "修改薪资计划", "payroll_plan", plan.id, f"修改薪资计划 #{plan.id}")
-    return serialize_plan(plan)
+    record_audit(
+        db,
+        user.id,
+        "修改薪资计划",
+        "payroll_plan",
+        plan.id,
+        f"修改薪资计划 #{plan.id}" + (f"，同步 {updated_receivables} 笔待提交工资应收为新金额" if updated_receivables else ""),
+    )
+    result = serialize_plan(plan)
+    result["updated_receivables"] = updated_receivables
+    return result
 
 
 @app.delete("/api/payroll-plans/{plan_id}")

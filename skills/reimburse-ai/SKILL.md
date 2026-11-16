@@ -225,7 +225,7 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 | GET | `/api/dashboard` | 看板 KPI、公司待收、账龄、近 6 个月趋势、类别占比、逾期清单、`todos` 待办（不自动补齐工资，补齐请 `POST /api/payroll-plans/sync`） |
 | GET | `/api/payroll-plans` | 列薪资计划 |
 | POST | `/api/payroll-plans` | 新建计划：`company_id`、`amount`（元，**税前应发**）、`payday`、`effective_from`、可选 `effective_to` / `category_id` / `note`。同一公司有效区间不能重叠 |
-| PUT | `/api/payroll-plans/{plan_id}` | 修改计划 |
+| PUT | `/api/payroll-plans/{plan_id}` | 修改计划；改 `amount` 时可传 `apply_amount_to_pending: true`，只更新本计划生成、`status=pending` 且未进批次的工资应收，响应 `updated_receivables` 给出笔数 |
 | DELETE | `/api/payroll-plans/{plan_id}` | 停发（不再生成，已生成的工资应收保留） |
 | POST | `/api/payroll-plans/sync` | 补齐该用户所有有效计划的缺失月份，同一公司同一归属月不重复 |
 | GET | `/api/audit-logs` | 本用户审计。`limit` 默认 100，最大 500 |

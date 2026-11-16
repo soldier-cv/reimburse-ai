@@ -134,6 +134,7 @@ def generate_receivable(db: Session, plan: PayrollPlan, period: str) -> Receivab
         user_id=plan.user_id,
         company_id=plan.company_id,
         category_id=category.id if category else None,
+        payroll_plan_id=plan.id,
         kind="payroll",
         title=title[:150],
         period=period,

@@ -63,6 +63,22 @@ def ensure_receivable_schema(engine: Engine) -> None:
             conn.commit()
             print("[RECEIVABLE MIGRATE] payment_items.waived_cents 已添加")
 
+        if receivable_cols and "payroll_plan_id" not in receivable_cols:
+            conn.execute(text("ALTER TABLE receivables ADD COLUMN payroll_plan_id INTEGER"))
+            if columns_of("payroll_plans"):
+                conn.execute(text(
+                    "UPDATE receivables SET payroll_plan_id = ("
+                    "  SELECT p.id FROM payroll_plans p"
+                    "  WHERE p.user_id = receivables.user_id"
+                    "    AND p.company_id = receivables.company_id"
+                    "    AND receivables.period >= substr(p.effective_from, 1, 7)"
+                    "    AND (p.effective_to = '' OR receivables.period <= substr(p.effective_to, 1, 7))"
+                    "  ORDER BY p.id DESC LIMIT 1"
+                    ") WHERE kind = 'payroll' AND source = 'payroll_plan'"
+                ))
+            conn.commit()
+            print("[RECEIVABLE MIGRATE] receivables.payroll_plan_id 已添加")
+
 
 def ensure_agent_token_schema(engine: Engine) -> None:
     """为已有库创建 agent_tokens 表（幂等）。新库由 metadata.create_all 创建。"""
