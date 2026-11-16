@@ -115,6 +115,10 @@ class BatchCreate(BaseModel):
     period: Optional[str] = ""
     title: Optional[str] = ""
     receivable_ids: List[int] = Field(default_factory=list)
+    # 归集后立即提交：为 True 时创建与提交在同一事务内完成，不留下草稿批次
+    submit: bool = False
+    submitted_on: Optional[str] = ""
+    expected_on: Optional[str] = ""
 
 
 class BatchUpdate(BaseModel):

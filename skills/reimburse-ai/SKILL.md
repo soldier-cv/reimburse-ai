@@ -1,7 +1,7 @@
 ---
 name: reimburse-ai
 description: Use when 采集报销票据、维护个人对公应收台账、提交批次、核销到账或导出财务包。
-version: 1.1.0
+version: 1.2.0
 author: soldier-cv
 license: MIT
 metadata:
@@ -48,6 +48,8 @@ print(s['version'], s['updated_at'])"
 # 升级（单文件）
 curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <你的技能目录>/reimburse-ai/SKILL.md
 ```
+
+**1.2.0 对齐应用 3.3.1**：`POST /api/batches` 新增 `submit` / `submitted_on` / `expected_on`，可在同一事务内创建并提交，不留下草稿批次，返回体新增 `status` 与 `expected_on`。Web 端归集改为三步流程，最后一步一次性创建并提交。
 
 **1.1.0 对齐应用 3.3.0**：新增草稿/附件在线预览、确认时独立归属月、批次撤回与草稿增删、薪资计划补齐、按月份/批次打包原件、只读 AI 摘要与使用指南；收紧应收状态机（已提交锁定、不能删除只能放弃）；上传结果报告跳过与重复。令牌可重新签发（旧令牌立即失效），仍不能由 Agent 自己签发、重新签发或吊销。
 
@@ -204,7 +206,7 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 | GET | `/api/attachments/{attachment_id}/thumb` | 附件缩略图（小图，不会返回原图） |
 | GET | `/api/attachments/{attachment_id}/preview` | 附件在线预览，参数与草稿预览相同 |
 | GET | `/api/batches` | 列批次 |
-| POST | `/api/batches` | 按公司归集应收为草稿批次；所选应收归属月必须一致 |
+| POST | `/api/batches` | 按公司归集应收；传 `submit: true` 时同一次请求内完成提交。所选应收归属月必须一致 |
 | GET | `/api/batches/{batch_id}` | 批次详情（含 `can_unsubmit`、`can_cancel`、`can_edit_items`、`has_payments`） |
 | PUT | `/api/batches/{batch_id}` | 改标题、期间、预计到账日、备注（归属月仅草稿可改） |
 | POST | `/api/batches/{batch_id}/submit` | 提交批次 |
@@ -412,10 +414,20 @@ curl -sS -X POST "$BASE/api/batches/7/items" -H "$H" -H 'Content-Type: applicati
 ```
 
 
+推荐一次创建并提交，避免留下半截草稿批次：
+
+```bash
+curl -sS -X POST "$BASE/api/batches" -H "$H" -H 'Content-Type: application/json' \
+  -d '{"company_id":1,"period":"2026-11","title":"2026年11月报销","receivable_ids":[40,41,42],"submit":true,"submitted_on":"2026-11-10"}'
+# → {"success":true,"batch_id":7,"status":"submitted","expected_on":"2026-11-15","message":"批次已提交"}
+```
+
+需要先存草稿、稍后再补条目时，才分两步：
+
 ```bash
 curl -sS -X POST "$BASE/api/batches" -H "$H" -H 'Content-Type: application/json' \
   -d '{"company_id":1,"period":"2026-11","title":"2026年11月报销","receivable_ids":[40,41,42]}'
-# → {"success":true,"batch_id":7,"message":"批次已创建"}
+# → {"success":true,"batch_id":7,"status":"draft","expected_on":"","message":"批次已创建"}
 
 curl -sS -X POST "$BASE/api/batches/7/submit" -H "$H" -H 'Content-Type: application/json' \
   -d '{"submitted_on":"2026-11-10"}'
