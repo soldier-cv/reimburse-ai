@@ -1,139 +1,66 @@
-# AGENTS.md - 个人应收与报销管理台项目规范
+# reimburse-ai — Agent 工作规约
 
-本项目是个人对公应收台账：记录公司应付给我的报销、工资、奖金、补贴，跟踪提交、逾期与到账，并导出财务报销材料。不是个人记账，不记录个人消费、预算、账户余额。
+## 0. 项目定位
 
----
+个人对公应收与报销管理台：记录公司应付给个人的报销、工资、奖金、补贴，支持发票凭证批量导入、AI 识别归一化、提交批次、到账分摊核销与财务材料包导出（非个人日常记账，不记录个人消费、预算与账户余额）。
 
-## 核心安全准则与交互规范
+- 仓库地址：`https://github.com/soldier-cv/reimburse-ai.git`
+- 默认主分支：`main`
 
-1. **禁止破坏生产数据**：不得对 `/data/reimburse-ai` 执行删除、覆盖或破坏性 DDL。测试必须使用 `tests/` 下的隔离临时库与临时上传目录。
-2. **环境感知**：生产为 Linux + Docker（宿主 8092 → 容器 8090，数据 `/data/reimburse-ai`）；本地开发可能是 Windows。命令与路径按当前环境处理。
-3. **语言规范**：始终使用中文回复和解释。
-4. **禁止 Emoji**：界面、提示词、注释、日志一律不使用 emoji；图标统一使用 EttsDohikct 或内联 SVG。
-5. **认证鉴权纪律**：口令哈希用 `argon2-cffi`，会话令牌用 `PyJWT`，限流用 `slowapi`/`limits`，签名链接用 `itsdangerous`；禁止手写密码哈希、令牌签名、随机数与常量时间比较。Agent 令牌使用 `hashlib.sha256` 存储、`hmac.compare_digest` 比对，明文前缀为 `ragt_`，只在签发时返回一次。凭证只走 Header/Cookie，禁止 query 传凭证。
-6. **数据隔离**：所有业务查询必须带 `user_id`。管理员只能管理账号，不能读取其他成员账本。Agent 令牌属于某个用户，并始终以该用户身份访问，不能查看其他账本，也不能管理任何用户的令牌。
-7. **注册默认关闭**：成员账号由管理员在设置中创建；仅当显式设置 `ALLOW_REGISTRATION=1` 时开放自主注册。
-8. **CORS 默认关闭**：前后端同源部署；跨域来源必须通过 `CORS_ORIGINS` 显式白名单。
-9. **提交准则**：本地验证通过后按逻辑分组 `git commit`；`git push` 由派发方验收后执行。版本号与标签规则见「版本与发布」。
+## 1. 运行环境事实
 
----
+- **部署入口与端口**：生产环境为 Linux + Docker Compose，宿主机监听 `8092` 端口并由 1Panel OpenResty 反向代理对外，容器内监听 `8090`；本地开发通过 `run.py` 监听 `8090`。
+- **容器与镜像**：容器名 `reimburse-ai`，生产镜像由 Woodpecker CI 构建并推送至内网 Registry：`100.64.0.88:5000/reimburse-ai:<tag>`（同时打 `latest` 别名）。
+- **部署与源码路径**：宿主机部署目录 `/opt/code/reimburse-ai` 即 Git 仓库目录。
+- **持久化数据**：
+  - SQLite 数据库与持久系统配置：`/data/reimburse-ai/data/expense.db`（容器内挂载至 `/app/data`）。
+  - 上传发票、原件截图与导出附件：`/data/reimburse-ai/uploads`（容器内挂载至 `/app/uploads`）。
+- **数据库版本管理**：从 v3.4.0 起采用 Alembic 管理数据库迁移，修订文件位于 `alembic/versions/`，配置文件为 `alembic.ini`；应用启动时自动执行 `alembic upgrade head` 并将版本记录在 `alembic_version` 表；`app/services/migrations.py` 为 v3.4.0 前的冻结历史兼容层，禁止继续扩充。
+- **外部 Agent 技能真源**：`skills/reimburse-ai/SKILL.md` 为唯一真源，随本仓库代码同一提交维护；通过宿主机符号链接 `/opt/code/static-deploy/skills/reimburse-ai` 对外分发至 `http://100.64.0.88:8088/.well-known/skills/`。
+- **CI/CD 流水线**：唯一 CI 为 `.woodpecker.yaml`（Woodpecker v3），触发事件严格限定为 `tag` (`refs/tags/v*`) 与 `manual` 页面手动触发，日常 push 不触发构建与发布。
+- **AI 与渲染依赖**：多模态识别支持任意 OpenAI 兼容接口，密钥由用户在 Web 设置中配置；PDF 合成与导出依赖 `Pillow`、`PyMuPDF` 以及系统中文字体 `fonts-noto-cjk`。
 
-## 业务定位与核心口径
+## 2. 硬规则（违反必有检测手段）
 
-- **应收事项 `Receivable` 是唯一账本事实**；发票、截图、聊天记录只是附件。
-- 一笔应收只属于一个批次；批次是向公司的一次提交。Web 端归集与提交在同一个确认流程内完成（`POST /api/batches` 传 `submit: true`），不产生孤立草稿批次。
-- **支持部分到账**：一笔应收可以被多笔到账分次核销；每笔到账必须分摊到具体应收，分摊合计必须等于到账金额，单笔分摊不得超过该应收待收余额。
-- 状态：`待提交 / 已提交 / 部分到账 / 已到账 / 被驳回 / 已放弃`。只有待提交、被驳回可归集；已提交后锁定金额、事项、公司、类别和归属月；已提交不能删除，只能放弃并留审计。非法状态变更由后端拒绝。已提交的应收不能直接退回待提交，须通过批次「撤回提交」。
-- **归属月**独立于发生日期：草稿 `CaptureDraft.period` 默认由发生日带出，确认入账时可改；历史 `Receivable.period` 保持现值。批次归属月由所选应收汇总，必须一致。
-- 逾期不单独存状态，由「今天 > 预计到账日 且 未结清」实时计算。「今天」一律用 Asia/Shanghai。
-- 待收 = 应收金额 - 已收金额 - 核销差额（工资代扣等确认不再追收的部分）；草稿、被驳回、已放弃不计入。
-- 工资与报销共用应收模型，用 `kind` 区分 `reimbursement / payroll / other`。固定月薪通过 `PayrollPlan` 按月生成待提交工资应收；打开应用或手动调用 `POST /api/payroll-plans/sync` 补齐缺失月份，同一公司同一归属月不重复，停发后不再生成。不上后台定时任务。
-- **工资口径**：`PayrollPlan.amount` 与工资应收的 `amount` 都是税前（应发），因为计划里没有每月实发。发薪后按实发登记 `received`，差额写 `waived`（代扣）。待收 = 金额 − 已收 − 核销差额。工资按实发结清，不走批次到账（批次到账跳过 `kind=payroll`）。
-- 金额全库使用整数分 `*_cents`，禁止 Float 存金额；展示与导出时转元。
+1. **禁止破坏生产持久化数据**：不得向生产目录 `/data/reimburse-ai` 写入测试数据、执行删除文件或破坏性 DDL；本地与自动化测试必须走临时隔离路径。
+   - **验证方式**：检查代码与配置改动中无指向生产绝对路径的硬编码写操作：`git diff | grep -E '/data/reimburse-ai'` 应为 0 命中。
+2. **界面文本纪律（§0.2）**：页面 UI 严禁堆砌「本功能实现」「为了满足需求」「设计思路」等面向开发者的说明文字；需求说明只写在源码注释或开发文档中。
+   - **验证方式**：`grep -inE "本功能|为了满足|设计思路|实现逻辑|根据需求" app/static/index.html` 结果必须为 0 命中。
+3. **用户账本数据绝对隔离**：所有业务查询必须显式过滤 `user_id`；管理员仅限管理账号状态，禁止越权读取普通成员账本；Agent 令牌（`ragt_` 前缀）仅能以签发用户身份访问。
+   - **验证方式**：运行多用户与权限故事测试：`pytest tests/test_agent_stories.py tests/test_members.py -q`，必须全部通过且无跨用户数据泄漏。
+4. **全库金额严格使用整数分**：数据库中所有涉及金额的列必须以 `*_cents` 命名并使用整数存储，严禁使用 Float；仅在前端展示与导出报表时除以 100 换算为元。
+   - **验证方式**：`grep -n "Float" app/models.py` 必须无任何金额属性使用 Float 类型。
+5. **凭据安全与禁止入库**：真实密钥、真实密码与私钥证书绝不上库；`.env.example` 仅允许键名与中文注释；`.gitignore` 必须忽略 `.env`、`*.key`、`*.pem`、`*.token`。
+   - **验证方式**：`git ls-files | grep -E '\.env$|\.pem$|\.key$|\.token$'` 必须为空；`git diff | grep -iE 'ghp_|sk-[a-zA-Z0-9]{20,}'` 必须为 0 命中。
+6. **数据库变更必须走 Alembic 修订（§0.1）**：禁止在应用业务热路径随意执行散落 DDL，禁止向已冻结的 `migrations.py` 添加新逻辑；所有表结构与列变更必须在 `alembic/versions/` 下创建新的迁移脚本。
+   - **验证方式**：`git diff origin/main -- app/services/migrations.py` 必须为空；若修改了 `app/models.py`，必须有对应的 `alembic/versions/*.py` 提交。
 
----
+## 3. 开发与验证流程
 
-## 数据模型
+1. **开工第一步**：`git fetch && git pull --ff-only origin main` 拉齐远端分支，多环境开发严禁在落后基线上动工。
+2. **本地环境准备**：
+   ```bash
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+   python run.py  # 默认监听 8090 端口
+   ```
+3. **改完必跑验证清单**：
+   - 语法编译自检：`python3 -m py_compile app/main.py app/models.py app/database.py`
+   - 凭据泄漏排查：`git ls-files | grep -E '\.env$|\.pem$|\.key$'`
+   - 界面纪律排查：`grep -inE "本功能|为了满足|设计思路" app/static/index.html`
+   - 自动化测试回归：`python3 -m pytest -q`（测试使用隔离临时库与临时上传目录，绝不污染生产）
 
-| 表 | 用途 |
-|---|---|
-| `Company` | 欠款主体，含发票抬头、税号、每月打款日、账期天数 |
-| `Category` | 应收类别，含 kind、是否需要发票 |
-| `Receivable` | 应收事项：公司、类别、批次、归属月、发生日、金额、已收金额、核销差额、状态、预计到账日 |
-| `Batch` | 提交批次：公司、期间、提交日、预计到账日、状态 |
-| `Payment` | 一笔实际到账 |
-| `PaymentItem` | 该笔到账分摊到各应收的金额，支持一笔应收多次到账 |
-| `Attachment` | 发票、截图、聊天记录、回单 |
-| `CaptureDraft` | 已上传未确认的采集草稿，承载 AI 识别结果与独立归属月 |
-| `PayrollPlan` | 薪资计划：公司、月薪、发薪日、生效/停发日期 |
-| `ExportRecord` | 导出快照：清单、金额、文件哈希、路径 |
-| `AgentToken` | 用户签发的 Agent 访问令牌，只存哈希与前缀 |
-| `AuditLog` / `UserSetting` / `SystemSetting` | 审计与配置 |
-| `User` | 含 `is_active`、`deleted_at`、`session_version`；停用或软删除会提升 session_version |
+## 4. 已知坑（踩过的，别再踩）
 
----
+1. **ETC 票据与行程单重复计费与千分位截断**：票根网发票包同时含 `(票据).pdf` 与 `(行程).pdf`，金额常含千分位逗号（如 `¥1,005.60`）；必须经 `parse_clean_amount` 剔除逗号，且仅以 `(票据).pdf` 作为主发票入账，行程单作为附件挂载，单号走确定性规则 `TOLL_{车牌}_{日期}_{金额(分)}`。
+2. **Woodpecker 镜像同步与宿主机文件遗留**：CI 构建镜像前会同步文件到宿主机 `/opt/code/reimburse-ai/`，但 `cp -rf` 不会删除历史已废弃的文件（如旧的 `app/services/parser.py`）；清理文件时需显式在 Git 历史中跟踪。
+3. **Alembic 启动与 script_location 路径**：FastAPI 在 `startup` 中调用 `command.upgrade(alembic_cfg, "head")` 时，`alembic_cfg` 必须能正确解析 `alembic.ini` 与 `script_location`（相对应应用根目录），否则会导致容器重启失败。
+4. **工资税前应发 vs 实发到账**：工资 `amount` 记税前，实发通过到账登记，差额记入 `waived_cents` 代扣；批次到账必须跳过 `kind=payroll`，避免误核销。
+5. **Favicon 响应格式与离线加载**：Web UI 必须提供 32x32 `favicon.ico` 与 SVG，且在 `app/main.py` 正确返回 `image/x-icon`，离线内网环境不能依赖外链 CDN 图标。
 
-## 采集与 AI 识别
+## 5. 需求台账 / 决策日志
 
-- 入口统一为 `POST /api/capture`：图片、PDF、OFD、ZIP；单文件 25MB，单次最多 30 个。
-- 上传立即返回草稿，后台并发识别（`CAPTURE_CONCURRENCY`，默认 4）；`CAPTURE_SYNC=1` 仅用于测试；服务重启后未完成的草稿自动重新排队。
-- 凭证类型 `doc_type`：`invoice` 发票 / `ticket` 客票行程单 / `receipt` 小票收据 / `payment` 支付截图 / `order` 订单截图 / `bank` 银行回单 / `salary` 工资条 / `chat` 聊天记录 / `other`。
-- 识别顺序：同用户同 SHA256 复用已有结果（用户点「重新识别」时不复用）→ PDF 文本层套固定模板（增值税/全电发票、铁路电子客票、通行费汇总单，见 `app/services/extractor.py`）→ 其他有文本层的 PDF 只发文本给模型 → 扫描件和图片走视觉模型。模板没命中就交给模型，不用宽松正则猜金额。
-- 文件名只作为低置信候选（金额、20 位发票号），不再从文件名里取 8 位数字当发票号。
-- 公司自动匹配：先按购买方税号匹配 `Company.tax_id`，再按购买方或付款方名称匹配；销售方和商户是收款人，不参与匹配。
-- 工资到账截图（`direction=in`）：不建应收，按「备注月份 → 最早欠发顺序 → 金额对月薪」推断归属月，给出核销建议；点「核销到账」才写入到账记录，规则见 `app/services/payroll_match.py`。
-- AI 输出必须是严格 JSON，字段见 `app/services/ai_service.py`；金额取支付实付、发票价税合计、工资实发。
-- AI 置信度不可信，金额必须可编辑、可看原图；金额为空不允许确认；模型没给出金额时不拿候选值顶替，候选只作可点选的建议。
-- 去重：文件哈希 + 发票代码/号码 + 同批重复；命中只提示，不自动删除，确认时未传 `force` 则 409。
-- 压缩包内嵌套 zip 与不支持的格式写入跳过原因，不得静默丢弃。
-- 确认时生成 `Receivable + Attachment`，草稿状态置为 `confirmed`；可传 `period` 覆盖整组归属月。支持把草稿追加到已有应收（只从应收详情发起，不改原金额）。
-- 预览：`GET /api/capture/drafts/{id}/preview`、`GET /api/attachments/{id}/preview`，本机生成 JPEG 缓存到 `uploads/user_N/previews/`；OFD 不支持在线预览。缩略图不得返回原图。
-
-## Agent 接口
-
-- 用户在「设置 -> Agent 令牌」签发、停用、启用、吊销或重新签发自己的令牌；重新签发后旧令牌立即失效，新明文只出现一次。管理员不能管理其他用户的令牌。令牌只存 SHA-256，不明文回显，不做可逆加密。
-- 请求头：`Authorization: Bearer ragt_...`。`GET /api/auth/me` 对 Agent 调用返回 `auth_method`、令牌名称和范围。
-- 默认签发全部三个范围：`capture`（`/api/capture*`，含确认、核销到账与草稿预览）、`ledger`（公司、类别、应收、批次、到账、看板、附件、薪资计划、附件预览）、`export`（Excel、PDF、财务包、按应收/批次/月份打包原件、导出记录与下载）。缺少范围返回 403。
-- 开放只读：`GET /api/settings/ai/summary`（是否启用、模型名称，不含密钥）、`GET /api/help/user-guide`。这两条在禁止前缀之前放行。
-- Agent 令牌禁止用于：管理员账号管理、初始化管理员、注册、改密、退出登录、AI 密钥读写与测连、以及令牌本身的签发/列举/重新签发/吊销。
-- 吊销、停用、重新签发后的旧令牌或过期令牌返回 401。批次撤回：`POST /api/batches/{id}/unsubmit`（未到账，必须填原因）；草稿批次增删：`POST /api/batches/{id}/items`。已到账/部分到账不可撤回、不可拆。
-- 不要在生产库自动写入测试用户。如需给 Agent 或故事测试准备专用账本，由管理员创建独立成员，再由该成员自己签发令牌。默认只创建普通成员，创建管理员需 `confirm_admin`。
-
-## 技能文档（skills/）
-
-`skills/reimburse-ai/SKILL.md` 是发给外部 Agent 的用法说明，**真源就在本仓库**，随代码一起版本化：
-
-- 改 Agent 可见的接口、权限范围或业务规则时，**同一个提交里**把技能改掉，别让它落后于代码。
-- 技能版本号独立于应用版本，按 patch（措辞）/ minor（新增章节或接口）/ major（推翻既有结论）递增。当前技能 1.3.0 对齐应用 3.4.0+。
-- 本仓库不带用于同步技能目录的 git hooks。要挂到公共技能注册，只需在宿主上建立符号链接：`/opt/code/static-deploy/skills/reimburse-ai` → 本仓库的 `skills/reimburse-ai`。之后由宿主已有的 index 同步机制纳入 `http://100.64.0.88:8088/.well-known/skills/`。在完成这一步之前，不要假定线上已提供这份技能。
-- 判断线上是否最新：`curl -s http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md | sha256sum` 与本地 `sha256sum skills/reimburse-ai/SKILL.md` 一致。
-
-## 导出
-
-- `GET /api/export/excel`：筛选条件导出明细 Excel。
-- `GET /api/export/pdf`：合并票据 PDF，按清单编号。
-- `POST /api/export/finance-pack`：财务包 ZIP，包含封面、Excel、合并 PDF、原件、截图；可按应收 id、批次或归属月筛选。
-- `POST /api/export/attachments`：只打包原始文件，同样支持应收 id、批次或归属月/公司筛选。
-- 每次导出写入 `ExportRecord`，保留文件哈希与路径。
-- PDF 合成使用 Pillow + PyMuPDF；容器必须安装中文字体（Dockerfile 已安装 `fonts-noto-cjk`）。
-
----
-
-## 版本与发布
-
-- 版本号遵循语义化版本 `主.次.补丁`，并保持克制，不要每次改动都升次版本号。
-- **默认只升补丁号**（如 `3.2.0 → 3.2.1`）：缺陷修复、界面调整、文档、测试，以及不改变使用方式的小功能。
-- **升次版本号**（如 `3.2.x → 3.3.0`）：只在攒够一批明显的新能力，或用户明确要求时。
-- **升主版本号**：只在不兼容的数据或接口变更时，且需事先得到用户确认。
-- 版本号需同步修改 `app/main.py` 中的应用版本与 `CHANGELOG.md`；日常改动先写入「未发布」，发布时再归入对应版本。
-- 推送 `v*` 标签会触发生产部署；推送 `main` 不会部署。发布前确认测试通过，标签由派发方确认后再打。
-
-## 部署与 CI
-
-- `docker-compose.yml`：服务/容器/镜像名 `reimburse-ai`，宿主 8092 → 容器 8090。
-- 挂载：`/data/reimburse-ai/data:/app/data`、`/data/reimburse-ai/uploads:/app/uploads`。
-- `.woodpecker.yaml`：仅 `tag` 与 `manual` 触发；`resolve-tag → build-and-push-image → deploy-and-verify`。
-- 健康检查：`GET /health` 或首页 `GET /`。
-- **数据库版本管理**：从 3.4.0 起用 Alembic，修订放在 `alembic/versions/`，启动时执行 `alembic upgrade head`，版本记录在 `alembic_version` 表。新增字段或表必须写修订，`upgrade head` 会按版本依次应用，不依赖启动时手工登记。`app/services/migrations.py` 是 3.4.0 之前的冻结兼容层，不要再往里加字段。
-- 空库才由 `create_all` 按当前模型建表；非空库只走兼容层与 Alembic，避免 `create_all` 抢先建表让修订的 `create_table` 冲突。新修订建表用 `CREATE TABLE IF NOT EXISTS` 更稳妥。
-
-## 本地命令
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python run.py
-python -m pytest -q
-```
-
-测试使用临时数据库与上传目录，禁止指向生产路径。故事测试使用 `tests/fixtures/invoices/` 中的发票截图，并在隔离用户 `story-tester` 的账本中执行；不依赖在线 AI。重新生成夹具：`python tests/fixtures/invoices/render.py`。
-
-## 已知边界
-
-- 单币种人民币，不做汇率。
-- 不做退款/红冲、预算、账户余额、邮件微信提醒、分享链接。
-- 不做发票税务验真。
-- OFD 只保存原件，不做自动识别，也不支持在线预览。
-- AI 需要用户自行配置 OpenAI 兼容接口；未配置时手动填金额。
-- 使用指南正文只维护 `docs/USER_GUIDE.md` 一份；规则变化时同步改指南、本文件和技能文档。
+- 2026-10-10：核心解析规范落地：ETC 票据去重与防千分位截断；首次部署管理员向导与多用户管理；对齐 Woodpecker CI 部署决策。
+- 2026-11-04：重构对公应收台账、采集流水线与财务导出包（移除废弃 parser.py，拆分 capture/ledger/extractor 等服务）。
+- 2026-11-12：引入独立归属月概念；严格应收状态机（待提交/已提交/部分到账/已到账/被驳回/已放弃）。
+- 2026-11-16：工资区分税前应发与实发代扣，到账跳过工资；引入 Alembic 进行数据库版本化迁移；补齐项目仓库规范（.env.example、favicon.ico、.gitignore 凭据防线与标准化 AGENTS.md）。

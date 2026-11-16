@@ -7,6 +7,13 @@
 
 ## [未发布] (Unreleased)
 
+### 变更 (Changed)
+- 补齐仓库规范基线：添加 `.env.example` 环境变量完整模板（含 14 个真实配置项及中文说明，无真实凭据）。
+- 补齐 Web UI 多尺寸 `app/static/favicon.ico` 真实图标文件，完善 FastAPI `/favicon.ico` 路由对 `.ico` 优先返回与 MIME 类型响应，更新前端 `index.html` 引用。
+- 加固 `.gitignore`：严格防御 `.env`、凭据文件与构建缓存泄露，补充 `!.env.example` 白名单例外。
+- 标准化 `AGENTS.md`：按项目仓库规范六节骨架重构，每条硬规则补充可执行的检测手段，剔除通用套话。
+- 更新 `README.md` 环境变量说明，与 `.env.example` 保持完全对齐。
+
 ### 计划中
 - 支持多币种汇率换算与境外差旅票据自动折算。
 - 支持对接企业微信与飞书审批工作流机器人通知。
