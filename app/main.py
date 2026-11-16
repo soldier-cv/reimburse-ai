@@ -187,7 +187,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.3.0",
+    version="3.3.1",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -1979,10 +1979,38 @@ def create_batch(req: BatchCreate, user: User = Depends(get_current_user), db: S
         item.batch_id = batch.id
         if item.status == "rejected":
             item.status = "pending"
+
+    expected_on = ""
+    if req.submit:
+        submitted_on = normalize_date(req.submitted_on or today_str())
+        expected_on = normalize_date(req.expected_on) if req.expected_on else _next_pay_date(company, submitted_on)
+        for item in receivables:
+            item.status = "submitted"
+            item.submitted_on = submitted_on
+            item.expected_on = expected_on
+        batch.status = "submitted"
+        batch.submitted_on = submitted_on
+        batch.expected_on = expected_on
+
     db.commit()
     db.refresh(batch)
     record_audit(db, user.id, "创建批次", "batch", batch.id, f"创建批次 [{batch.title}]，共 {len(receivables)} 笔")
-    return {"success": True, "batch_id": batch.id, "message": "批次已创建"}
+    if req.submit:
+        record_audit(
+            db,
+            user.id,
+            "提交批次",
+            "batch",
+            batch.id,
+            f"提交批次 [{batch.title}]，预计 {expected_on} 到账",
+        )
+    return {
+        "success": True,
+        "batch_id": batch.id,
+        "status": batch.status,
+        "expected_on": expected_on,
+        "message": "批次已提交" if req.submit else "批次已创建",
+    }
 
 
 def _batch_flags(batch: Batch, items: list[Receivable]) -> dict:

@@ -171,9 +171,9 @@
           </div>
           <div class="flex items-center gap-2">
             <button type="button" class="hidden sm:flex w-8 h-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-900" @click="go('guide')" title="使用指南">?</button>
-            <button @click="openQuickUpload" :disabled="isPending('upload')" class="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+            <button v-if="view !== 'inbox'" @click="openQuickUpload" :disabled="isPending('upload')" class="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
               <span v-if="isPending('upload')" class="btn-spin"></span>
-              <app-icon v-else name="paperclip" class="mr-1"></app-icon>{{ isPending('upload') ? '上传中...' : '上传票据（进收件箱）' }}
+              <app-icon v-else name="paperclip" class="mr-1"></app-icon>{{ isPending('upload') ? '上传中...' : '上传票据' }}
             </button>
             <button @click="openReceivableModal()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800">
               <app-icon name="plus" class="mr-1"></app-icon>新增应收
@@ -197,7 +197,7 @@
             </div>
             <div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
               <button type="button" @click="go('inbox')" class="text-left rounded-xl border border-slate-200 px-3.5 py-3 hover:border-slate-400">
-                <div class="text-[11px] text-slate-500">未确认草稿</div>
+                <div class="text-[11px] text-slate-500">待处理草稿</div>
                 <div class="text-lg font-bold num mt-1" :class="dashboard.todos.unconfirmed_drafts ? 'text-blue-700' : 'text-slate-800'">{{ dashboard.todos.unconfirmed_drafts || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">张</span></div>
                 <div class="text-[10px] text-blue-600 mt-1">去收件箱确认</div>
               </button>
@@ -231,13 +231,6 @@
             </div>
             <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
               <div class="flex items-center justify-between">
-                <span class="text-xs text-slate-500">逾期未收</span>
-                <span class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><app-icon name="clock" class="text-xs"></app-icon></span>
-              </div>
-              <div class="text-2xl lg:text-3xl font-bold text-rose-600 mt-3 num">¥{{ money(dashboard?.kpis.overdue) }}</div>
-            </div>
-            <div class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5">
-              <div class="flex items-center justify-between">
                 <span class="text-xs text-slate-500">本月已到账</span>
                 <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><app-icon name="check" class="text-xs"></app-icon></span>
               </div>
@@ -250,24 +243,13 @@
               </div>
               <div class="text-2xl lg:text-3xl font-bold text-slate-900 mt-3 num">{{ dashboard?.kpis.avg_days || 0 }}<span class="text-sm font-medium text-slate-400 ml-1">天</span></div>
             </div>
-          </div>
-
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-              <div><div class="text-[11px] text-slate-500">待提交</div><div class="text-lg font-bold num">¥{{ money(dashboard?.kpis.pending_cents ? dashboard.kpis.pending_cents/100 : 0) }}</div></div>
-              <span class="text-xs text-slate-400">{{ dashboard?.kpis.pending_count || 0 }} 笔</span>
-            </div>
-            <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-              <div><div class="text-[11px] text-slate-500">工资未发</div><div class="text-lg font-bold num">¥{{ money(dashboard?.kpis.salary_outstanding) }}</div></div>
-            </div>
-            <button @click="goMissingMaterials" class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between text-left">
-              <div><div class="text-[11px] text-slate-500">材料不全</div><div class="text-lg font-bold num" :class="dashboard?.kpis.missing_materials_count ? 'text-amber-700' : ''">{{ dashboard?.kpis.missing_materials_count || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">笔</span></div></div>
-              <span class="text-xs text-blue-600 font-semibold">去查看</span>
+            <button @click="goMissingMaterials" class="bg-white border border-slate-200 rounded-2xl p-4 lg:p-5 text-left hover:border-slate-400">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-slate-500">材料不全</span>
+                <span class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center"><app-icon name="file-invoice" class="text-xs"></app-icon></span>
+              </div>
+              <div class="text-2xl lg:text-3xl font-bold mt-3 num" :class="dashboard?.kpis.missing_materials_count ? 'text-amber-700' : 'text-slate-900'">{{ dashboard?.kpis.missing_materials_count || 0 }}<span class="text-sm font-medium text-slate-400 ml-1">笔</span></div>
             </button>
-            <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-              <div><div class="text-[11px] text-slate-500">待确认草稿</div><div class="text-lg font-bold num">{{ dashboard?.kpis.drafts_ready || 0 }}<span class="text-xs font-medium text-slate-400 ml-1">张</span></div></div>
-              <button @click="go('inbox')" class="text-xs text-blue-600 font-semibold">去处理</button>
-            </div>
           </div>
 
           <div class="grid lg:grid-cols-3 gap-4">
@@ -369,22 +351,15 @@
                 <div class="text-sm font-bold text-slate-900">采集收件箱</div>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <select v-model.number="uploadCompanyId" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
-                  <option :value="null">上传时先不选公司</option>
-                  <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
-                </select>
-                <button @click="openQuickUpload" :disabled="isPending('upload')" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50">
-                  <span v-if="isPending('upload')" class="btn-spin"></span>
-                  <app-icon v-else name="upload" class="mr-1.5"></app-icon>{{ isPending('upload') ? '上传中...' : '上传票据（进收件箱）' }}
-                </button>
-                <button @click="openCameraUpload" :disabled="isPending('upload')" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">拍照上传</button>
+                <div class="w-52"><select-field v-model="uploadCompanyId" :options="companyOptions('上传时先不选公司')"></select-field></div>
+                <button @click="openCameraUpload" :disabled="isPending('upload')" class="sm:hidden px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">拍照上传</button>
               </div>
             </div>
-            <div class="border-2 border-dashed border-slate-200 rounded-2xl p-6 lg:p-8 text-center bg-slate-50/60 hover:bg-slate-50 transition"
-              :class="{'drag-over': dragging}" @click="openQuickUpload">
+            <div class="border-2 border-dashed border-slate-200 rounded-2xl p-6 lg:p-8 text-center bg-slate-50/60 hover:bg-slate-50 hover:border-slate-300 transition cursor-pointer"
+              :class="{'drag-over': dragging}" role="button" tabindex="0" @click="openQuickUpload" @keydown.enter.prevent="openQuickUpload">
               <div class="w-12 h-12 rounded-2xl bg-white border border-slate-200 text-blue-600 flex items-center justify-center mx-auto mb-3"><app-icon name="cloud-upload" class="w-5 h-5"></app-icon></div>
-              <div class="text-sm font-semibold text-slate-700">拖入、粘贴或拍照上传发票、截图、PDF、ZIP</div>
-              <div class="text-[11px] text-slate-400 mt-1">文件会进入收件箱，确认后才记入台账</div>
+              <div class="text-sm font-semibold text-slate-700">拖入或粘贴上传，也可点击选择文件</div>
+              <div class="text-[11px] text-slate-400 mt-1">支持发票、截图、PDF、ZIP；进入收件箱，确认后才记入台账</div>
             </div>
             <div v-if="uploadResult" class="mt-3 rounded-xl border px-3 py-2.5 text-xs" :class="uploadResult.hasIssue ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-100 bg-emerald-50 text-emerald-800'">
               <div class="font-medium">{{ uploadResult.message }}</div>
@@ -403,10 +378,7 @@
               <div class="flex flex-wrap items-center gap-2">
                 <button type="button" @click="selectAllDrafts" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">全选</button>
                 <button type="button" @click="invertDraftSelection" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">反选</button>
-                <select v-model.number="batchDraftCompany" class="custom-select px-3 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
-                  <option :value="null">批量选择公司</option>
-                  <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
-                </select>
+                <div class="w-40"><select-field v-model="batchDraftCompany" :options="companyOptions('批量选择公司')"></select-field></div>
                 <button @click="applyDraftCompany" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">应用到已选</button>
                 <button @click="openConfirmSummary()" :disabled="!selectedDraftIds.length || isPending('confirm')" class="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">
                   <span v-if="isPending('confirm')" class="btn-spin"></span>确认入账（{{ selectedDraftIds.length }}）
@@ -450,19 +422,13 @@
                     </div>
                     <div class="grid grid-cols-2 gap-1.5 mt-2">
                       <date-field v-model="d.occurred_on" @change="onDraftOccurred(d)" placeholder="发生日期"></date-field>
-                      <select v-model.number="d.category_id" @change="saveDraft(d,{category_id:d.category_id})" class="custom-select text-[11px] px-1.5 py-1 rounded border border-slate-200 bg-white">
-                        <option :value="null">类别</option>
-                        <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
-                      </select>
+                      <select-field v-model="d.category_id" compact :options="categoryOptions('类别')" @change="saveDraft(d,{category_id:d.category_id})"></select-field>
                     </div>
                     <div class="mt-1.5">
                       <div class="flex items-center gap-1 text-[10px] text-slate-400 mb-0.5">归属月 <button type="button" class="guide-q" @click.stop="goGuide('3-归属月与发生日期')">?</button></div>
                       <month-field v-model="d.period" @change="saveDraft(d,{period:d.period})" placeholder="归属月"></month-field>
                     </div>
-                    <select v-model.number="d.company_id" @change="saveDraft(d,{company_id:d.company_id})" class="custom-select w-full mt-1.5 text-[11px] px-1.5 py-1 rounded border border-slate-200 bg-white">
-                      <option :value="null">选择公司（必填）</option>
-                      <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
-                    </select>
+                    <div class="mt-1.5"><select-field v-model="d.company_id" compact :options="companyOptions('选择公司（必填）')" @change="saveDraft(d,{company_id:d.company_id})"></select-field></div>
                   </div>
                 </div>
                 <div v-if="d.duplicates && d.duplicates.length" class="mt-2 text-[10px] text-rose-700 bg-rose-50 border border-rose-100 rounded px-2 py-1">
@@ -497,13 +463,13 @@
           <div class="bg-white border border-slate-200 rounded-2xl p-4">
             <div class="flex flex-wrap items-end gap-2">
               <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">公司</label>
-                <select v-model.number="filters.company_id" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">全部</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select>
+                <select-field v-model="filters.company_id" :options="companyOptions('全部')" @change="loadReceivables"></select-field>
               </div>
               <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">状态</label>
-                <select v-model="filters.status_value" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部</option><option value="pending">待提交</option><option value="submitted">已提交</option><option value="partial">部分到账</option><option value="paid">已到账</option><option value="rejected">被驳回</option><option value="abandoned">已放弃</option></select>
+                <select-field v-model="filters.status_value" :options="STATUS_FILTER_OPTIONS" @change="loadReceivables"></select-field>
               </div>
               <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">类型</label>
-                <select v-model="filters.kind" @change="loadReceivables" class="custom-select w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部</option><option value="reimbursement">报销</option><option value="payroll">薪资</option><option value="other">其他</option></select>
+                <select-field v-model="filters.kind" :options="kindFilterOptions('全部')" @change="loadReceivables"></select-field>
               </div>
               <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">起始月</label><month-field v-model="filters.period_from" @change="loadReceivables" allow-clear></month-field></div>
               <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">结束月</label><month-field v-model="filters.period_to" @change="loadReceivables" allow-clear></month-field></div>
@@ -522,8 +488,10 @@
                 <span v-if="selectedReceivableIds.length" class="text-blue-600">已选 {{ selectedReceivableIds.length }} 笔</span>
               </div>
               <div class="flex flex-wrap items-center gap-2">
+                <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">导出财务包</button>
+                <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">合并 PDF</button>
+                <button @click="exportSelectedAttachments" :disabled="!selectedReceivableIds.length || isPending('export-att')" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">导出原件</button>
                 <button @click="openBatchModal()" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><app-icon name="layers" class="mr-1"></app-icon>归集批次</button>
-                <span class="text-[10px] text-slate-400">合并 PDF 与财务包请到导出中心或批次详情</span>
               </div>
             </div>
             <div class="overflow-x-auto">
@@ -552,8 +520,11 @@
                     <td class="px-2 py-3 text-xs text-slate-400 whitespace-nowrap">{{ r.created_on || '-' }}</td>
                     <td class="px-2 py-3"><span class="inline-flex items-center gap-1.5 text-xs"><span class="w-1.5 h-1.5 rounded-full" :style="{background:r.company_color}"></span>{{ r.company_name }}</span></td>
                     <td class="px-2 py-3 text-xs text-slate-500">{{ r.category_name || '-' }}</td>
-                    <td class="px-2 py-3"><button @click="openReceivableDetail(r.id)" class="text-left font-medium text-slate-800 hover:text-blue-600">{{ r.title }}</button><div v-if="r.batch_title" class="text-[10px] text-slate-400">{{ r.batch_title }}</div><div v-if="!r.can_collect && r.collect_reason" class="text-[10px] text-slate-400">{{ r.collect_reason }}</div></td>
-                    <td class="px-2 py-3 text-right font-semibold num whitespace-nowrap">¥{{ money(r.amount) }}<div v-if="r.status==='partial'" class="text-[10px] font-normal text-amber-600">已收 ¥{{ money(r.received) }} · 待收 ¥{{ money(r.remaining) }}</div></td>
+                    <td class="px-2 py-3"><span class="font-medium text-slate-800">{{ r.title }}</span><div v-if="r.batch_title" class="text-[10px] text-slate-400">{{ r.batch_title }}</div><div v-if="!r.can_collect && r.collect_reason" class="text-[10px] text-slate-400">{{ r.collect_reason }}</div></td>
+                    <td class="px-2 py-3 text-right whitespace-nowrap">
+                      <button type="button" @click="openReceivableDetail(r.id)" class="font-semibold num text-slate-900 underline decoration-slate-300 decoration-1 underline-offset-2 hover:text-blue-600 hover:decoration-blue-500">¥{{ money(r.amount) }}</button>
+                      <div v-if="r.status==='partial'" class="text-[10px] font-normal text-amber-600">已收 ¥{{ money(r.received) }} · 待收 ¥{{ money(r.remaining) }}</div>
+                    </td>
                     <td class="px-2 py-3 text-center"><span :class="['text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap', statusClass(r.status)]">{{ r.status_label }}</span></td>
                     <td class="px-2 py-3 text-xs whitespace-nowrap">
                       <span v-if="r.status==='paid'" class="text-emerald-600">{{ r.paid_on }} 到账</span>
@@ -650,8 +621,8 @@
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
               <div class="text-sm font-bold text-slate-900">导出当前台账</div>
               <div class="grid grid-cols-2 gap-2 mt-4">
-                <select v-model.number="exportFilters.company_id" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">全部公司</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select>
-                <select v-model="exportFilters.kind" class="custom-select px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="">全部类型</option><option value="reimbursement">报销</option><option value="payroll">薪资</option><option value="other">其他</option></select>
+                <select-field v-model="exportFilters.company_id" :options="companyOptions('全部公司')"></select-field>
+                <select-field v-model="exportFilters.kind" :options="kindFilterOptions('全部类型')"></select-field>
                 <month-field v-model="exportFilters.period_from" allow-clear placeholder="起始月"></month-field>
                 <month-field v-model="exportFilters.period_to" allow-clear placeholder="结束月"></month-field>
               </div>
@@ -659,13 +630,8 @@
             </div>
 
             <div class="bg-white border border-slate-200 rounded-2xl p-5">
-              <div class="text-sm font-bold text-slate-900">财务报销包</div>
-              <div class="mt-3 flex gap-2">
-                <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="flex-1 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">导出已选 {{ selectedReceivableIds.length }} 笔</button>
-                <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-4 py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">合并 PDF</button>
-              </div>
-              <button @click="exportSelectedAttachments" :disabled="!selectedReceivableIds.length || isPending('export-att')" class="mt-2 w-full py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">只导出已选原始文件（ZIP）</button>
-              <button @click="exportAttachmentsByFilter" :disabled="isPending('export-att')" class="mt-2 w-full py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40">按筛选月份/公司打包原件</button>
+              <div class="text-sm font-bold text-slate-900">打包原始文件</div>
+              <button @click="exportAttachmentsByFilter" :disabled="isPending('export-att')" class="mt-3 w-full py-2.5 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-40"><span v-if="isPending('export-att')" class="btn-spin"></span>按上方筛选打包 ZIP</button>
             </div>
           </div>
 
@@ -948,8 +914,8 @@
       <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">{{ receivableForm.id ? '编辑应收' : '新增应收' }}</div><button @click="closeModal" class="text-slate-400 hover:text-slate-900"><app-icon name="close"></app-icon></button></div>
       <div class="p-5 space-y-3">
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-[11px] text-slate-500 mb-1">公司 *</label><select v-model.number="receivableForm.company_id" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">请选择</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
-          <div><label class="block text-[11px] text-slate-500 mb-1">类别</label><select v-model.number="receivableForm.category_id" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">未分类</option><option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">公司 *</label><select-field v-model="receivableForm.company_id" :options="companyOptions('请选择')"></select-field></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">类别</label><select-field v-model="receivableForm.category_id" :options="categoryOptions('未分类')"></select-field></div>
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">事项 *</label><input v-model="receivableForm.title" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月打车费"></div>
         <div class="grid grid-cols-2 gap-3">
@@ -959,16 +925,8 @@
         <div class="grid grid-cols-2 gap-3">
           <div><label class="flex items-center gap-1 text-[11px] text-slate-500 mb-1">归属月 <button type="button" class="guide-q" @click="goGuide('3-归属月与发生日期')">?</button></label><month-field v-model="receivableForm.period" :disabled="receivableForm.locked"></month-field></div>
           <div v-if="receivableForm.id"><label class="block text-[11px] text-slate-500 mb-1">状态</label>
-            <select v-if="receivableForm.status==='partial' || receivableForm.status==='paid' || receivableForm.status==='submitted'" v-model="receivableForm.status" disabled class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-slate-50 text-slate-500">
-              <option value="submitted">已提交</option>
-              <option value="partial">部分到账</option>
-              <option value="paid">已到账</option>
-            </select>
-            <select v-else v-model="receivableForm.status" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
-              <option value="pending">待提交</option>
-              <option value="rejected">被驳回</option>
-              <option value="abandoned">已放弃</option>
-            </select>
+            <select-field v-if="receivableForm.status==='partial' || receivableForm.status==='paid' || receivableForm.status==='submitted'" v-model="receivableForm.status" disabled :options="STATUS_LOCKED_OPTIONS"></select-field>
+            <select-field v-else v-model="receivableForm.status" :options="STATUS_EDIT_OPTIONS"></select-field>
           </div>
         </div>
         <div>
@@ -1038,18 +996,94 @@
     </div>
   </div>
 
-  <!-- 新建批次 -->
+  <!-- 归集为提交批次：逐步确认，最后一次性创建并提交 -->
   <div v-if="modal.name==='batch'" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" @click.self="closeModal">
-    <div class="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-xl">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">归集为提交批次</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
-      <div class="p-5 space-y-3">
-        <div class="text-xs text-slate-500">已选 {{ selectedReceivableIds.length }} 笔，合计 <b class="text-slate-900">¥{{ money(selectedAmount) }}</b></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><div class="px-3 py-2 rounded-lg bg-slate-50 text-xs font-medium">{{ selectedCompanyName || '-' }}</div></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">批次名称</label><input v-model="batchForm.title" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销"></div>
-        <div><label class="flex items-center gap-1 text-[11px] text-slate-500 mb-1">归属月 <button type="button" class="guide-q" @click="goGuide('3-归属月与发生日期')">?</button></label><month-field v-model="batchForm.period"></month-field></div>
-        <div v-if="batchForm.periodHint" class="text-[11px] text-amber-700">{{ batchForm.periodHint }}</div>
+    <div class="bg-white rounded-2xl w-full max-w-lg border border-slate-200 shadow-xl max-h-[92vh] flex flex-col">
+      <div class="px-5 pt-4 pb-3 border-b border-slate-100">
+        <div class="flex items-start justify-between">
+          <div class="text-sm font-bold">归集为提交批次</div>
+          <button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button>
+        </div>
+        <div class="flex items-start mt-4">
+          <template v-for="(label, idx) in BATCH_STEPS" :key="label">
+            <div class="flex flex-col items-center gap-1.5 w-16 flex-none">
+              <span :class="['w-7 h-7 rounded-full border flex items-center justify-center text-[11px] font-semibold transition',
+                batchStepDone(idx) ? 'bg-emerald-500 border-emerald-500 text-white' :
+                (!batchForm.done && batchForm.step === idx + 1 ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-400')]">
+                <svg v-if="batchStepDone(idx)" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                <span v-else>{{ idx + 1 }}</span>
+              </span>
+              <span :class="['text-[10px] whitespace-nowrap', (!batchForm.done && batchForm.step === idx + 1) ? 'text-slate-900 font-semibold' : 'text-slate-400']">{{ label }}</span>
+            </div>
+            <div v-if="idx < BATCH_STEPS.length - 1" class="flex-1 h-px mt-3.5 bg-slate-200 relative overflow-hidden">
+              <div class="absolute inset-y-0 left-0 bg-emerald-500 transition-all" :class="batchStepDone(idx) ? 'w-full' : 'w-0'"></div>
+            </div>
+          </template>
+        </div>
       </div>
-      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="createBatch" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">创建批次</button></div>
+      <div class="p-5 overflow-y-auto space-y-3 min-h-[264px]">
+        <div v-if="batchForm.done" class="py-8 text-center">
+          <div class="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </div>
+          <div class="text-sm font-bold text-slate-900 mt-4">批次已提交</div>
+          <div class="text-xs text-slate-500 mt-1 truncate">{{ batchForm.resultTitle }}</div>
+          <div class="text-[11px] text-slate-400 mt-1">{{ batchForm.resultCount }} 笔 · ¥{{ money(batchForm.resultAmount) }}<span v-if="batchForm.resultExpected"> · 预计 {{ batchForm.resultExpected }} 到账</span></div>
+        </div>
+        <template v-else-if="batchForm.step===1">
+          <div class="grid grid-cols-2 gap-3">
+            <div><div class="text-[11px] text-slate-500 mb-1">公司</div><div class="px-3 py-2 rounded-lg bg-slate-50 text-xs font-medium truncate">{{ selectedCompanyName || '-' }}</div></div>
+            <div><div class="text-[11px] text-slate-500 mb-1">合计</div><div class="px-3 py-2 rounded-lg bg-slate-50 text-xs font-semibold num">¥{{ money(selectedAmount) }}</div></div>
+          </div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">批次名称</label><input v-model="batchForm.title" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销"></div>
+          <div><label class="flex items-center gap-1 text-[11px] text-slate-500 mb-1">归属月 <button type="button" class="guide-q" @click="goGuide('3-归属月与发生日期')">?</button></label><month-field v-model="batchForm.period"></month-field></div>
+          <div v-if="batchForm.periodHint" class="text-[11px] text-amber-700">{{ batchForm.periodHint }}</div>
+          <div>
+            <div class="text-[11px] text-slate-500 mb-1">本次包含 {{ batchWizardItems.length }} 笔</div>
+            <div class="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-44 overflow-y-auto">
+              <div v-for="r in batchWizardItems" :key="r.id" class="flex items-center justify-between gap-2 px-3 py-2">
+                <div class="min-w-0">
+                  <div class="text-xs font-medium truncate">{{ r.title }}</div>
+                  <div class="text-[10px] text-slate-400">{{ r.period || '未设归属月' }} · ¥{{ money(r.amount) }}</div>
+                </div>
+                <button type="button" @click="removeBatchWizardItem(r.id)" class="flex-none text-[11px] text-slate-400 hover:text-rose-600">移出</button>
+              </div>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="batchForm.step===2">
+          <div><label class="block text-[11px] text-slate-500 mb-1">提交日期</label><date-field v-model="batchForm.submitted_on" disable-future></date-field></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">预计到账日</label><date-field v-model="batchForm.expected_on" allow-clear placeholder="留空按公司账期推算"></date-field></div>
+          <div v-if="batchWizardIncomplete.length" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <div class="text-[11px] font-medium text-amber-800">以下 {{ batchWizardIncomplete.length }} 笔还缺发票：{{ batchWizardIncomplete.map(r => r.title).join('、') }}</div>
+            <label class="flex items-center gap-1.5 text-[11px] text-amber-800 mt-2"><input type="checkbox" v-model="batchForm.ackIncomplete" class="rounded border-amber-300">材料不全也照常提交</label>
+          </div>
+        </template>
+        <template v-else>
+          <div class="rounded-xl bg-slate-50 px-3 py-3 space-y-1.5 text-xs">
+            <div class="flex justify-between"><span class="text-slate-500">公司</span><span class="font-medium">{{ selectedCompanyName }}</span></div>
+            <div class="flex justify-between gap-3"><span class="text-slate-500 flex-none">批次名称</span><span class="font-medium text-right truncate">{{ batchForm.title }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">归属月</span><span class="font-medium">{{ batchForm.period }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">笔数</span><span class="font-medium">{{ batchWizardItems.length }} 笔</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">合计</span><span class="font-semibold num">¥{{ money(selectedAmount) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">提交日期</span><span class="font-medium">{{ batchForm.submitted_on }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">预计到账</span><span class="font-medium">{{ batchForm.expected_on || '按公司账期推算' }}</span></div>
+          </div>
+          <div class="text-[11px] text-slate-500">提交后这些应收会锁定，需撤回提交才能修改。</div>
+        </template>
+      </div>
+      <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2">
+        <template v-if="batchForm.done">
+          <button @click="finishBatchWizard(false)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">完成</button>
+          <button @click="finishBatchWizard(true)" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">查看批次</button>
+        </template>
+        <template v-else>
+          <button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button>
+          <button v-if="batchForm.step > 1" @click="batchWizardBack" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">上一步</button>
+          <button v-if="batchForm.step < 3" @click="batchWizardNext" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">下一步</button>
+          <button v-else @click="submitBatchWizard" :disabled="isPending('batch-submit')" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"><span v-if="isPending('batch-submit')" class="btn-spin"></span>创建并提交</button>
+        </template>
+      </div>
     </div>
   </div>
 
@@ -1120,7 +1154,7 @@
       <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div class="text-sm font-bold">记录到账</div><button @click="closeModal" class="text-slate-400"><app-icon name="close"></app-icon></button></div>
       <div class="p-5 overflow-y-auto space-y-3">
         <div class="grid grid-cols-3 gap-3">
-          <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><select v-model.number="paymentForm.company_id" @change="loadPaymentCandidates" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option :value="null">请选择</option><option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><select-field v-model="paymentForm.company_id" :options="companyOptions('请选择')" @change="loadPaymentCandidates"></select-field></div>
           <div><label class="block text-[11px] text-slate-500 mb-1">到账日期</label><date-field v-model="paymentForm.paid_on" disable-future></date-field></div>
           <div><label class="block text-[11px] text-slate-500 mb-1">到账金额</label><input v-model.number="paymentForm.amount" type="number" step="0.01" min="0" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs num" placeholder="0.00"></div>
         </div>
@@ -1210,7 +1244,7 @@
       <div class="text-sm font-bold mb-4">{{ categoryForm.id ? '编辑类别' : '新建类别' }}</div>
       <div class="space-y-3">
         <div><label class="block text-[11px] text-slate-500 mb-1">名称 *</label><input v-model="categoryForm.name" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">类型</label><select v-model="categoryForm.kind" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="reimbursement">报销</option><option value="payroll">薪资</option><option value="other">其他</option></select></div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">类型</label><select-field v-model="categoryForm.kind" :options="KIND_OPTIONS"></select-field></div>
         <label class="flex items-center gap-2 text-xs"><input type="checkbox" v-model="categoryForm.requires_invoice" class="rounded border-slate-300">需要发票</label>
         <div><label class="block text-[11px] text-slate-500 mb-1">排序</label><input v-model.number="categoryForm.sort_order" type="number" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
       </div>
@@ -1226,7 +1260,7 @@
       <div class="space-y-3">
         <div><label class="block text-[11px] text-slate-500 mb-1">用户名</label><input v-model="userForm.username" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">初始密码</label><input v-model="userForm.password" type="password" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
-        <div><label class="block text-[11px] text-slate-500 mb-1">角色</label><select v-model="userForm.role" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"><option value="user">普通成员</option><option value="admin">管理员（需二次确认）</option></select></div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">角色</label><select-field v-model="userForm.role" :options="ROLE_OPTIONS"></select-field></div>
         <div v-if="userForm.role==='admin'" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">创建管理员将在保存时再次确认。管理员可以管理账号，但不能查看其他成员的账本。</div>
       </div>
       <div class="flex justify-end gap-2 mt-5"><button @click="closeModal" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs">取消</button><button @click="saveUser" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">创建</button></div>
@@ -1330,10 +1364,7 @@
       <div class="text-sm font-bold mb-4">{{ payrollForm.id ? '编辑薪资计划' : '新建薪资计划' }}</div>
       <div class="space-y-3">
         <div><label class="block text-[11px] text-slate-500 mb-1">公司 *</label>
-          <select v-model.number="payrollForm.company_id" class="custom-select w-full px-3 py-2 rounded-lg border border-slate-200 text-xs bg-white">
-            <option :value="null">请选择</option>
-            <option v-for="c in activeCompanies" :key="c.id" :value="c.id">{{ c.name }}</option>
-          </select>
+          <select-field v-model="payrollForm.company_id" :options="companyOptions('请选择')"></select-field>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">月薪 *</label><input v-model="payrollForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
@@ -1367,7 +1398,7 @@
         <button type="button" class="px-2 py-1 rounded-md hover:bg-white/10" @click="closePreview">关闭</button>
       </div>
     </div>
-    <div class="flex-1 relative overflow-hidden preview-stage" :class="{dragging: preview.dragging}" @mousedown="previewDown" @mousemove="previewMove" @mouseup="previewUp" @mouseleave="previewUp" @wheel.prevent="previewWheel">
+    <div class="flex-1 relative overflow-hidden preview-stage" :class="{dragging: preview.dragging}" @mousedown="previewDown" @mousemove="previewMove" @mouseup="previewUp" @mouseleave="previewUp" @wheel.prevent="previewWheel" @click="previewStageClick">
       <div v-if="preview.loading" class="absolute inset-0 flex items-center justify-center text-white/70 text-sm">正在生成预览...</div>
       <div v-else-if="preview.ofd" class="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-6">
         <div class="text-sm font-medium">OFD 暂不支持在线预览</div>
@@ -1477,6 +1508,7 @@ const DateField = {
     const current = parseISODate(this.modelValue) || parseISODate(localToday());
     return {
       open: false,
+      mode: 'day',
       typed: this.modelValue || '',
       viewYear: current.getFullYear(),
       viewMonth: current.getMonth() + 1,
@@ -1524,6 +1556,35 @@ const DateField = {
       return list;
     },
     title() { return this.viewYear + ' 年 ' + this.viewMonth + ' 月'; },
+    monthCells() {
+      const list = [];
+      for (let m = 1; m <= 12; m++) {
+        const first = new Date(this.viewYear, m - 1, 1);
+        const last = new Date(this.viewYear, m, 0);
+        list.push({
+          month: m, label: m + ' 月',
+          selected: this.viewMonth === m,
+          current: this.viewYear === parseISODate(localToday()).getFullYear() && m === parseISODate(localToday()).getMonth() + 1,
+          disabled: (this.minDate && last < this.minDate) || (this.maxDate && first > this.maxDate),
+        });
+      }
+      return list;
+    },
+    yearBase() { return Math.floor(this.viewYear / 12) * 12; },
+    yearCells() {
+      const list = [];
+      const base = this.yearBase;
+      for (let i = 0; i < 12; i++) {
+        const y = base + i;
+        list.push({
+          year: y, label: String(y),
+          selected: this.viewYear === y,
+          current: parseISODate(localToday()).getFullYear() === y,
+          disabled: (this.minDate && new Date(y, 11, 31) < this.minDate) || (this.maxDate && new Date(y, 0, 1) > this.maxDate),
+        });
+      }
+      return list;
+    },
   },
   watch: {
     modelValue(val) {
@@ -1570,9 +1631,22 @@ const DateField = {
       const parsed = parseISODate(this.modelValue) || parseISODate(localToday());
       this.viewYear = parsed.getFullYear();
       this.viewMonth = parsed.getMonth() + 1;
+      this.mode = 'day';
     },
     prevMonth() { this.viewMonth -= 1; if (this.viewMonth < 1) { this.viewMonth = 12; this.viewYear -= 1; } },
     nextMonth() { this.viewMonth += 1; if (this.viewMonth > 12) { this.viewMonth = 1; this.viewYear += 1; } },
+    prevRange() {
+      if (this.mode === 'day') this.prevMonth();
+      else if (this.mode === 'month') this.viewYear -= 1;
+      else this.viewYear -= 12;
+    },
+    nextRange() {
+      if (this.mode === 'day') this.nextMonth();
+      else if (this.mode === 'month') this.viewYear += 1;
+      else this.viewYear += 12;
+    },
+    pickMonth(cell) { if (cell.disabled) return; this.viewMonth = cell.month; this.mode = 'day'; },
+    pickYear(cell) { if (cell.disabled) return; this.viewYear = cell.year; this.mode = 'month'; },
     apply(iso) {
       this.typed = iso;
       this.$emit('update:modelValue', iso);
@@ -1622,19 +1696,35 @@ const DateField = {
           <div v-if="isMobile" class="fixed inset-0 z-[84] bg-slate-900/30" @click="close"></div>
           <div class="date-pop-panel bg-white border border-slate-200 shadow-xl p-3" :class="isMobile ? 'fixed inset-x-0 bottom-0 z-[85] rounded-t-2xl pb-6' : 'w-[280px] rounded-xl'" :style="isMobile ? {} : popupStyle()">
             <div class="flex items-center justify-between mb-2">
-              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="prevMonth">‹</button>
-              <div class="text-xs font-semibold text-slate-800">{{ title }}</div>
-              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="nextMonth">›</button>
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="prevRange">‹</button>
+              <div class="flex items-center gap-1 text-xs font-semibold text-slate-800">
+                <button v-if="mode!=='year'" type="button" class="px-1.5 py-0.5 rounded hover:bg-slate-100" @click="mode='year'">{{ viewYear }} 年</button>
+                <span v-else>{{ yearBase }} - {{ yearBase + 11 }}</span>
+                <button v-if="mode==='day'" type="button" class="px-1.5 py-0.5 rounded hover:bg-slate-100" @click="mode='month'">{{ viewMonth }} 月</button>
+              </div>
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="nextRange">›</button>
             </div>
-            <div class="grid grid-cols-7 mb-1">
-              <div v-for="w in weekdays" :key="w" class="text-center text-[10px] text-slate-400 py-1">{{ w }}</div>
+            <template v-if="mode==='day'">
+              <div class="grid grid-cols-7 mb-1">
+                <div v-for="w in weekdays" :key="w" class="text-center text-[10px] text-slate-400 py-1">{{ w }}</div>
+              </div>
+              <div class="grid grid-cols-7">
+                <button v-for="c in cells" :key="c.iso" type="button" :disabled="c.disabled"
+                  :class="['h-8 text-[11px] rounded-lg', c.other ? 'text-slate-300' : 'text-slate-700', c.selected ? 'bg-slate-900 text-white' : (c.today ? 'border border-slate-400' : 'hover:bg-slate-100'), c.disabled ? 'opacity-30 cursor-not-allowed' : '']"
+                  @click="pick(c)">{{ c.day }}</button>
+              </div>
+            </template>
+            <div v-else-if="mode==='month'" class="grid grid-cols-3 gap-1.5">
+              <button v-for="m in monthCells" :key="m.month" type="button" :disabled="m.disabled"
+                :class="['h-9 text-xs rounded-lg', m.selected ? 'bg-slate-900 text-white' : (m.current ? 'border border-slate-400 text-slate-800' : 'text-slate-700 hover:bg-slate-100'), m.disabled ? 'opacity-30 cursor-not-allowed' : '']"
+                @click="pickMonth(m)">{{ m.label }}</button>
             </div>
-            <div class="grid grid-cols-7">
-              <button v-for="c in cells" :key="c.iso" type="button" :disabled="c.disabled"
-                :class="['h-8 text-[11px] rounded-lg', c.other ? 'text-slate-300' : 'text-slate-700', c.selected ? 'bg-slate-900 text-white' : (c.today ? 'border border-slate-400' : 'hover:bg-slate-100'), c.disabled ? 'opacity-30 cursor-not-allowed' : '']"
-                @click="pick(c)">{{ c.day }}</button>
+            <div v-else class="grid grid-cols-3 gap-1.5">
+              <button v-for="y in yearCells" :key="y.year" type="button" :disabled="y.disabled"
+                :class="['h-9 text-xs rounded-lg', y.selected ? 'bg-slate-900 text-white' : (y.current ? 'border border-slate-400 text-slate-800' : 'text-slate-700 hover:bg-slate-100'), y.disabled ? 'opacity-30 cursor-not-allowed' : '']"
+                @click="pickYear(y)">{{ y.label }}</button>
             </div>
-            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+            <div v-if="mode==='day'" class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
               <button type="button" class="text-[11px] text-slate-600 hover:text-slate-900 font-medium" @click="pickToday">今天</button>
               <button v-if="allowClear" type="button" class="text-[11px] text-slate-400 hover:text-rose-600" @click="clear">清空</button>
             </div>
@@ -1656,7 +1746,7 @@ const MonthField = {
   emits: ['update:modelValue', 'change'],
   data() {
     const current = parseISOMonth(this.modelValue) || parseISOMonth(localMonth());
-    return { open: false, typed: this.modelValue || '', viewYear: current.year, popTop: 0, popLeft: 0 };
+    return { open: false, mode: 'month', typed: this.modelValue || '', viewYear: current.year, popTop: 0, popLeft: 0 };
   },
   computed: {
     isMobile() { return typeof window !== 'undefined' && window.innerWidth < 640; },
@@ -1672,6 +1762,22 @@ const MonthField = {
           disabled: future,
           selected: selected && selected.year === this.viewYear && selected.month === m,
           current: now.year === this.viewYear && now.month === m,
+        });
+      }
+      return list;
+    },
+    yearBase() { return Math.floor(this.viewYear / 12) * 12; },
+    yearCells() {
+      const now = parseISOMonth(localMonth());
+      const list = [];
+      const base = this.yearBase;
+      for (let i = 0; i < 12; i++) {
+        const y = base + i;
+        list.push({
+          year: y, label: String(y),
+          selected: this.viewYear === y,
+          current: now.year === y,
+          disabled: this.disableFuture && y > now.year,
         });
       }
       return list;
@@ -1708,7 +1814,7 @@ const MonthField = {
       this.popTop = top;
       this.popLeft = left;
     },
-    toggle() { if (this.disabled) return; clearTimeout(this._blurTimer); this.open = !this.open; if (this.open) this.$nextTick(() => this.measure()); },
+    toggle() { if (this.disabled) return; clearTimeout(this._blurTimer); this.open = !this.open; if (this.open) { this.mode = 'month'; this.$nextTick(() => this.measure()); } },
     close() { this.open = false; this.typed = this.modelValue || ''; },
     apply(iso) {
       this.typed = iso;
@@ -1717,6 +1823,9 @@ const MonthField = {
       this.close();
     },
     pick(item) { clearTimeout(this._blurTimer); if (!item.disabled) this.apply(item.iso); },
+    pickYear(item) { if (item.disabled) return; this.viewYear = item.year; this.mode = 'month'; },
+    prevRange() { this.viewYear -= this.mode === 'year' ? 12 : 1; },
+    nextRange() { this.viewYear += this.mode === 'year' ? 12 : 1; },
     pickThis() { this.apply(localMonth()); },
     clear() { this.apply(''); },
     onType(e) { this.typed = e.target.value; },
@@ -1753,19 +1862,149 @@ const MonthField = {
           <div v-if="isMobile" class="fixed inset-0 z-[84] bg-slate-900/30" @click="close"></div>
           <div class="month-pop-panel bg-white border border-slate-200 shadow-xl p-3" :class="isMobile ? 'fixed inset-x-0 bottom-0 z-[85] rounded-t-2xl pb-6' : 'w-[260px] rounded-xl'" :style="isMobile ? {} : popupStyle()">
             <div class="flex items-center justify-between mb-3">
-              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="viewYear -= 1">‹</button>
-              <div class="text-xs font-semibold text-slate-800">{{ viewYear }} 年</div>
-              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="viewYear += 1">›</button>
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="prevRange">‹</button>
+              <div class="text-xs font-semibold text-slate-800">
+                <button v-if="mode!=='year'" type="button" class="px-1.5 py-0.5 rounded hover:bg-slate-100" @click="mode='year'">{{ viewYear }} 年</button>
+                <span v-else>{{ yearBase }} - {{ yearBase + 11 }}</span>
+              </div>
+              <button type="button" class="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-600" @click="nextRange">›</button>
             </div>
-            <div class="grid grid-cols-3 gap-1.5">
+            <div v-if="mode==='month'" class="grid grid-cols-3 gap-1.5">
               <button v-for="m in months" :key="m.iso" type="button" :disabled="m.disabled"
                 :class="['h-9 text-xs rounded-lg', m.selected ? 'bg-slate-900 text-white' : (m.current ? 'border border-slate-400 text-slate-800' : 'text-slate-700 hover:bg-slate-100'), m.disabled ? 'opacity-30 cursor-not-allowed' : '']"
                 @click="pick(m)">{{ m.label }}</button>
             </div>
-            <div class="flex items-center justify-between mt-3 pt-2 border-t border-slate-100">
+            <div v-else class="grid grid-cols-3 gap-1.5">
+              <button v-for="y in yearCells" :key="y.year" type="button" :disabled="y.disabled"
+                :class="['h-9 text-xs rounded-lg', y.selected ? 'bg-slate-900 text-white' : (y.current ? 'border border-slate-400 text-slate-800' : 'text-slate-700 hover:bg-slate-100'), y.disabled ? 'opacity-30 cursor-not-allowed' : '']"
+                @click="pickYear(y)">{{ y.label }}</button>
+            </div>
+            <div v-if="mode==='month'" class="flex items-center justify-between mt-3 pt-2 border-t border-slate-100">
               <button type="button" class="text-[11px] text-slate-600 hover:text-slate-900 font-medium" @click="pickThis">本月</button>
               <button v-if="allowClear" type="button" class="text-[11px] text-slate-400 hover:text-rose-600" @click="clear">清空</button>
             </div>
+          </div>
+        </div>
+      </teleport>
+    </div>
+  `,
+};
+
+const SelectField = {
+  props: {
+    modelValue: { default: null },
+    options: { type: Array, default: () => [] },
+    placeholder: { type: String, default: '' },
+    disabled: { type: Boolean, default: false },
+    compact: { type: Boolean, default: false },
+  },
+  emits: ['update:modelValue', 'change'],
+  data() {
+    return { open: false, popTop: 0, popLeft: 0, popWidth: 160, active: -1 };
+  },
+  computed: {
+    isMobile() { return typeof window !== 'undefined' && window.innerWidth < 640; },
+    normalized() {
+      return this.options.map((o) => (o && typeof o === 'object' ? o : { value: o, label: String(o) }));
+    },
+    hasValue() { return this.normalized.some((o) => o.value === this.modelValue); },
+    selectedLabel() {
+      const hit = this.normalized.find((o) => o.value === this.modelValue);
+      return hit ? hit.label : (this.placeholder || '');
+    },
+  },
+  watch: {
+    modelValue() { this.open = false; },
+  },
+  mounted() {
+    this._onDoc = (e) => {
+      if (!this.open) return;
+      if (this.$el && this.$el.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('.select-pop-panel')) return;
+      this.close();
+    };
+    this._onResize = () => this.close();
+    document.addEventListener('mousedown', this._onDoc);
+    window.addEventListener('resize', this._onResize);
+  },
+  beforeUnmount() {
+    document.removeEventListener('mousedown', this._onDoc);
+    window.removeEventListener('resize', this._onResize);
+  },
+  methods: {
+    popupStyle() {
+      if (this.isMobile) return {};
+      return { position: 'fixed', top: this.popTop + 'px', left: this.popLeft + 'px', width: this.popWidth + 'px', zIndex: 85 };
+    },
+    measure() {
+      if (!this.$el || this.isMobile) return;
+      const r = this.$el.getBoundingClientRect();
+      const width = Math.max(140, Math.round(r.width));
+      const height = Math.min(280, this.normalized.length * 34 + 8);
+      let top = r.bottom + 4;
+      if (top + height > window.innerHeight - 8 && r.top - height - 4 > 8) top = r.top - height - 4;
+      let left = r.left;
+      if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+      this.popTop = top;
+      this.popLeft = left;
+      this.popWidth = width;
+    },
+    toggle() {
+      if (this.disabled) return;
+      this.open = !this.open;
+      if (this.open) {
+        this.active = this.normalized.findIndex((o) => o.value === this.modelValue);
+        this.$nextTick(() => this.measure());
+      }
+    },
+    close() { this.open = false; },
+    pick(opt) {
+      if (!opt || opt.disabled) return;
+      this.$emit('update:modelValue', opt.value);
+      this.$emit('change', opt.value);
+      this.close();
+    },
+    moveActive(delta) {
+      const list = this.normalized;
+      if (!list.length) return;
+      let i = this.active;
+      for (let step = 0; step < list.length; step++) {
+        i = (i + delta + list.length) % list.length;
+        if (!list[i].disabled) { this.active = i; return; }
+      }
+    },
+    onKey(e) {
+      if (this.disabled) return;
+      if (e.key === 'Escape') { this.open = false; return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!this.open) { this.open = true; this.$nextTick(() => { this.measure(); this.moveActive(e.key === 'ArrowDown' ? 1 : -1); }); return; }
+        this.moveActive(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (!this.open) { e.preventDefault(); this.toggle(); return; }
+        if (this.active >= 0 && this.normalized[this.active]) { e.preventDefault(); this.pick(this.normalized[this.active]); }
+      }
+      if (e.key === 'Tab') this.open = false;
+    },
+  },
+  template: `
+    <div class="select-field relative w-full">
+      <button type="button" :disabled="disabled" @click="toggle" @keydown="onKey"
+        :class="['w-full flex items-center gap-1 text-left border border-slate-200 bg-white disabled:opacity-50 disabled:bg-slate-50 disabled:cursor-not-allowed', compact ? 'text-[11px] px-1.5 py-1 rounded' : 'text-xs px-2.5 py-2 rounded-lg']">
+        <span :class="['flex-1 min-w-0 truncate', hasValue ? 'text-slate-800' : 'text-slate-400']">{{ selectedLabel }}</span>
+        <svg class="flex-none text-slate-400" viewBox="0 0 20 20" width="12" height="12" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      </button>
+      <teleport to="body">
+        <div v-if="open" class="select-pop-root">
+          <div v-if="isMobile" class="fixed inset-0 z-[84] bg-slate-900/30" @click="close"></div>
+          <div class="select-pop-panel bg-white border border-slate-200 shadow-xl p-1 overflow-y-auto"
+            :class="isMobile ? 'fixed inset-x-0 bottom-0 z-[85] rounded-t-2xl pb-4 max-h-[60vh]' : 'rounded-xl max-h-[280px]'"
+            :style="popupStyle()" @keydown="onKey">
+            <button v-for="(o, i) in normalized" :key="i" type="button" :disabled="o.disabled"
+              :class="['w-full text-left text-xs px-2.5 py-2 rounded-lg', o.value === modelValue ? 'bg-slate-900 text-white' : (i === active ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-50'), o.disabled ? 'opacity-30 cursor-not-allowed' : '']"
+              @click="pick(o)">{{ o.label }}</button>
           </div>
         </div>
       </teleport>
@@ -2036,8 +2275,36 @@ const app = createApp({
       saveDraft(draft, { amount: draft.amount });
     }
 
-    const readyDraftCount = computed(() => drafts.value.filter(d => d.status === 'ready' || d.status === 'failed').length);
+    const readyDraftCount = computed(() => drafts.value.filter(d => ['pending', 'processing', 'ready', 'failed'].includes(d.status)).length);
     const activeCompanies = computed(() => companies.value.filter(c => c.is_active));
+
+    // 自定义下拉的选项集（替代原生 select）
+    function companyOptions(emptyLabel) {
+      return [{ value: null, label: emptyLabel }, ...activeCompanies.value.map(c => ({ value: c.id, label: c.name }))];
+    }
+    function categoryOptions(emptyLabel) {
+      return [{ value: null, label: emptyLabel }, ...categories.value.map(c => ({ value: c.id, label: c.name }))];
+    }
+    const STATUS_FILTER_OPTIONS = [
+      { value: '', label: '全部' }, { value: 'pending', label: '待提交' }, { value: 'submitted', label: '已提交' },
+      { value: 'partial', label: '部分到账' }, { value: 'paid', label: '已到账' }, { value: 'rejected', label: '被驳回' },
+      { value: 'abandoned', label: '已放弃' },
+    ];
+    const STATUS_EDIT_OPTIONS = [
+      { value: 'pending', label: '待提交' }, { value: 'rejected', label: '被驳回' }, { value: 'abandoned', label: '已放弃' },
+    ];
+    const STATUS_LOCKED_OPTIONS = [
+      { value: 'submitted', label: '已提交' }, { value: 'partial', label: '部分到账' }, { value: 'paid', label: '已到账' },
+    ];
+    const KIND_OPTIONS = [
+      { value: 'reimbursement', label: '报销' }, { value: 'payroll', label: '薪资' }, { value: 'other', label: '其他' },
+    ];
+    function kindFilterOptions(emptyLabel) {
+      return [{ value: '', label: emptyLabel }, ...KIND_OPTIONS];
+    }
+    const ROLE_OPTIONS = [
+      { value: 'user', label: '普通成员' }, { value: 'admin', label: '管理员（需二次确认）' },
+    ];
     const visibleSettingTabs = computed(() => user.value?.role === 'admin' ? settingTabs : settingTabs.filter(tab => tab.key !== 'users'));
     const collectableReceivables = computed(() => receivables.value.filter(r => r.can_collect));
     const allSelected = computed(() => collectableReceivables.value.length > 0 && collectableReceivables.value.every(r => selectedReceivableIds.value.includes(r.id)));
@@ -2643,7 +2910,14 @@ const app = createApp({
     }
     function openAttachment(attachment) { openBlob(`/api/attachments/${attachment.id}/file`); }
 
-    const batchForm = reactive({ title: '', period: localMonth(), periodHint: '' });
+    const BATCH_STEPS = ['确认应收', '提交信息', '完成确认'];
+    const batchForm = reactive({
+      step: 1, title: '', period: localMonth(), periodHint: '', submitted_on: '', expected_on: '',
+      ackIncomplete: false, done: false, resultId: null, resultTitle: '', resultCount: 0, resultAmount: 0, resultExpected: '',
+    });
+    const batchWizardItems = computed(() => receivables.value.filter(r => selectedReceivableIds.value.includes(r.id)));
+    const batchWizardIncomplete = computed(() => batchWizardItems.value.filter(r => r.missing_invoice));
+    function batchStepDone(index) { return batchForm.done || batchForm.step > index + 1; }
     function openBatchModal() {
       if (!selectedReceivableIds.value.length) return notify('请先在台账勾选应收', 'error');
       if (!selectedCompanyName.value) return notify('一次只能归集同一家公司的应收', 'error');
@@ -2655,19 +2929,66 @@ const app = createApp({
       batchForm.periodHint = periods.length > 1 ? ('所选应收归属月不一致：' + periods.join('、') + '。批次要求同一归属月，请调整后再归集。') : '';
       batchForm.title = selectedCompanyName.value + ' ' + batchForm.period + ' 报销';
       if (periods.length > 1) return notify(batchForm.periodHint, 'error');
+      batchForm.step = 1;
+      batchForm.submitted_on = localToday();
+      batchForm.expected_on = '';
+      batchForm.ackIncomplete = false;
+      batchForm.done = false;
+      batchForm.resultId = null;
       openModal('batch');
     }
-    async function createBatch() {
+    function removeBatchWizardItem(id) {
+      selectedReceivableIds.value = selectedReceivableIds.value.filter(x => x !== id);
+      if (!selectedReceivableIds.value.length) { closeModal(); notify('已清空所选应收，流程已关闭'); }
+    }
+    function batchWizardNext() {
+      if (batchForm.step === 1) {
+        if (!(batchForm.title || '').trim()) return notify('请填写批次名称', 'error');
+        if (!batchForm.period) return notify('请选择归属月', 'error');
+        if (!selectedReceivableIds.value.length) return notify('批次内至少要有 1 笔应收', 'error');
+        batchForm.step = 2;
+      } else if (batchForm.step === 2) {
+        if (!batchForm.submitted_on) return notify('请选择提交日期', 'error');
+        batchForm.step = 3;
+      }
+    }
+    function batchWizardBack() { if (batchForm.step > 1) batchForm.step -= 1; }
+    async function submitBatchWizard() {
       const companyId = receivables.value.find(r => r.id === selectedReceivableIds.value[0])?.company_id;
       if (!companyId) return notify('无法确定公司', 'error');
-      try {
-        const result = await api('/api/batches', { method: 'POST', body: { company_id: companyId, period: batchForm.period, title: batchForm.title, receivable_ids: selectedReceivableIds.value } });
-        notify('批次已创建');
-        closeModal();
-        selectedReceivableIds.value = [];
-        await loadBatches(); await loadReceivables(); await loadDashboard();
-        openBatchDetail(result.batch_id);
-      } catch (error) { notify(errMsg(error), 'error'); }
+      if (!batchForm.submitted_on) return notify('请选择提交日期', 'error');
+      if (batchWizardIncomplete.value.length && !batchForm.ackIncomplete) return notify('有材料不全的应收，请先确认后再提交', 'error');
+      return withPending('batch-submit', async () => {
+        try {
+          const snapshotItems = batchWizardItems.value.slice();
+          const result = await api('/api/batches', {
+            method: 'POST',
+            body: {
+              company_id: companyId,
+              period: batchForm.period,
+              title: batchForm.title,
+              receivable_ids: selectedReceivableIds.value,
+              submit: true,
+              submitted_on: batchForm.submitted_on,
+              expected_on: batchForm.expected_on || '',
+            },
+          });
+          batchForm.done = true;
+          batchForm.resultId = result.batch_id;
+          batchForm.resultTitle = batchForm.title;
+          batchForm.resultCount = snapshotItems.length;
+          batchForm.resultAmount = snapshotItems.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+          batchForm.resultExpected = result.expected_on || '';
+          selectedReceivableIds.value = [];
+          await loadBatches(); await loadReceivables(); await loadDashboard();
+        } catch (error) { notify(errMsg(error), 'error'); }
+      });
+    }
+    function finishBatchWizard(openDetail) {
+      const id = batchForm.resultId;
+      closeModal();
+      go('batches');
+      if (openDetail && id) openBatchDetail(id);
     }
 
     const batchDetail = ref(null);
@@ -3157,7 +3478,7 @@ const app = createApp({
     const preview = reactive({
       open: false, title: '', url: '', page: 1, pages: 1, kind: '',
       zoom: 1, dx: 0, dy: 0, dragging: false, loading: false, error: '', ofd: false,
-      source: null, _sx: 0, _sy: 0, _ox: 0, _oy: 0,
+      source: null, _sx: 0, _sy: 0, _ox: 0, _oy: 0, _moved: false,
     });
     function openDraftPreview(draft) {
       openPreview({
@@ -3196,6 +3517,7 @@ const app = createApp({
     function closePreview() {
       preview.open = false;
       preview.dragging = false;
+      preview._moved = false;
     }
     async function loadPreviewPage() {
       const src = preview.source;
@@ -3273,6 +3595,7 @@ const app = createApp({
     function previewDown(event) {
       if (!preview.url) return;
       preview.dragging = true;
+      preview._moved = false;
       preview._sx = event.clientX;
       preview._sy = event.clientY;
       preview._ox = preview.dx;
@@ -3280,10 +3603,20 @@ const app = createApp({
     }
     function previewMove(event) {
       if (!preview.dragging) return;
-      preview.dx = preview._ox + (event.clientX - preview._sx);
-      preview.dy = preview._oy + (event.clientY - preview._sy);
+      const dx = preview._ox + (event.clientX - preview._sx);
+      const dy = preview._oy + (event.clientY - preview._sy);
+      if (Math.abs(dx - preview._ox) > 4 || Math.abs(dy - preview._oy) > 4) preview._moved = true;
+      preview.dx = dx;
+      preview.dy = dy;
     }
     function previewUp() { preview.dragging = false; }
+    // 点击预览空白处关闭；点图片或按钮不关闭，拖动结束不误触
+    function previewStageClick(event) {
+      if (preview._moved) { preview._moved = false; return; }
+      const target = event.target;
+      if (target && (target.tagName === 'IMG' || (target.closest && target.closest('button')))) return;
+      closePreview();
+    }
     function downloadPreviewOriginal() {
       if (!preview.source) return;
       downloadBlob(preview.source.downloadPath, {}, preview.source.filename || 'download').catch((error) => notify(errMsg(error), 'error'));
@@ -3387,7 +3720,9 @@ const app = createApp({
     return {
       token, user, authMode, authForm, authError, authLoading,
       view, settingTab, settingTabs, visibleSettingTabs, navItems, currentTitle,
-      companies, activeCompanies, categories, dashboard, receivables, receivableTotal, receivableSummary,
+      companies, activeCompanies, categories, companyOptions, categoryOptions, kindFilterOptions,
+      STATUS_FILTER_OPTIONS, STATUS_EDIT_OPTIONS, STATUS_LOCKED_OPTIONS, KIND_OPTIONS, ROLE_OPTIONS,
+      dashboard, receivables, receivableTotal, receivableSummary,
       batches, payments, drafts, exportRecords, auditLogs, users, agentTokens, showAgentCreate, createdAgentToken, agentScopeOptions, agentTokenForm,
       selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput, cameraInput, uploadResult,
       filters, exportFilters, toast, notify, closeToast, showProgress, isPending, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount, canApplyPayment, applyDraftPayment,
@@ -3400,7 +3735,7 @@ const app = createApp({
       saveDraft, retryDraft, discardDraft, applyDraftCompany, openDraftFile, openDraftPreview, onDraftOccurred, confirmDrafts, openConfirmSummary, doConfirmFromSummary, confirmSummary, selectAllDrafts, invertDraftSelection,
       receivableForm, openReceivableModal, onReceivableOccurred, saveReceivable, deleteReceivable, abandonReceivable, duplicateReceivable, detail, openReceivableDetail,
       uploadAttachments, deleteAttachment, openAttachment, openAttachmentPreview,
-      batchForm, openBatchModal, createBatch, batchDetail, batchAddCandidates, openBatchDetail, addBatchItem, removeBatchItem, submitBatch, doSubmitBatch,
+      batchForm, BATCH_STEPS, batchStepDone, openBatchModal, batchWizardItems, batchWizardIncomplete, removeBatchWizardItem, batchWizardNext, batchWizardBack, submitBatchWizard, finishBatchWizard, batchDetail, batchAddCandidates, openBatchDetail, addBatchItem, removeBatchItem, submitBatch, doSubmitBatch,
       batchSubmitTarget, batchSubmitForm, openPayBatch, doPayBatch, payBatchForm, openUnsubmitBatch, doUnsubmitBatch, unsubmitForm, cancelBatch, exportBatchPack, exportBatchAttachments,
       paymentForm, paymentCandidates, paymentAllocatedTotal, allocationMatches, canSavePayment, onPaymentCandidateToggle, autoAllocate, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
       exportExcel, exportSelectedPdf, exportSelectedPack, exportSelectedAttachments, exportAttachmentsByFilter, downloadExportRecord,
@@ -3411,7 +3746,7 @@ const app = createApp({
       userForm, openUserModal, saveUser, resetTarget, resetPasswordValue, openResetPassword, doResetPassword, deleteUser, disableUser, enableUser,
       payrollPlans, payrollForm, openPayrollModal, savePayrollPlan, stopPayrollPlan, syncPayrollPlans, loadPayrollPlans,
       guideHtml, guideError, loadGuide,
-      preview, closePreview, previewPage, previewZoom, previewWheel, previewDown, previewMove, previewUp, downloadPreviewOriginal,
+      preview, closePreview, previewPage, previewZoom, previewWheel, previewDown, previewMove, previewUp, previewStageClick, downloadPreviewOriginal,
       thumbCache,
     };
   }
@@ -3419,6 +3754,7 @@ const app = createApp({
 app.component('AppIcon', AppIcon);
 app.component('DateField', DateField);
 app.component('MonthField', MonthField);
+app.component('SelectField', SelectField);
 app.mount('#app');
 </script>
 </body>

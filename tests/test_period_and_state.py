@@ -318,3 +318,59 @@ def test_pending_and_rejected_can_be_collected(client, auth):
     batch_id = make_batch(client, auth, company["id"], [pending["id"], rejected["id"]])
     detail = client.get(f"/api/batches/{batch_id}", headers=auth).json()
     assert all(item["status"] == "pending" for item in detail["items"])
+
+
+def test_create_and_submit_in_one_call(client, auth):
+    """归集与提交在同一事务内完成，不留下草稿批次。"""
+    company = create_company(client, auth, name="一次提交公司")
+    first = create_receivable(client, auth, company["id"], title="打车费")
+    second = create_receivable(client, auth, company["id"], title="住宿费", amount=300)
+    response = client.post(
+        "/api/batches",
+        json={
+            "company_id": company["id"],
+            "period": "2026-11",
+            "title": "11 月一次提交",
+            "receivable_ids": [first["id"], second["id"]],
+            "submit": True,
+            "submitted_on": "2026-11-05",
+            "expected_on": "2026-12-05",
+        },
+        headers=auth,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "submitted"
+    assert body["expected_on"] == "2026-12-05"
+
+    batches = client.get("/api/batches", headers=auth).json()
+    batch = next(item for item in batches if item["id"] == body["batch_id"])
+    assert batch["status"] == "submitted"
+    assert batch["submitted_on"] == "2026-11-05"
+    assert batch["count"] == 2
+    assert all(item["status"] != "draft" for item in batches)
+
+    for receivable_id in (first["id"], second["id"]):
+        detail = client.get(f"/api/receivables/{receivable_id}", headers=auth).json()
+        assert detail["status"] == "submitted"
+        assert detail["expected_on"] == "2026-12-05"
+
+
+def test_create_and_submit_fills_expected_on_from_company(client, auth):
+    company = create_company(client, auth, name="账期公司", payday=15)
+    item = create_receivable(client, auth, company["id"], title="默认账期")
+    response = client.post(
+        "/api/batches",
+        json={
+            "company_id": company["id"],
+            "period": "2026-11",
+            "receivable_ids": [item["id"]],
+            "submit": True,
+            "submitted_on": "2026-11-05",
+        },
+        headers=auth,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "submitted"
+    assert body["expected_on"] == "2026-11-15"
