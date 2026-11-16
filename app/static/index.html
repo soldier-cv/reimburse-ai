@@ -169,16 +169,6 @@
             <div class="lg:hidden w-8 h-8"><img src="/static/icon.svg" alt="" class="w-8 h-8 rounded-lg"></div>
             <div class="min-w-0"><div class="text-sm font-bold text-slate-900 truncate">{{ currentTitle }}</div></div>
           </div>
-          <div class="flex items-center gap-2">
-            <button type="button" class="hidden sm:flex w-8 h-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-900" @click="go('guide')" title="使用指南">?</button>
-            <button v-if="view !== 'inbox'" @click="openQuickUpload" :disabled="isPending('upload')" class="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-              <span v-if="isPending('upload')" class="btn-spin"></span>
-              <app-icon v-else name="paperclip" class="mr-1"></app-icon>{{ isPending('upload') ? '上传中...' : '上传票据' }}
-            </button>
-            <button @click="openReceivableModal()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800">
-              <app-icon name="plus" class="mr-1"></app-icon>新增应收
-            </button>
-          </div>
         </div>
         <div class="lg:hidden px-3 pb-2 flex gap-1 overflow-x-auto">
           <button v-for="item in navItems" :key="item.key" @click="go(item.key)"
@@ -488,6 +478,7 @@
                 <span v-if="selectedReceivableIds.length" class="text-blue-600">已选 {{ selectedReceivableIds.length }} 笔</span>
               </div>
               <div class="flex flex-wrap items-center gap-2">
+                <button @click="openReceivableModal()" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50"><app-icon name="plus" class="mr-1"></app-icon>新增应收</button>
                 <button @click="exportSelectedPack" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">导出财务包</button>
                 <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">合并 PDF</button>
                 <button @click="exportSelectedAttachments" :disabled="!selectedReceivableIds.length || isPending('export-att')" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">导出原件</button>
