@@ -236,3 +236,5 @@ class PayrollPlanUpdate(BaseModel):
     effective_to: Optional[str] = None
     note: Optional[str] = None
     is_active: Optional[bool] = None
+    # 改金额时同步更新本计划生成、仍未提交且未进批次的工资应收
+    apply_amount_to_pending: bool = False

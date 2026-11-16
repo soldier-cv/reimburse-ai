@@ -511,7 +511,7 @@
                     <td class="px-2 py-3 text-xs text-slate-400 whitespace-nowrap">{{ r.created_on || '-' }}</td>
                     <td class="px-2 py-3"><span class="inline-flex items-center gap-1.5 text-xs"><span class="w-1.5 h-1.5 rounded-full" :style="{background:r.company_color}"></span>{{ r.company_name }}</span></td>
                     <td class="px-2 py-3 text-xs text-slate-500">{{ r.category_name || '-' }}</td>
-                    <td class="px-2 py-3"><span class="font-medium text-slate-800">{{ r.title }}</span><div v-if="r.batch_title" class="text-[10px] text-slate-400">{{ r.batch_title }}</div><div v-if="!r.can_collect && r.collect_reason" class="text-[10px] text-slate-400">{{ r.collect_reason }}</div></td>
+                    <td class="px-2 py-3"><span class="font-medium text-slate-800">{{ r.title }}</span><div v-if="r.batch_title" class="text-[10px] text-slate-400">{{ r.batch_title }}</div></td>
                     <td class="px-2 py-3 text-right whitespace-nowrap">
                       <button type="button" @click="openReceivableDetail(r.id)" class="font-semibold num text-slate-900 underline decoration-slate-300 decoration-1 underline-offset-2 hover:text-blue-600 hover:decoration-blue-500">¥{{ money(r.amount) }}</button>
                       <div v-if="r.status==='partial'" class="text-[10px] font-normal text-amber-600">已收 ¥{{ money(r.received) }} · 待收 ¥{{ money(r.remaining) }}</div>
@@ -659,7 +659,7 @@
                 <div class="text-sm font-bold text-slate-900">薪资计划</div>
                 <button type="button" class="guide-q" @click="goGuide('5-薪资计划与到账核销')">?</button>
               </div>
-              <div class="text-[11px] text-slate-400 mt-1">按公司配置税前月薪与发薪日，打开应用时会自动补齐缺失月份的工资应收；到账时按实发结清，差额记为代扣。</div>
+              <div class="text-[11px] text-slate-400 mt-1">按公司配置税前月薪与发薪日，自动补齐缺失月份。</div>
             </div>
             <div class="flex items-center gap-2">
               <button @click="syncPayrollPlans" :disabled="isPending('payroll-sync')" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-50">
@@ -1373,7 +1373,10 @@
           <select-field v-model="payrollForm.company_id" :options="companyOptions('请选择')"></select-field>
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-[11px] text-slate-500 mb-1">税前月薪（应发）*</label><input v-model="payrollForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="按工资条应发合计填写"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">税前月薪（应发）*</label><input v-model="payrollForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+          <div v-if="payrollForm.id" class="col-span-2">
+            <label class="flex items-center gap-1.5 text-[11px] text-slate-600"><input type="checkbox" v-model="payrollForm.applyAmountToPending" class="rounded border-slate-300">同步更新待提交的工资应收</label>
+          </div>
           <div><label class="block text-[11px] text-slate-500 mb-1">发薪日</label><input v-model.number="payrollForm.payday" type="number" min="1" max="28" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="1-28"></div>
         </div>
         <div class="grid grid-cols-2 gap-3">
@@ -3649,7 +3652,7 @@ const app = createApp({
       downloadBlob(preview.source.downloadPath, {}, preview.source.filename || 'download').catch((error) => notify(errMsg(error), 'error'));
     }
 
-    const payrollForm = reactive({ id: null, company_id: null, amount: '', payday: 15, effective_from: '', effective_to: '', note: '' });
+    const payrollForm = reactive({ id: null, company_id: null, amount: '', payday: 15, effective_from: '', effective_to: '', note: '', applyAmountToPending: false });
     async function loadPayrollPlans() {
       try { payrollPlans.value = await api('/api/payroll-plans'); }
       catch (e) { payrollPlans.value = []; }
@@ -3659,11 +3662,12 @@ const app = createApp({
         Object.assign(payrollForm, {
           id: plan.id, company_id: plan.company_id, amount: plan.amount, payday: plan.payday,
           effective_from: plan.effective_from, effective_to: plan.effective_to || '', note: plan.note || '',
+          applyAmountToPending: false,
         });
       } else {
         Object.assign(payrollForm, {
           id: null, company_id: defaultCompanyId(), amount: '', payday: 15,
-          effective_from: localToday(), effective_to: '', note: '',
+          effective_from: localToday(), effective_to: '', note: '', applyAmountToPending: false,
         });
       }
       openModal('payroll');
@@ -3679,12 +3683,15 @@ const app = createApp({
         effective_from: payrollForm.effective_from,
         effective_to: payrollForm.effective_to || '',
         note: payrollForm.note || '',
+        apply_amount_to_pending: !!payrollForm.applyAmountToPending,
       };
       return withPending('payroll-save', async () => {
         try {
-          if (payrollForm.id) await api(`/api/payroll-plans/${payrollForm.id}`, { method: 'PUT', body });
-          else await api('/api/payroll-plans', { method: 'POST', body });
-          notify('薪资计划已保存');
+          const result = payrollForm.id
+            ? await api(`/api/payroll-plans/${payrollForm.id}`, { method: 'PUT', body })
+            : await api('/api/payroll-plans', { method: 'POST', body });
+          const updated = result?.updated_receivables || 0;
+          notify(updated ? `薪资计划已保存，同步更新 ${updated} 笔待提交工资` : '薪资计划已保存');
           closeModal();
           await loadPayrollPlans();
         } catch (error) { notify(errMsg(error), 'error'); }
