@@ -149,6 +149,8 @@ class Receivable(Base):
     occurred_on = Column(String(10), default="", index=True)
     amount_cents = Column(Integer, nullable=False, default=0)
     received_cents = Column(Integer, nullable=False, default=0)  # 已到账金额，支持部分到账
+    # 核销差额：结清时确认不再追收的部分（工资的税前-实发代扣、公司少付认损等）
+    waived_cents = Column(Integer, nullable=False, default=0)
 
     status = Column(String(20), default="pending", index=True)
     # pending 待提交 / submitted 已提交 / partial 部分到账 / paid 已到账
@@ -204,6 +206,7 @@ class PaymentItem(Base):
     payment_id = Column(Integer, ForeignKey("payments.id"), index=True, nullable=False)
     receivable_id = Column(Integer, ForeignKey("receivables.id"), index=True, nullable=False)
     amount_cents = Column(Integer, nullable=False, default=0)  # 本次到账分配给该应收的金额
+    waived_cents = Column(Integer, nullable=False, default=0)  # 本次结清一并核销的差额（工资代扣等）
 
     payment = relationship("Payment", back_populates="items")
     receivable = relationship("Receivable", back_populates="payment_items")
