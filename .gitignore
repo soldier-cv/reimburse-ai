@@ -26,6 +26,21 @@ venv/
 env/
 ENV/
 
+# Credentials & Secrets (铁律：凭据永不上库)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+credentials.json
+
+# Test & Build Caches
+.pytest_cache/
+.coverage
+htmlcov/
+.release_tag
+
 # Data & Uploads (保持目录结构，忽略生成的数据库与具体文件)
 data/*.db
 data/*.db-journal

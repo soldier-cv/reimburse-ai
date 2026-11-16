@@ -3321,6 +3321,9 @@ def health():
 
 @app.get("/favicon.ico")
 def favicon():
+    ico_path = os.path.join(STATIC_DIR, "favicon.ico")
+    if os.path.exists(ico_path):
+        return FileResponse(ico_path, media_type="image/x-icon")
     return FileResponse(os.path.join(STATIC_DIR, "icon-192.png"), media_type="image/png")
 
 

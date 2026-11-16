@@ -55,15 +55,24 @@
 
 ## 环境变量
 
+完整环境变量见 [`.env.example`](.env.example)。常见配置项如下：
+
 | 变量 | 作用 | 默认 |
 |---|---|---|
-| `PORT` | 容器内监听端口 | `8090` |
-| `ALLOW_REGISTRATION` | 是否开放自主注册 | 关闭 |
+| `PORT` | 容器内/本地监听端口 | `8090` |
+| `HOST` | 本地服务监听地址 | `0.0.0.0` |
+| `EXPENSE_DATA_DIR` | 数据目录绝对路径 | `<BASE_DIR>/data` |
+| `EXPENSE_DB_PATH` | SQLite 数据库文件绝对路径 | `<DATA_DIR>/expense.db` |
+| `EXPENSE_UPLOAD_DIR` | 上传发票与附件存储路径 | `<BASE_DIR>/uploads` |
+| `ADMIN_USERNAME` | 预设默认管理员账号（免向导） | 空（走向导） |
+| `ADMIN_PASSWORD` | 预设默认管理员密码（免向导） | 空（走向导） |
+| `JWT_SECRET_KEY` | JWT 签名密钥（留空自动生成） | 空 |
+| `ALLOW_REGISTRATION` | 是否开放自主注册（1/true/yes） | 关闭 |
 | `CORS_ORIGINS` | 允许的跨域来源，逗号分隔 | 空（同源） |
-| `ENABLE_API_DOCS` | 是否开放 `/docs` | 关闭 |
-| `CJK_FONT_PATH` | 指定导出 PDF 使用的中文字体 | 自动查找 |
-| `CAPTURE_SYNC` | 仅测试用，同步识别 | 关闭 |
-| `CAPTURE_CONCURRENCY` | 后台同时识别的草稿数 | `4` |
+| `ENABLE_API_DOCS` | 是否开放 `/docs` API 文档 | 关闭 |
+| `CAPTURE_CONCURRENCY` | 后台同时识别的草稿并发数 | `4` |
+| `CAPTURE_SYNC` | 仅测试用，同步识别等待 | 关闭 |
+| `CJK_FONT_PATH` | 指定导出 PDF 使用的中文字体 | 自动探测 |
 
 ## 本地测试部署
 
