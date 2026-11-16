@@ -162,8 +162,10 @@ from .services.ledger import (
     has_payments,
     is_locked,
     receivable_period,
+    remaining_cents,
     reset_receivable_to_pending,
     resolve_item_period,
+    settled_cents,
 )
 from .services.money import (
     add_days,
@@ -187,7 +189,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.3.1",
+    version="3.4.0",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -370,8 +372,10 @@ def _serialize_receivable(receivable: Receivable, detail: bool = False) -> dict:
         "amount_cents": receivable.amount_cents or 0,
         "received_cents": receivable.received_cents or 0,
         "received": cents_to_yuan(receivable.received_cents or 0),
-        "remaining_cents": max(0, (receivable.amount_cents or 0) - (receivable.received_cents or 0)),
-        "remaining": cents_to_yuan(max(0, (receivable.amount_cents or 0) - (receivable.received_cents or 0))),
+        "waived_cents": receivable.waived_cents or 0,
+        "waived": cents_to_yuan(receivable.waived_cents or 0),
+        "remaining_cents": remaining_cents(receivable),
+        "remaining": cents_to_yuan(remaining_cents(receivable)),
         "status": receivable.status,
         "status_label": STATUS_LABELS.get(receivable.status, receivable.status),
         "expected_on": receivable.expected_on or "",
@@ -820,7 +824,7 @@ def list_companies(user: User = Depends(get_current_user), db: Session = Depends
             Receivable.company_id == company.id,
             Receivable.status.in_(("pending", "submitted", "partial")),
         ).all()
-        outstanding = sum(max(0, (item.amount_cents or 0) - (item.received_cents or 0)) for item in active)
+        outstanding = sum(remaining_cents(item) for item in active)
         overdue_items = [
             item for item in active
             if item.status in ("submitted", "partial") and item.expected_on and item.expected_on < today
@@ -867,7 +871,7 @@ def list_companies(user: User = Depends(get_current_user), db: Session = Depends
             "outstanding": cents_to_yuan(outstanding),
             "outstanding_cents": outstanding,
             "outstanding_count": len(active),
-            "overdue": cents_to_yuan(sum(max(0, (item.amount_cents or 0) - (item.received_cents or 0)) for item in overdue_items)),
+            "overdue": cents_to_yuan(sum(remaining_cents(item) for item in overdue_items)),
             "overdue_count": len(overdue_items),
             "oldest_overdue_days": max([days_overdue(item.expected_on) for item in overdue_items] or [0]),
             "last_paid_on": last_paid or "",
@@ -1491,7 +1495,11 @@ def apply_draft_payment(
                 detail={"message": "没有可核销的工资应收，请先建好对应月份的应收", "proposal": proposal},
             )
         allocations = [
-            PaymentAllocation(receivable_id=item["receivable_id"], amount=item["amount"])
+            PaymentAllocation(
+                receivable_id=item["receivable_id"],
+                amount=item["amount"],
+                waive=bool(item.get("waive", False)),
+            )
             for item in proposal["allocations"]
         ]
         allocated = sum(yuan_to_cents(item.amount) for item in allocations)
@@ -1707,10 +1715,10 @@ def update_receivable(receivable_id: int, req: ReceivableUpdate, user: User = De
         amount_cents = yuan_to_cents(req.amount)
         if amount_cents <= 0:
             raise HTTPException(status_code=400, detail="金额必须大于 0")
-        if amount_cents < (receivable.received_cents or 0):
-            raise HTTPException(status_code=400, detail="金额不能小于已到账金额")
+        if amount_cents < settled_cents(receivable):
+            raise HTTPException(status_code=400, detail="金额不能小于已到账与核销差额合计")
         receivable.amount_cents = amount_cents
-        if (receivable.received_cents or 0) >= amount_cents:
+        if settled_cents(receivable) >= amount_cents:
             receivable.status = "paid"
             if not receivable.paid_on:
                 receivable.paid_on = today_str()
@@ -1900,7 +1908,7 @@ def list_batches(user: User = Depends(get_current_user), db: Session = Depends(g
     result = []
     for batch in batches:
         items = [item for item in batch.receivables if item.deleted_at is None]
-        unpaid = [item for item in items if (item.received_cents or 0) < (item.amount_cents or 0)]
+        unpaid = [item for item in items if remaining_cents(item) > 0]
         overdue = [
             item
             for item in unpaid
@@ -1923,13 +1931,14 @@ def list_batches(user: User = Depends(get_current_user), db: Session = Depends(g
                 "amount": cents_to_yuan(sum(item.amount_cents or 0 for item in items)),
                 "amount_cents": sum(item.amount_cents or 0 for item in items),
                 "received": cents_to_yuan(sum(item.received_cents or 0 for item in items)),
-                "remaining": cents_to_yuan(sum((item.amount_cents or 0) - (item.received_cents or 0) for item in items)),
+                "waived": cents_to_yuan(sum(item.waived_cents or 0 for item in items)),
+                "remaining": cents_to_yuan(sum(remaining_cents(item) for item in items)),
                 "overdue_count": len(overdue),
                 "note": batch.note or "",
                 "has_payments": sum(item.received_cents or 0 for item in items) > 0,
                 "partial": (
                     sum(item.received_cents or 0 for item in items) > 0
-                    and any((item.received_cents or 0) < (item.amount_cents or 0) for item in items)
+                    and any(remaining_cents(item) > 0 for item in items)
                     and batch.status != "paid"
                 ),
                 "can_unsubmit": batch.status == "submitted" and all((item.received_cents or 0) == 0 for item in items),
@@ -1939,7 +1948,7 @@ def list_batches(user: User = Depends(get_current_user), db: Session = Depends(g
                     "部分到账"
                     if batch.status != "paid"
                     and sum(item.received_cents or 0 for item in items) > 0
-                    and any((item.received_cents or 0) < (item.amount_cents or 0) for item in items)
+                    and any(remaining_cents(item) > 0 for item in items)
                     else {"draft": "草稿", "submitted": "已提交", "paid": "已结清", "cancelled": "已取消"}.get(batch.status, batch.status)
                 ),
             }
@@ -2015,10 +2024,12 @@ def create_batch(req: BatchCreate, user: User = Depends(get_current_user), db: S
 
 def _batch_flags(batch: Batch, items: list[Receivable]) -> dict:
     received = sum(item.received_cents or 0 for item in items)
-    remaining = sum(max(0, (item.amount_cents or 0) - (item.received_cents or 0)) for item in items)
+    waived = sum(item.waived_cents or 0 for item in items)
+    remaining = sum(remaining_cents(item) for item in items)
     has_pay = received > 0
     return {
         "received": cents_to_yuan(received),
+        "waived": cents_to_yuan(waived),
         "remaining": cents_to_yuan(remaining),
         "has_payments": has_pay,
         "partial": has_pay and remaining > 0,
@@ -2237,8 +2248,8 @@ def update_batch_items(batch_id: int, req: BatchItemsRequest, user: User = Depen
 # ---------------------------------------------------------------------------
 def _resolve_allocations(
     db: Session, user: User, req: PaymentCreate, amount_cents: int
-) -> list[tuple[Receivable, int]]:
-    """把一笔到账拆成「应收 -> 本次核销金额」列表。
+) -> list[tuple[Receivable, int, bool]]:
+    """把一笔到账拆成「应收 -> (本次核销金额, 是否按实发结清)」列表。
 
     显式 allocations 优先；否则按 receivable_ids 顺序把到账金额自动分摊到各笔待收余额。
     """
@@ -2265,7 +2276,7 @@ def _resolve_allocations(
                 alloc_cents = yuan_to_cents(alloc.amount)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail="分摊金额格式不正确") from exc
-            result.append((receivable, alloc_cents))
+            result.append((receivable, alloc_cents, bool(getattr(alloc, "waive", False))))
         return result
 
     if not req.receivable_ids:
@@ -2288,10 +2299,10 @@ def _resolve_allocations(
     for receivable in receivables:
         if remaining <= 0:
             break
-        outstanding = (receivable.amount_cents or 0) - (receivable.received_cents or 0)
-        alloc = min(remaining, max(0, outstanding))
+        outstanding = remaining_cents(receivable)
+        alloc = min(remaining, outstanding)
         if alloc > 0:
-            result.append((receivable, alloc))
+            result.append((receivable, alloc, False))
             remaining -= alloc
     if remaining > 0:
         raise HTTPException(
@@ -2327,12 +2338,12 @@ def _record_payment(db: Session, user: User, req: PaymentCreate) -> Payment:
     if not allocations:
         raise HTTPException(status_code=400, detail="请选择这笔到账核销的应收事项")
 
-    for receivable, alloc_cents in allocations:
+    for receivable, alloc_cents, _waive in allocations:
         if receivable.company_id != company.id:
             raise HTTPException(status_code=400, detail="到账只能核销同一家公司的应收")
         if receivable.status in ("paid", "abandoned", "rejected"):
             raise HTTPException(status_code=400, detail="选中的应收里有已结清或已关闭的记录")
-        outstanding = (receivable.amount_cents or 0) - (receivable.received_cents or 0)
+        outstanding = remaining_cents(receivable)
         if alloc_cents <= 0:
             raise HTTPException(status_code=400, detail="每笔核销金额必须大于 0")
         if alloc_cents > outstanding:
@@ -2345,7 +2356,7 @@ def _record_payment(db: Session, user: User, req: PaymentCreate) -> Payment:
                 },
             )
 
-    total_allocated = sum(alloc for _, alloc in allocations)
+    total_allocated = sum(alloc for _, alloc, _ in allocations)
     if total_allocated != amount_cents:
         raise HTTPException(
             status_code=400,
@@ -2357,7 +2368,7 @@ def _record_payment(db: Session, user: User, req: PaymentCreate) -> Payment:
             },
         )
 
-    batch_ids = {item.batch_id for item, _ in allocations if item.batch_id}
+    batch_ids = {item.batch_id for item, _, _ in allocations if item.batch_id}
     paid_on = normalize_date(req.paid_on or today_str())
     payment = Payment(
         user_id=user.id,
@@ -2371,23 +2382,33 @@ def _record_payment(db: Session, user: User, req: PaymentCreate) -> Payment:
     db.add(payment)
     db.flush()
 
-    for receivable, alloc_cents in allocations:
+    for receivable, alloc_cents, waive in allocations:
+        outstanding = remaining_cents(receivable)
+        waive_cents = max(0, outstanding - alloc_cents) if waive else 0
         receivable.received_cents = (receivable.received_cents or 0) + alloc_cents
-        if receivable.received_cents >= (receivable.amount_cents or 0):
+        receivable.waived_cents = (receivable.waived_cents or 0) + waive_cents
+        if settled_cents(receivable) >= (receivable.amount_cents or 0):
             receivable.status = "paid"
             receivable.paid_on = paid_on
         else:
             receivable.status = "partial"
             receivable.paid_on = ""
-        db.add(PaymentItem(payment_id=payment.id, receivable_id=receivable.id, amount_cents=alloc_cents))
+        db.add(
+            PaymentItem(
+                payment_id=payment.id,
+                receivable_id=receivable.id,
+                amount_cents=alloc_cents,
+                waived_cents=waive_cents,
+            )
+        )
     db.flush()
 
-    for batch_id in {item.batch_id for item, _ in allocations if item.batch_id}:
+    for batch_id in {item.batch_id for item, _, _ in allocations if item.batch_id}:
         batch = db.query(Batch).filter(Batch.id == batch_id).first()
         if batch:
             still_open = [
                 item for item in batch.receivables
-                if item.deleted_at is None and (item.received_cents or 0) < (item.amount_cents or 0)
+                if item.deleted_at is None and remaining_cents(item) > 0
             ]
             if not still_open:
                 batch.status = "paid"
@@ -2487,10 +2508,11 @@ def delete_payment(payment_id: int, user: User = Depends(get_current_user), db: 
         if not receivable:
             continue
         receivable.received_cents = max(0, (receivable.received_cents or 0) - (item.amount_cents or 0))
-        if receivable.received_cents <= 0:
+        receivable.waived_cents = max(0, (receivable.waived_cents or 0) - (item.waived_cents or 0))
+        if receivable.received_cents <= 0 and receivable.waived_cents <= 0:
             receivable.status = "submitted" if receivable.batch_id else "pending"
             receivable.paid_on = ""
-        elif receivable.received_cents < (receivable.amount_cents or 0):
+        elif settled_cents(receivable) < (receivable.amount_cents or 0):
             receivable.status = "partial"
             receivable.paid_on = ""
         else:
@@ -2502,7 +2524,7 @@ def delete_payment(payment_id: int, user: User = Depends(get_current_user), db: 
         if batch:
             still_open = [
                 item for item in batch.receivables
-                if item.deleted_at is None and (item.received_cents or 0) < (item.amount_cents or 0)
+                if item.deleted_at is None and remaining_cents(item) > 0
             ]
             batch.status = "submitted" if still_open else "paid"
             batch.paid_on = "" if still_open else batch.paid_on
@@ -2515,27 +2537,41 @@ def delete_payment(payment_id: int, user: User = Depends(get_current_user), db: 
 @app.post("/api/batches/{batch_id}/payment")
 def pay_batch(batch_id: int, req: BatchPaymentRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     batch = _batch_or_404(db, user, batch_id)
-    items = [
+    open_items = [
         item for item in batch.receivables
         if item.deleted_at is None
         and item.status in ("submitted", "partial")
-        and (item.received_cents or 0) < (item.amount_cents or 0)
+        and remaining_cents(item) > 0
     ]
+    # 工资的金额是税前，到账是实发，差额需要单独登记为代扣；批次到账不处理工资项
+    skipped_payroll = [item for item in open_items if item.kind == "payroll"]
+    items = [item for item in open_items if item.kind != "payroll"]
     if not items:
+        if skipped_payroll:
+            raise HTTPException(
+                status_code=400,
+                detail="该批次只剩工资应收。工资按税前挂账、按实发结清，请到对应工资应收上「登记实发」单独处理",
+            )
         raise HTTPException(status_code=400, detail="该批次没有待核销的应收")
     payload = PaymentCreate(
         company_id=batch.company_id,
-        amount=cents_to_yuan(sum((item.amount_cents or 0) - (item.received_cents or 0) for item in items)),
+        amount=cents_to_yuan(sum(remaining_cents(item) for item in items)),
         paid_on=req.paid_on,
         allocations=[
-            {"receivable_id": item.id, "amount": cents_to_yuan((item.amount_cents or 0) - (item.received_cents or 0))}
+            {"receivable_id": item.id, "amount": cents_to_yuan(remaining_cents(item))}
             for item in items
         ],
         note=req.note,
         idempotency_key=req.idempotency_key,
     )
     payment = _record_payment(db, user, payload)
-    return {"success": True, "payment_id": payment.id, "message": "批次已结清"}
+    message = "批次已结清" if not skipped_payroll else f"批次内报销已结清；{len(skipped_payroll)} 笔工资请按实发单独登记"
+    return {
+        "success": True,
+        "payment_id": payment.id,
+        "message": message,
+        "skipped_payroll": [{"id": item.id, "title": item.title, "amount": cents_to_yuan(item.amount_cents)} for item in skipped_payroll],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2659,9 +2695,6 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     )
     today = today_str()
     current_month = _current_month()
-
-    def remaining_cents(item: Receivable) -> int:
-        return max(0, (item.amount_cents or 0) - (item.received_cents or 0))
 
     outstanding = [item for item in receivables if item.status in ("pending", "submitted", "partial")]
     overdue = [

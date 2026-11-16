@@ -53,6 +53,16 @@ def ensure_receivable_schema(engine: Engine) -> None:
             conn.commit()
             print("[RECEIVABLE MIGRATE] payment_items.amount_cents 已添加")
 
+        if receivable_cols and "waived_cents" not in receivable_cols:
+            conn.execute(text("ALTER TABLE receivables ADD COLUMN waived_cents INTEGER NOT NULL DEFAULT 0"))
+            conn.commit()
+            print("[RECEIVABLE MIGRATE] receivables.waived_cents 已添加")
+
+        if item_cols and "waived_cents" not in item_cols:
+            conn.execute(text("ALTER TABLE payment_items ADD COLUMN waived_cents INTEGER NOT NULL DEFAULT 0"))
+            conn.commit()
+            print("[RECEIVABLE MIGRATE] payment_items.waived_cents 已添加")
+
 
 def ensure_agent_token_schema(engine: Engine) -> None:
     """为已有库创建 agent_tokens 表（幂等）。新库由 metadata.create_all 创建。"""

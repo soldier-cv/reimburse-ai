@@ -14,6 +14,7 @@ from statistics import median
 from sqlalchemy.orm import Session
 
 from ..models import Receivable
+from .ledger import remaining_cents
 from .money import cents_to_text, parse_date
 
 SALARY_KEYWORDS = ("工资", "薪资", "薪酬", "月薪", "发薪", "代发", "补发", "奖金", "绩效", "年终奖", "十三薪")
@@ -100,7 +101,7 @@ def parse_month_mentions(remark: str, paid_on: str = "") -> list[str]:
 
 
 def _outstanding(receivable: Receivable) -> int:
-    return max(0, (receivable.amount_cents or 0) - (receivable.received_cents or 0))
+    return remaining_cents(receivable)
 
 
 def unpaid_payroll(db: Session, user_id: int, company_id: int) -> list[Receivable]:
@@ -120,7 +121,7 @@ def unpaid_payroll(db: Session, user_id: int, company_id: int) -> list[Receivabl
 
 
 def reference_monthly_cents(db: Session, user_id: int, company_id: int) -> int:
-    """参考月薪：该公司最近 6 笔工资应收的中位数。"""
+    """参考月薪：优先取已结清工资的实发（税后）中位数，没有实发再退回税前金额。"""
     rows = (
         db.query(Receivable)
         .filter(
@@ -128,42 +129,62 @@ def reference_monthly_cents(db: Session, user_id: int, company_id: int) -> int:
             Receivable.company_id == company_id,
             Receivable.kind == "payroll",
             Receivable.deleted_at.is_(None),
-            Receivable.amount_cents > 0,
         )
         .order_by(Receivable.period.desc(), Receivable.id.desc())
-        .limit(6)
+        .limit(12)
         .all()
     )
-    values = [item.amount_cents for item in rows if item.amount_cents]
-    return int(median(values)) if values else 0
+    net_values = [item.received_cents for item in rows if (item.received_cents or 0) > 0]
+    if net_values:
+        return int(median(net_values))
+    gross_values = [item.amount_cents for item in rows if (item.amount_cents or 0) > 0]
+    return int(median(gross_values)) if gross_values else 0
 
 
 def _month_label(period: str) -> str:
     return f"{int(period[5:7])}月" if len(period) == 7 and period[5:7].isdigit() else period
 
 
-def _allocation(receivable: Receivable, cents: int) -> dict:
+def _allocation(receivable: Receivable, cents: int, waive: bool = True) -> dict:
+    outstanding = _outstanding(receivable)
+    waived = max(0, outstanding - cents) if waive else 0
     return {
         "receivable_id": receivable.id,
         "period": receivable.period or "",
         "title": receivable.title or "",
         "amount_cents": cents,
         "amount": round(cents / 100, 2),
-        "outstanding_cents": _outstanding(receivable),
+        "waived_cents": waived,
+        "waived": round(waived / 100, 2),
+        "outstanding_cents": outstanding,
+        "gross_cents": receivable.amount_cents or 0,
+        "gross": round((receivable.amount_cents or 0) / 100, 2),
+        "waive": waive,
     }
 
 
-def _greedy(unpaid: list[Receivable], amount_cents: int) -> tuple[list[dict], int]:
-    remaining = amount_cents
-    allocations = []
-    for receivable in unpaid:
-        if remaining <= 0:
-            break
-        take = min(_outstanding(receivable), remaining)
-        if take > 0:
-            allocations.append(_allocation(receivable, take))
-            remaining -= take
-    return allocations, remaining
+def _settle(unpaid: list[Receivable], amount_cents: int) -> tuple[list[dict], int]:
+    """把实发金额按税前占比分摊到目标月份，并把差额标记为核销（代扣）。
+
+    工资的应收金额是税前，到账是实发，因此按比例分摊后每笔都会留下代扣差额，
+    结清后待收归零。
+    """
+    total = sum(_outstanding(item) for item in unpaid)
+    if total <= 0:
+        return [], amount_cents
+    allocations: list[dict] = []
+    left = amount_cents
+    for index, receivable in enumerate(unpaid):
+        outstanding = _outstanding(receivable)
+        if index == len(unpaid) - 1:
+            take = min(left, outstanding)
+        else:
+            take = min(int(round(amount_cents * outstanding / total)), outstanding)
+        if take <= 0:
+            continue
+        allocations.append(_allocation(receivable, take, waive=True))
+        left -= take
+    return allocations, left
 
 
 def propose_allocation(
@@ -189,21 +210,15 @@ def propose_allocation(
     months = parse_month_mentions(remark, paid_on)
 
     if months:
-        remaining = amount_cents
-        allocations: list[dict] = []
+        targets: list[Receivable] = []
         missing: list[str] = []
         for period in months:
             matched = [item for item in unpaid if (item.period or "") == period]
             if not matched:
                 missing.append(period)
                 continue
-            for receivable in matched:
-                if remaining <= 0:
-                    break
-                take = min(_outstanding(receivable), remaining)
-                if take > 0:
-                    allocations.append(_allocation(receivable, take))
-                    remaining -= take
+            targets.extend(matched)
+        allocations, remaining = _settle(targets, amount_cents) if targets else ([], amount_cents)
         result.update(
             months=months,
             month_labels=[_month_label(item) for item in months],
@@ -243,7 +258,7 @@ def propose_allocation(
         if running > amount_cents:
             break
     if exact_count:
-        allocations, remaining = _greedy(unpaid[:exact_count], amount_cents)
+        allocations, remaining = _settle(unpaid[:exact_count], amount_cents)
         periods = [item["period"] for item in allocations]
         result.update(
             months=periods,
@@ -257,15 +272,15 @@ def propose_allocation(
         )
         return result
 
-    # 金额约为 N 个月工资
+    # 金额约为 N 个月实发工资（参考月薪优先取历史实发）
     reference = reference_monthly_cents(db, user_id, company_id)
     if reference > 0:
         months_count = max(1, round(amount_cents / reference))
         if months_count <= len(unpaid):
-            target_sum = sum(_outstanding(item) for item in unpaid[:months_count])
+            target_sum = months_count * reference
             tolerance = max(int(reference * 0.05), 100)
             if abs(target_sum - amount_cents) <= tolerance:
-                allocations, remaining = _greedy(unpaid[:months_count], amount_cents)
+                allocations, remaining = _settle(unpaid[:months_count], amount_cents)
                 periods = [item["period"] for item in allocations]
                 result.update(
                     months=periods,
@@ -282,7 +297,7 @@ def propose_allocation(
                 )
                 return result
 
-    allocations, remaining = _greedy(unpaid, amount_cents)
+    allocations, remaining = _settle(unpaid, amount_cents)
     periods = [item["period"] for item in allocations]
     result.update(
         months=periods,

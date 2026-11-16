@@ -21,6 +21,22 @@ def receivable_period(item: Receivable) -> str:
     return normalize_period(item.period) or period_from_date(item.occurred_on or "")
 
 
+def remaining_cents(item: Receivable) -> int:
+    """待收 = 应收金额 - 已到账 - 核销差额。
+
+    核销差额用于工资的税前/实发代扣，以及公司少付后确认不再追收的部分。
+    """
+    return max(
+        0,
+        (item.amount_cents or 0) - (item.received_cents or 0) - (item.waived_cents or 0),
+    )
+
+
+def settled_cents(item: Receivable) -> int:
+    """已了结金额：已到账 + 核销差额。"""
+    return (item.received_cents or 0) + (item.waived_cents or 0)
+
+
 def has_payments(item: Receivable) -> bool:
     return (item.received_cents or 0) > 0 or item.status in PAYMENT_STATUSES
 

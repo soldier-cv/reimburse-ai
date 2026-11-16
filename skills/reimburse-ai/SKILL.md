@@ -1,7 +1,7 @@
 ---
 name: reimburse-ai
 description: Use when 采集报销票据、维护个人对公应收台账、提交批次、核销到账或导出财务包。
-version: 1.2.0
+version: 1.3.0
 author: soldier-cv
 license: MIT
 metadata:
@@ -49,6 +49,8 @@ print(s['version'], s['updated_at'])"
 curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <你的技能目录>/reimburse-ai/SKILL.md
 ```
 
+**1.3.0 对齐应用 3.4.0**：工资改为税前挂账、实发结清、差额记核销（代扣）。`PaymentAllocation` 新增 `waive`；应收返回体新增 `waived_cents` / `waived`；批次到账跳过工资项并在 `skipped_payroll` 里返回；工资截图推断优先用历史实发金额。
+
 **1.2.0 对齐应用 3.3.1**：`POST /api/batches` 新增 `submit` / `submitted_on` / `expected_on`，可在同一事务内创建并提交，不留下草稿批次，返回体新增 `status` 与 `expected_on`。Web 端归集改为三步流程，最后一步一次性创建并提交。
 
 **1.1.0 对齐应用 3.3.0**：新增草稿/附件在线预览、确认时独立归属月、批次撤回与草稿增删、薪资计划补齐、按月份/批次打包原件、只读 AI 摘要与使用指南；收紧应收状态机（已提交锁定、不能删除只能放弃）；上传结果报告跳过与重复。令牌可重新签发（旧令牌立即失效），仍不能由 Agent 自己签发、重新签发或吊销。
@@ -64,6 +66,8 @@ curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <
 - **应收事项 `Receivable` 是唯一账本事实**；发票、截图、聊天记录、回单只是附件。
 - 一笔应收只属于一个批次；批次是向同一家公司的一次提交。
 - 工资与报销共用应收模型，用 `kind` 区分：`reimbursement` / `payroll` / `other`。
+- **工资口径**：工资应收的 `amount` 是税前（应发），计划里只填税前；到账写 `received`（实发），差额写 `waived`（代扣）。待收 = 金额 − 已收 − 核销差额，所以结清后为 0。报销类不涉及税前税后，`waived` 只用于公司少付后确认不再追收。
+- **工资单独核销**：批次到账只结报销项；工资项会被跳过，需要单独登记实发。
 - 单币种人民币。全库金额以整数分（`*_cents`）存储。
 
 ### 金额单位（务必分清）
@@ -71,8 +75,8 @@ curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <
 | 位置 | 单位 | 说明 |
 |---|---|---|
 | 请求 JSON / 表单里的 `amount` | **元** | 数字或字符串均可，例如 `128`、`"128.00"`、`"¥128.00"` |
-| 响应里的 `amount`、`received`、`remaining`、`outstanding`、`allocated` 等 | **元** | 浮点数，保留两位 |
-| 响应里的 `amount_cents`、`received_cents`、`remaining_cents` 及看板 `*_cents` | **分** | 整数；计算与对账优先用这些字段 |
+| 响应里的 `amount`、`received`、`waived`、`remaining`、`outstanding`、`allocated` 等 | **元** | 浮点数，保留两位 |
+| 响应里的 `amount_cents`、`received_cents`、`waived_cents`、`remaining_cents` 及看板 `*_cents` | **分** | 整数；计算与对账优先用这些字段 |
 
 **不要把「分」传进请求的 `amount`。** 整数 `128` 会被当成 128 元（12800 分）。要对账或累加，读响应里的 `*_cents`。
 
@@ -213,14 +217,14 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 | POST | `/api/batches/{batch_id}/unsubmit` | 撤回提交（仅未到账；body 必须有 `reason`），批次回到草稿，应收回到待提交 |
 | POST | `/api/batches/{batch_id}/items` | 草稿批次增删应收：`{add_ids, remove_ids}` |
 | POST | `/api/batches/{batch_id}/cancel` | 取消批次（未到账），应收退回待提交并解绑 |
-| POST | `/api/batches/{batch_id}/payment` | 按待收余额一次性结清该批；`paid_on` 可选，空则默认当天（上海时区） |
+| POST | `/api/batches/{batch_id}/payment` | 按待收余额一次性结清该批的报销项；工资项跳过并在 `skipped_payroll` 返回。`paid_on` 可选，空则默认当天（上海时区） |
 | GET | `/api/payments` | 列到账 |
-| POST | `/api/payments` | 记录到账并分摊 |
+| POST | `/api/payments` | 记录到账并分摊；分摊项可传 `waive: true`，把本次未收到的差额记为核销差额（工资代扣） |
 | GET | `/api/payments/{payment_id}` | 到账详情（含分摊到的应收） |
 | DELETE | `/api/payments/{payment_id}` | 删除到账并回退应收状态 |
 | GET | `/api/dashboard` | 看板 KPI、公司待收、账龄、近 6 个月趋势、类别占比、逾期清单、`todos` 待办（不自动补齐工资，补齐请 `POST /api/payroll-plans/sync`） |
 | GET | `/api/payroll-plans` | 列薪资计划 |
-| POST | `/api/payroll-plans` | 新建计划：`company_id`、`amount`（元）、`payday`、`effective_from`、可选 `effective_to` / `category_id` / `note`。同一公司有效区间不能重叠 |
+| POST | `/api/payroll-plans` | 新建计划：`company_id`、`amount`（元，**税前应发**）、`payday`、`effective_from`、可选 `effective_to` / `category_id` / `note`。同一公司有效区间不能重叠 |
 | PUT | `/api/payroll-plans/{plan_id}` | 修改计划 |
 | DELETE | `/api/payroll-plans/{plan_id}` | 停发（不再生成，已生成的工资应收保留） |
 | POST | `/api/payroll-plans/sync` | 补齐该用户所有有效计划的缺失月份，同一公司同一归属月不重复 |
@@ -479,15 +483,18 @@ curl -sS -X POST "$BASE/api/batches/7/payment" -H "$H" -H 'Content-Type: applica
 采集到账类截图且识别 `direction=in` 时，草稿会带 `is_inflow` 与 `payroll_match`。确认前若这是工资入账而不是一笔新的应收，应走核销接口，而不是 `POST /api/capture/confirm`。
 
 ```bash
-# 不传 allocations 时使用推断（备注月份 → 最早欠发顺序 → 金额约等于月薪倍数）
+# 不传 allocations 时使用推断（备注月份 → 最早欠发顺序 → 金额约等于历史实发倍数）
+# 推断出的分摊自带 waive，按实发结清并把差额记为代扣
 curl -sS -X POST "$BASE/api/capture/drafts/20/apply-payment" -H "$H" \
   -H 'Content-Type: application/json' -d '{"note":""}'
 
 # 或手工指定分摊（元），合计必须等于草稿到账金额
 curl -sS -X POST "$BASE/api/capture/drafts/20/apply-payment" -H "$H" \
   -H 'Content-Type: application/json' \
-  -d '{"allocations":[{"receivable_id":55,"amount":"8000.00"}],"note":"11月工资"}'
+  -d '{"allocations":[{"receivable_id":55,"amount":"8000.00","waive":true}],"note":"11月工资"}'
 ```
+
+工资应收的 `amount` 是税前，`received` 是实发。传 `waive: true` 表示按实发结清：本次没收到的差额写进 `waived_cents` 并标记为代扣，应收转为 `paid`、待收归零；不传则按普通部分到账处理，剩下的继续挂着。报销类不要传 `waive`，除非公司确实少付且你确认不再追收。
 
 前置条件：草稿未入账、不在识别中、已选公司、已有到账金额。识别中返回 409。推断失败或推断合计与到账金额不一致时 400，`detail` 可能含 `proposal`。成功后写入到账记录，把截图挂到被核销的第一笔应收，草稿标为 `confirmed`。幂等键固定为 `capture-draft-{草稿id}`，重复调用不会再记一笔到账。该接口本身不强制 `doc_type=salary` 或 `direction=in`，但业务上只应用于到账截图。
 

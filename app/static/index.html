@@ -441,7 +441,7 @@
                 <div v-if="d.payroll_match" class="mt-2 text-[10px] text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1">
                   <div>{{ d.payroll_match.reason }}</div>
                   <div v-if="d.payroll_match.allocations.length" class="text-slate-400 mt-0.5">
-                    {{ d.payroll_match.allocations.map(a => a.period + ' ¥' + money(a.amount)).join('，') }}
+                    {{ d.payroll_match.allocations.map(a => a.period + ' 实发 ¥' + money(a.amount) + (a.waived > 0 ? '（代扣 ¥' + money(a.waived) + '）' : '')).join('，') }}
                   </div>
                 </div>
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
@@ -524,6 +524,8 @@
                     <td class="px-2 py-3 text-right whitespace-nowrap">
                       <button type="button" @click="openReceivableDetail(r.id)" class="font-semibold num text-slate-900 underline decoration-slate-300 decoration-1 underline-offset-2 hover:text-blue-600 hover:decoration-blue-500">¥{{ money(r.amount) }}</button>
                       <div v-if="r.status==='partial'" class="text-[10px] font-normal text-amber-600">已收 ¥{{ money(r.received) }} · 待收 ¥{{ money(r.remaining) }}</div>
+                      <div v-else-if="r.kind==='payroll' && r.waived_cents > 0" class="text-[10px] font-normal text-slate-400">实发 ¥{{ money(r.received) }} · 代扣 ¥{{ money(r.waived) }}</div>
+                      <div v-else-if="r.kind==='payroll'" class="text-[10px] font-normal text-slate-400">税前</div>
                     </td>
                     <td class="px-2 py-3 text-center"><span :class="['text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap', statusClass(r.status)]">{{ r.status_label }}</span></td>
                     <td class="px-2 py-3 text-xs whitespace-nowrap">
@@ -666,7 +668,7 @@
                 <div class="text-sm font-bold text-slate-900">薪资计划</div>
                 <button type="button" class="guide-q" @click="goGuide('5-薪资计划与到账核销')">?</button>
               </div>
-              <div class="text-[11px] text-slate-400 mt-1">按公司配置月薪与发薪日，打开应用时会自动补齐缺失月份的工资应收，不会重复生成。</div>
+              <div class="text-[11px] text-slate-400 mt-1">按公司配置税前月薪与发薪日，打开应用时会自动补齐缺失月份的工资应收；到账时按实发结清，差额记为代扣。</div>
             </div>
             <div class="flex items-center gap-2">
               <button @click="syncPayrollPlans" :disabled="isPending('payroll-sync')" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-50">
@@ -689,7 +691,7 @@
                 <span :class="['text-[10px] px-2 py-0.5 rounded-full', p.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500']">{{ p.is_active ? '生效中' : '已停发' }}</span>
               </div>
               <div class="mt-3 flex items-end justify-between">
-                <div><div class="text-[10px] text-slate-400">月薪</div><div class="text-xl font-bold num">¥{{ money(p.amount) }}</div></div>
+                <div><div class="text-[10px] text-slate-400">税前月薪</div><div class="text-xl font-bold num">¥{{ money(p.amount) }}</div></div>
                 <div class="flex gap-1.5">
                   <button v-if="p.is_active" @click="openPayrollModal(p)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium">编辑</button>
                   <button v-if="p.is_active" @click="stopPayrollPlan(p)" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-medium text-rose-600">停发</button>
@@ -953,8 +955,9 @@
           <div class="bg-slate-50 rounded-xl p-3"><div class="text-[10px] text-slate-400">提交日</div><div class="text-sm font-semibold mt-1">{{ detail?.submitted_on || '-' }}</div></div>
           <div class="bg-slate-50 rounded-xl p-3"><div class="text-[10px] text-slate-400">预计到账</div><div class="text-sm font-semibold mt-1" :class="detail?.days_overdue ? 'text-rose-600' : ''">{{ detail?.expected_on || '-' }}</div></div>
         </div>
-        <div v-if="detail?.received_cents" class="grid grid-cols-2 gap-3">
-          <div class="bg-emerald-50 rounded-xl p-3"><div class="text-[10px] text-slate-500">已收</div><div class="text-lg font-bold num text-emerald-700">¥{{ money(detail.received) }}</div></div>
+        <div v-if="detail?.received_cents || detail?.waived_cents" :class="['grid gap-3', detail?.waived_cents ? 'grid-cols-3' : 'grid-cols-2']">
+          <div class="bg-emerald-50 rounded-xl p-3"><div class="text-[10px] text-slate-500">已收{{ detail?.kind === 'payroll' ? '（实发）' : '' }}</div><div class="text-lg font-bold num text-emerald-700">¥{{ money(detail.received) }}</div></div>
+          <div v-if="detail?.waived_cents" class="bg-slate-50 rounded-xl p-3"><div class="text-[10px] text-slate-500">{{ detail?.kind === 'payroll' ? '代扣' : '核销差额' }}</div><div class="text-lg font-bold num text-slate-600">¥{{ money(detail.waived) }}</div></div>
           <div class="bg-amber-50 rounded-xl p-3"><div class="text-[10px] text-slate-500">待收</div><div class="text-lg font-bold num text-amber-700">¥{{ money(detail.remaining) }}</div></div>
         </div>
         <div v-if="detail?.note" class="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">{{ detail.note }}</div>
@@ -1167,17 +1170,29 @@
             </div>
           </div>
           <div class="border border-slate-200 rounded-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
-            <div v-for="r in paymentCandidates" :key="r.id" class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50">
-              <input type="checkbox" :value="r.id" v-model="paymentForm.receivable_ids" @change="onPaymentCandidateToggle(r)" class="rounded border-slate-300">
-              <span class="flex-1 min-w-0"><span class="font-medium">{{ r.title }}</span><span class="text-slate-400 ml-1">待收 ¥{{ money(r.remaining) }}</span></span>
-              <input v-if="paymentForm.receivable_ids.includes(r.id)" v-model.number="paymentForm.allocations[r.id]" type="number" step="0.01" min="0" class="w-24 px-2 py-1 rounded border border-slate-200 text-xs num text-right">
-              <span v-else class="num font-semibold">¥{{ money(r.remaining) }}</span>
+            <div v-for="r in paymentCandidates" :key="r.id" class="px-3 py-2 text-xs hover:bg-slate-50">
+              <div class="flex items-center gap-2">
+                <input type="checkbox" :value="r.id" v-model="paymentForm.receivable_ids" @change="onPaymentCandidateToggle(r)" class="rounded border-slate-300">
+                <span class="flex-1 min-w-0">
+                  <span class="font-medium">{{ r.title }}</span>
+                  <span v-if="r.kind==='payroll'" class="ml-1 text-[10px] px-1 py-0.5 rounded bg-slate-100 text-slate-500">工资 · 税前</span>
+                  <span class="text-slate-400 ml-1">待收 ¥{{ money(r.remaining) }}</span>
+                </span>
+                <input v-if="paymentForm.receivable_ids.includes(r.id)" v-model.number="paymentForm.allocations[r.id]" type="number" step="0.01" min="0" class="w-24 px-2 py-1 rounded border border-slate-200 text-xs num text-right">
+                <span v-else class="num font-semibold">¥{{ money(r.remaining) }}</span>
+              </div>
+              <div v-if="paymentForm.receivable_ids.includes(r.id) && r.kind==='payroll'" class="flex items-center justify-between mt-1.5 pl-6">
+                <label class="flex items-center gap-1.5 text-[10px] text-slate-500">
+                  <input type="checkbox" v-model="paymentForm.waive[r.id]" class="rounded border-slate-300">按实发结清，差额记代扣
+                </label>
+                <span v-if="paymentWaiveCents(r) > 0" class="text-[10px] text-amber-700">代扣 ¥{{ money(paymentWaiveCents(r)) }}</span>
+              </div>
             </div>
             <div v-if="!paymentCandidates.length" class="px-3 py-8 text-center text-xs text-slate-400">{{ paymentForm.company_id ? '该公司没有待结清的应收' : '先选择公司' }}</div>
           </div>
         </div>
         <div class="flex items-center justify-between text-xs px-1">
-          <span class="text-slate-500">分摊合计 <b :class="allocationMatches ? 'text-emerald-600' : 'text-rose-600'">¥{{ money(paymentAllocatedTotal) }}</b> / 到账 ¥{{ money(paymentForm.amount) }}</span>
+          <span class="text-slate-500">分摊合计 <b :class="allocationMatches ? 'text-emerald-600' : 'text-rose-600'">¥{{ money(paymentAllocatedTotal) }}</b> / 到账 ¥{{ money(paymentForm.amount) }}<span v-if="paymentWaiveTotal > 0" class="text-amber-700 ml-2">代扣 ¥{{ money(paymentWaiveTotal) }}</span></span>
           <span v-if="!allocationMatches" class="text-rose-600">金额不一致</span>
         </div>
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="paymentForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如：11 月报销一批到账"></div>
@@ -1367,7 +1382,7 @@
           <select-field v-model="payrollForm.company_id" :options="companyOptions('请选择')"></select-field>
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-[11px] text-slate-500 mb-1">月薪 *</label><input v-model="payrollForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">税前月薪（应发）*</label><input v-model="payrollForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="按工资条应发合计填写"></div>
           <div><label class="block text-[11px] text-slate-500 mb-1">发薪日</label><input v-model.number="payrollForm.payday" type="number" min="1" max="28" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="1-28"></div>
         </div>
         <div class="grid grid-cols-2 gap-3">
@@ -3068,8 +3083,8 @@ const app = createApp({
       if (!payBatchForm.id) return;
       return withPending('pay-batch', async () => {
         try {
-          await api(`/api/batches/${payBatchForm.id}/payment`, { method: 'POST', body: { paid_on: payBatchForm.paid_on || localToday(), note: payBatchForm.note || '批次到账' } });
-          notify('已记录到账');
+          const result = await api(`/api/batches/${payBatchForm.id}/payment`, { method: 'POST', body: { paid_on: payBatchForm.paid_on || localToday(), note: payBatchForm.note || '批次到账' } });
+          notify(result.message || '已记录到账', result.skipped_payroll && result.skipped_payroll.length ? 'warning' : 'success');
           closeModal();
           await loadBatches(); await loadReceivables(); await loadDashboard(); await loadPayments(); await loadCompanies();
         } catch (error) { notify(errMsg(error), 'error'); }
@@ -3116,16 +3131,28 @@ const app = createApp({
       });
     }
 
-    const paymentForm = reactive({ company_id: null, paid_on: localToday(), amount: 0, note: '', receivable_ids: [], allocations: {}, idempotency_key: '' });
+    const paymentForm = reactive({ company_id: null, paid_on: localToday(), amount: 0, note: '', receivable_ids: [], allocations: {}, waive: {}, idempotency_key: '' });
     const paymentCandidates = ref([]);
     const paymentAllocatedTotal = computed(() => paymentForm.receivable_ids.reduce((sum, id) => sum + (Number(paymentForm.allocations[id]) || 0), 0));
     const allocationMatches = computed(() => paymentAllocatedTotal.value > 0 && Math.abs(paymentAllocatedTotal.value - (Number(paymentForm.amount) || 0)) < 0.005);
     const canSavePayment = computed(() => allocationMatches.value && paymentForm.receivable_ids.length > 0 && Number(paymentForm.amount) > 0);
+    // 结清时没收到的部分会记为核销差额（工资的税前-实发代扣）
+    function paymentWaiveCents(receivable) {
+      if (!paymentForm.waive[receivable.id]) return 0;
+      const allocated = Number(paymentForm.allocations[receivable.id]) || 0;
+      return Math.max(0, Math.round((Number(receivable.remaining) - allocated) * 100) / 100);
+    }
+    const paymentWaiveTotal = computed(() => paymentForm.receivable_ids.reduce((sum, id) => {
+      const receivable = paymentCandidates.value.find(r => r.id === id);
+      return receivable ? sum + paymentWaiveCents(receivable) : sum;
+    }, 0));
     function onPaymentCandidateToggle(receivable) {
       if (paymentForm.receivable_ids.includes(receivable.id)) {
         paymentForm.allocations[receivable.id] = Number(receivable.remaining);
+        if (receivable.kind === 'payroll') paymentForm.waive[receivable.id] = true;
       } else {
         delete paymentForm.allocations[receivable.id];
+        delete paymentForm.waive[receivable.id];
       }
       if (!paymentForm.amount) paymentForm.amount = paymentAllocatedTotal.value;
     }
@@ -3147,6 +3174,7 @@ const app = createApp({
       paymentForm.amount = 0;
       paymentForm.receivable_ids = [];
       paymentForm.allocations = {};
+      paymentForm.waive = {};
       paymentForm.idempotency_key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
       paymentCandidates.value = [];
       openModal('payment');
@@ -3154,12 +3182,14 @@ const app = createApp({
       if (preset && paymentCandidates.value.some(r => r.id === preset.id)) {
         paymentForm.receivable_ids = [preset.id];
         paymentForm.allocations[preset.id] = Number(preset.remaining);
+        if (preset.kind === 'payroll') paymentForm.waive[preset.id] = true;
         paymentForm.amount = Number(preset.remaining);
       }
     }
     async function loadPaymentCandidates() {
       paymentForm.receivable_ids = [];
       paymentForm.allocations = {};
+      paymentForm.waive = {};
       paymentForm.amount = 0;
       if (!paymentForm.company_id) { paymentCandidates.value = []; return; }
       const data = await api(`/api/receivables?company_id=${paymentForm.company_id}&page_size=200`);
@@ -3169,10 +3199,15 @@ const app = createApp({
       if (paymentForm.receivable_ids.length) {
         paymentForm.receivable_ids = [];
         paymentForm.allocations = {};
+        paymentForm.waive = {};
       } else {
         paymentForm.receivable_ids = paymentCandidates.value.map(r => r.id);
         paymentForm.allocations = {};
-        for (const r of paymentCandidates.value) paymentForm.allocations[r.id] = Number(r.remaining);
+        paymentForm.waive = {};
+        for (const r of paymentCandidates.value) {
+          paymentForm.allocations[r.id] = Number(r.remaining);
+          if (r.kind === 'payroll') paymentForm.waive[r.id] = true;
+        }
         paymentForm.amount = paymentAllocatedTotal.value;
       }
     }
@@ -3182,6 +3217,7 @@ const app = createApp({
       const allocations = paymentForm.receivable_ids.map(id => ({
         receivable_id: id,
         amount: Number(paymentForm.allocations[id]) || 0,
+        waive: !!paymentForm.waive[id],
       }));
       try {
         await api('/api/payments', { method: 'POST', body: { company_id: paymentForm.company_id, amount: Number(paymentForm.amount), paid_on: paymentForm.paid_on, allocations, note: paymentForm.note, idempotency_key: paymentForm.idempotency_key } });
@@ -3737,7 +3773,7 @@ const app = createApp({
       uploadAttachments, deleteAttachment, openAttachment, openAttachmentPreview,
       batchForm, BATCH_STEPS, batchStepDone, openBatchModal, batchWizardItems, batchWizardIncomplete, removeBatchWizardItem, batchWizardNext, batchWizardBack, submitBatchWizard, finishBatchWizard, batchDetail, batchAddCandidates, openBatchDetail, addBatchItem, removeBatchItem, submitBatch, doSubmitBatch,
       batchSubmitTarget, batchSubmitForm, openPayBatch, doPayBatch, payBatchForm, openUnsubmitBatch, doUnsubmitBatch, unsubmitForm, cancelBatch, exportBatchPack, exportBatchAttachments,
-      paymentForm, paymentCandidates, paymentAllocatedTotal, allocationMatches, canSavePayment, onPaymentCandidateToggle, autoAllocate, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
+      paymentForm, paymentCandidates, paymentAllocatedTotal, allocationMatches, canSavePayment, paymentWaiveCents, paymentWaiveTotal, onPaymentCandidateToggle, autoAllocate, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
       exportExcel, exportSelectedPdf, exportSelectedPack, exportSelectedAttachments, exportAttachmentsByFilter, downloadExportRecord,
       companyBarWidth, agingBarWidth, categoryBarWidth, trendHeight,
       companyForm, openCompanyModal, saveCompany, deleteCompany,

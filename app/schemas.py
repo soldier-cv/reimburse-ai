@@ -145,6 +145,8 @@ class BatchSubmit(BaseModel):
 class PaymentAllocation(BaseModel):
     receivable_id: int
     amount: Union[float, str]
+    # 结清该应收：本次实收少于待收时，差额记为核销差额（工资代扣等），不再追收
+    waive: bool = False
 
 
 class PaymentCreate(BaseModel):
