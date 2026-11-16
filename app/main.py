@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from sqlalchemy import exists, func, or_
+from sqlalchemy import exists, func, inspect, or_
 from sqlalchemy.orm import Session
 
 from .database import BASE_DIR, Base, engine, get_db
@@ -135,7 +135,13 @@ from .services.agent_tokens import (
     serialize_token,
     store_scopes,
 )
-from .services.migrations import ensure_auth_schema, ensure_agent_token_schema, ensure_receivable_schema, ensure_v33_schema
+from .services.migrations import (
+    ensure_agent_token_schema,
+    ensure_auth_schema,
+    ensure_receivable_schema,
+    ensure_v33_schema,
+    ensure_v34_schema,
+)
 from .services.payroll_match import propose_allocation
 from .services.payroll_plans import (
     assert_no_overlap,
@@ -183,7 +189,10 @@ from .services.money import (
     yuan_to_cents,
 )
 
-Base.metadata.create_all(bind=engine)
+# 只有空库才按当前模型建表；非空库交给遗留兼容函数与 Alembic 修订，
+# 避免 create_all 抢先建出新表导致后续修订的 create_table 冲突。
+if not inspect(engine).get_table_names():
+    Base.metadata.create_all(bind=engine)
 
 _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "true", "yes")
 limiter = Limiter(key_func=get_remote_address)
@@ -520,10 +529,18 @@ def _resolve_export_receivables(
 
 @app.on_event("startup")
 async def startup_event():
+    # 遗留结构收敛（冻结）。顺序固定：v33 先建 payroll_plans，v34 再回填关联。
     ensure_auth_schema(engine)
-    ensure_receivable_schema(engine)
-    ensure_agent_token_schema(engine)
     ensure_v33_schema(engine)
+    ensure_agent_token_schema(engine)
+    ensure_receivable_schema(engine)
+    ensure_v34_schema(engine)
+    # 3.4.0 起结构变更走 Alembic 版本管理，upgrade head 保证不漏修订。
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic.ini"))
+    command.upgrade(alembic_cfg, "head")
     db = next(get_db())
     try:
         init_default_admin(db)
