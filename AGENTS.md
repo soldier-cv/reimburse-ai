@@ -114,6 +114,8 @@
 - 挂载：`/data/reimburse-ai/data:/app/data`、`/data/reimburse-ai/uploads:/app/uploads`。
 - `.woodpecker.yaml`：仅 `tag` 与 `manual` 触发；`resolve-tag → build-and-push-image → deploy-and-verify`。
 - 健康检查：`GET /health` 或首页 `GET /`。
+- **数据库版本管理**：从 3.4.0 起用 Alembic，修订放在 `alembic/versions/`，启动时执行 `alembic upgrade head`，版本记录在 `alembic_version` 表。新增字段或表必须写修订，`upgrade head` 会按版本依次应用，不依赖启动时手工登记。`app/services/migrations.py` 是 3.4.0 之前的冻结兼容层，不要再往里加字段。
+- 空库才由 `create_all` 按当前模型建表；非空库只走兼容层与 Alembic，避免 `create_all` 抢先建表让修订的 `create_table` 冲突。新修订建表用 `CREATE TABLE IF NOT EXISTS` 更稳妥。
 
 ## 本地命令
 

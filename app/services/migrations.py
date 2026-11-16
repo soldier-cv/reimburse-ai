@@ -1,6 +1,10 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+# 遗留兼容层：只负责把老库收敛到 3.4.0 的结构，已冻结，不要往这里加新字段。
+# 从 3.4.0 起所有结构变更必须写成 alembic/versions/ 下的修订。
+
+
 def ensure_auth_schema(engine: Engine) -> None:
     """
     检查并迁移 users 表结构，确保包含 session_version 字段（幂等执行）。
@@ -52,32 +56,6 @@ def ensure_receivable_schema(engine: Engine) -> None:
             ))
             conn.commit()
             print("[RECEIVABLE MIGRATE] payment_items.amount_cents 已添加")
-
-        if receivable_cols and "waived_cents" not in receivable_cols:
-            conn.execute(text("ALTER TABLE receivables ADD COLUMN waived_cents INTEGER NOT NULL DEFAULT 0"))
-            conn.commit()
-            print("[RECEIVABLE MIGRATE] receivables.waived_cents 已添加")
-
-        if item_cols and "waived_cents" not in item_cols:
-            conn.execute(text("ALTER TABLE payment_items ADD COLUMN waived_cents INTEGER NOT NULL DEFAULT 0"))
-            conn.commit()
-            print("[RECEIVABLE MIGRATE] payment_items.waived_cents 已添加")
-
-        if receivable_cols and "payroll_plan_id" not in receivable_cols:
-            conn.execute(text("ALTER TABLE receivables ADD COLUMN payroll_plan_id INTEGER"))
-            if columns_of("payroll_plans"):
-                conn.execute(text(
-                    "UPDATE receivables SET payroll_plan_id = ("
-                    "  SELECT p.id FROM payroll_plans p"
-                    "  WHERE p.user_id = receivables.user_id"
-                    "    AND p.company_id = receivables.company_id"
-                    "    AND receivables.period >= substr(p.effective_from, 1, 7)"
-                    "    AND (p.effective_to = '' OR receivables.period <= substr(p.effective_to, 1, 7))"
-                    "  ORDER BY p.id DESC LIMIT 1"
-                    ") WHERE kind = 'payroll' AND source = 'payroll_plan'"
-                ))
-            conn.commit()
-            print("[RECEIVABLE MIGRATE] receivables.payroll_plan_id 已添加")
 
 
 def ensure_agent_token_schema(engine: Engine) -> None:
@@ -180,4 +158,34 @@ def ensure_v33_schema(engine: Engine) -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_payroll_plans_company_id ON payroll_plans (company_id)"))
             print("[V33 MIGRATE] payroll_plans 表已创建")
 
+        conn.commit()
+
+
+def ensure_v34_schema(engine: Engine) -> None:
+    """3.4.0：工资代扣差额与计划关联。必须在 ensure_v33_schema 之后运行。"""
+    with engine.connect() as conn:
+        receivable_cols = _columns_of(conn, "receivables")
+        if receivable_cols and "waived_cents" not in receivable_cols:
+            conn.execute(text("ALTER TABLE receivables ADD COLUMN waived_cents INTEGER NOT NULL DEFAULT 0"))
+            print("[V34 MIGRATE] receivables.waived_cents 已添加")
+
+        item_cols = _columns_of(conn, "payment_items")
+        if item_cols and "waived_cents" not in item_cols:
+            conn.execute(text("ALTER TABLE payment_items ADD COLUMN waived_cents INTEGER NOT NULL DEFAULT 0"))
+            print("[V34 MIGRATE] payment_items.waived_cents 已添加")
+
+        if receivable_cols and "payroll_plan_id" not in receivable_cols:
+            conn.execute(text("ALTER TABLE receivables ADD COLUMN payroll_plan_id INTEGER"))
+            if _table_exists(conn, "payroll_plans"):
+                conn.execute(text(
+                    "UPDATE receivables SET payroll_plan_id = ("
+                    "  SELECT p.id FROM payroll_plans p"
+                    "  WHERE p.user_id = receivables.user_id"
+                    "    AND p.company_id = receivables.company_id"
+                    "    AND receivables.period >= substr(p.effective_from, 1, 7)"
+                    "    AND (p.effective_to = '' OR receivables.period <= substr(p.effective_to, 1, 7))"
+                    "  ORDER BY p.id DESC LIMIT 1"
+                    ") WHERE kind = 'payroll' AND source = 'payroll_plan'"
+                ))
+            print("[V34 MIGRATE] receivables.payroll_plan_id 已添加并按计划回填")
         conn.commit()
