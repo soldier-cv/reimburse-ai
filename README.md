@@ -4,6 +4,26 @@
 
 这不是个人记账工具——不记录个人消费、预算与账户余额。
 
+## 界面预览
+
+以下截图来自虚构演示账本：公司名、税号、发票号与金额均为示例数据，不含真实票据。
+
+### 总览
+
+![总览：待办、待收总额、公司待收与账龄分布](docs/screenshots/dashboard.png)
+
+### 应收台账
+
+![应收台账：归属月、状态、部分到账与逾期标记](docs/screenshots/ledger.png)
+
+### 采集收件箱
+
+![采集收件箱：票据识别、字段核对与重复票据提示](docs/screenshots/inbox.png)
+
+### 提交批次
+
+![提交批次：按公司归属月归集、部分到账与财务包](docs/screenshots/batches.png)
+
 ## 核心能力
 
 1. **采集与 AI 识别**
@@ -148,6 +168,7 @@ tests/                     接口、状态机、到账与 Agent 故事测试
 tests/fixtures/invoices/   可复用发票夹具
 docs/USER_GUIDE.md         使用指南（应用内帮助的唯一正文）
 docs/ROADMAP.md            改进路线图与历史决策
+docs/screenshots/          README 界面截图（虚构演示数据）
 skills/reimburse-ai/       对外 Agent 技能文档（唯一真源）
 scripts/backup.py          备份脚本
 ```
@@ -169,7 +190,7 @@ GET /api/auth/me
 python -m pytest -q
 ```
 
-测试使用隔离临时库与上传目录，不触碰 `data/`、`uploads/` 或生产路径。故事测试用 `tests/fixtures/invoices/` 中的夹具在隔离用户账本中跑完整流程，不依赖在线 AI。重新生成夹具：
+测试使用隔离临时库与上传目录，不触碰 `data/`、`uploads/` 或生产路径。故事测试用 `tests/fixtures/invoices/` 中的夹具在隔离用户账本中跑完整流程，不依赖在线 AI。夹具中的公司名、税号与发票号均为虚构示例。重新生成夹具：
 
 ```bash
 python tests/fixtures/invoices/render.py
