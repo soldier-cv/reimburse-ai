@@ -18,6 +18,7 @@ from .ai_service import DOC_TYPES, extract_document_with_ai, normalize_extractio
 from .extractor import extract_pdf_text, filename_hints, has_usable_text, parse_pdf_text
 from .money import normalize_date, parse_date, period_from_date, today_str, yuan_to_cents
 from .payroll_match import propose_allocation
+from .reimbursement_match import is_salary_inflow, propose as propose_reimbursement
 
 try:
     from PIL import Image, ImageOps
@@ -820,15 +821,24 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
             candidates.append(cents)
     is_inflow = extracted.get("direction") == "in"
     payroll_match = None
+    reimbursement_match = None
+    salary_inflow = is_salary_inflow(extracted)
     if is_inflow and draft.status == "ready" and db is not None and draft.company_id and draft.amount_cents:
-        payroll_match = propose_allocation(
-            db,
-            draft.user_id,
-            draft.company_id,
-            draft.amount_cents,
-            draft.occurred_on or "",
-            str(extracted.get("remark") or ""),
-        )
+        if salary_inflow:
+            payroll_match = propose_allocation(
+                db,
+                draft.user_id,
+                draft.company_id,
+                draft.amount_cents,
+                draft.occurred_on or "",
+                str(extracted.get("remark") or ""),
+            )
+        else:
+            entries = [item for item in (extracted.get("entries") or []) if isinstance(item, dict)]
+            if entries:
+                reimbursement_match = propose_reimbursement(
+                    db, draft.user_id, draft.company_id, entries
+                )
     hints = []
     if draft.amount_cents and not extracted.get("amount_confirmed") and (
         extracted.get("method") == "filename"
@@ -840,7 +850,10 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
     if draft.status == "ready" and extracted and extracted.get("date_missing"):
         hints.append("未识别到日期，已暂填今天")
     if is_inflow and draft.status == "ready" and not (payroll_match or {}).get("allocations"):
-        hints.append("这是到账记录，没有匹配的工资应收；可先在应收台账补建对应月份")
+        if salary_inflow:
+            hints.append("这是到账记录，没有匹配的工资应收；可先在应收台账补建对应月份")
+        elif not reimbursement_match:
+            hints.append("这是到账记录，附言里没有识别到费用明细，可手动登记到账")
     period = (draft.period or "").strip() or (period_from_date(draft.occurred_on) if draft.occurred_on else "")
     duplicates = []
     if db is not None:
@@ -867,6 +880,7 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
         "remark": str(extracted.get("remark") or "")[:120],
         "is_inflow": is_inflow,
         "payroll_match": payroll_match,
+        "reimbursement_match": reimbursement_match,
         "amount_candidates_cents": candidates[:4],
         "hints": hints,
         "amount": round((draft.amount_cents or 0) / 100, 2) if draft.amount_cents else None,

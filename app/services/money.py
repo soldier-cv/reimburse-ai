@@ -159,6 +159,26 @@ def month_payday(period: str, payday: int) -> str:
     return date(year, month, day).isoformat()
 
 
+def next_month_payday(period: str, payday: int) -> str:
+    """归属月工资的实际发薪日：次月 payday 号（超出当月天数则取月末）。
+
+    工资通常当月劳动、次月发放，因此归属月 2026-01、发薪日 15 号
+    对应的发生日与预计到账日是 2026-02-15。
+    """
+    import calendar as _cal
+    normalized = normalize_period(period)
+    if not normalized:
+        return today_str()
+    year, month = [int(part) for part in normalized.split("-")]
+    if month == 12:
+        year, month = year + 1, 1
+    else:
+        month += 1
+    last = _cal.monthrange(year, month)[1]
+    day = min(max(int(payday or 1), 1), last)
+    return date(year, month, day).isoformat()
+
+
 def month_range(months: int = 6) -> list[str]:
     """返回最近 N 个月的 YYYY-MM 列表（含当月，升序）。"""
     today = today_local()

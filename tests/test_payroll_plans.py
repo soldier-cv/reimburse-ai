@@ -36,7 +36,7 @@ def test_sync_generates_missing_months_once(client, auth, test_db):
     items = client.get("/api/receivables?kind=payroll&page_size=200", headers=auth).json()["items"]
     periods = sorted(item["period"] for item in items)
     assert periods == expected
-    assert all(item["status"] == "pending" for item in items)
+    assert all(item["status"] == "submitted" for item in items)
     assert all(item["kind"] == "payroll" for item in items)
     assert all(item["amount_cents"] == 1500000 for item in items)
 
@@ -45,6 +45,30 @@ def test_sync_generates_missing_months_once(client, auth, test_db):
     assert second.json()["created_count"] == 0
     again = client.get("/api/receivables?kind=payroll&page_size=200", headers=auth).json()
     assert again["total"] == len(expected)
+
+
+def test_generated_salary_uses_next_month_payday(client, auth, test_db):
+    """工资次月发放：归属月 2026-01、发薪日 15 → 发生日与预计到账日 2026-02-15。"""
+    company = create_company(client, auth, name="次月发薪公司")
+    plan = client.post(
+        "/api/payroll-plans",
+        json={"company_id": company["id"], "amount": "10000", "payday": 15, "effective_from": "2026-01-01", "effective_to": "2026-01-31"},
+        headers=auth,
+    )
+    assert plan.status_code == 200, plan.text
+    assert client.post("/api/payroll-plans/sync", headers=auth).status_code == 200
+
+    item = client.get("/api/receivables?kind=payroll", headers=auth).json()["items"][0]
+    assert item["period"] == "2026-01"
+    assert item["occurred_on"] == "2026-02-15"
+    assert item["expected_on"] == "2026-02-15"
+
+
+def test_next_month_payday_crosses_year_and_month_end():
+    from app.services.money import next_month_payday
+
+    assert next_month_payday("2026-12", 15) == "2027-01-15"
+    assert next_month_payday("2026-01", 31) == "2026-02-28"
 
 
 def test_amount_change_does_not_regenerate_existing_month(client, auth, test_db):
@@ -85,8 +109,8 @@ def test_amount_change_does_not_regenerate_existing_month(client, auth, test_db)
     assert all(item["amount_cents"] == 1000000 for item in items["items"])
 
 
-def test_amount_change_can_update_pending_generated_receivables(client, auth, test_db):
-    """勾选同步后，只改本计划生成、待提交且未归集的工资应收。"""
+def test_amount_change_can_update_unpaid_generated_receivables(client, auth, test_db):
+    """勾选同步后，只改本计划生成、已提交但未发薪且未归集的工资应收。"""
     company = create_company(client, auth, name="同步改薪公司")
     created = client.post(
         "/api/payroll-plans",
@@ -105,20 +129,20 @@ def test_amount_change_can_update_pending_generated_receivables(client, auth, te
     assert synced.status_code == 200, synced.text
     items = client.get("/api/receivables?kind=payroll&page_size=200", headers=auth).json()["items"]
     assert len(items) >= 2
-    submitted, pending = sorted(items, key=lambda item: item["period"])[:2]
+    assert all(item["status"] == "submitted" for item in items)
+    paid, unpaid = sorted(items, key=lambda item: item["period"])[:2]
 
-    batch = client.post(
-        "/api/batches",
+    payment = client.post(
+        "/api/payments",
         json={
             "company_id": company["id"],
-            "period": submitted["period"],
-            "receivable_ids": [submitted["id"]],
-            "submit": True,
-            "submitted_on": "2026-11-05",
+            "amount": 10000.0,
+            "paid_on": "2026-11-05",
+            "allocations": [{"receivable_id": paid["id"], "amount": 10000.0}],
         },
         headers=auth,
     )
-    assert batch.status_code == 200, batch.text
+    assert payment.status_code == 200, payment.text
 
     updated = client.put(
         f"/api/payroll-plans/{plan_id}",
@@ -128,12 +152,12 @@ def test_amount_change_can_update_pending_generated_receivables(client, auth, te
     assert updated.status_code == 200, updated.text
     assert updated.json()["updated_receivables"] == 1
 
-    submitted_after = client.get(f"/api/receivables/{submitted['id']}", headers=auth).json()
-    pending_after = client.get(f"/api/receivables/{pending['id']}", headers=auth).json()
-    assert submitted_after["status"] == "submitted"
-    assert submitted_after["amount_cents"] == 1000000
-    assert pending_after["status"] == "pending"
-    assert pending_after["amount_cents"] == 2000000
+    paid_after = client.get(f"/api/receivables/{paid['id']}", headers=auth).json()
+    unpaid_after = client.get(f"/api/receivables/{unpaid['id']}", headers=auth).json()
+    assert paid_after["status"] == "paid"
+    assert paid_after["amount_cents"] == 1000000
+    assert unpaid_after["status"] == "submitted"
+    assert unpaid_after["amount_cents"] == 2000000
 
     synced_again = client.post("/api/payroll-plans/sync", headers=auth)
     assert synced_again.status_code == 200, synced_again.text

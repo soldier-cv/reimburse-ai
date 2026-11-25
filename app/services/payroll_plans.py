@@ -1,4 +1,4 @@
-"""薪资计划：按月补齐待提交工资应收，避免同一公司同一归属月重复生成。"""
+"""薪资计划：按月补齐已提交工资应收，避免同一公司同一归属月重复生成。"""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from .money import (
     cents_to_text,
     cents_to_yuan,
     current_month,
-    month_payday,
     months_between,
+    next_month_payday,
     normalize_date,
     normalize_period,
     parse_date,
@@ -126,7 +126,8 @@ def missing_months_for_plan(db: Session, plan: PayrollPlan, until: str | None = 
 
 def generate_receivable(db: Session, plan: PayrollPlan, period: str) -> Receivable:
     category = plan.category or _payroll_category(db, plan.user_id, plan.category_id)
-    occurred_on = month_payday(period, plan.payday or 15)
+    # 工资次月发放：归属月 2026-01、发薪日 15 → 发生日 2026-02-15
+    occurred_on = next_month_payday(period, plan.payday or 15)
     title = f"{period} 工资"
     if plan.company:
         title = f"{plan.company.short_name or plan.company.name} {period} 工资"
@@ -140,7 +141,10 @@ def generate_receivable(db: Session, plan: PayrollPlan, period: str) -> Receivab
         period=period,
         occurred_on=occurred_on,
         amount_cents=plan.amount_cents,
-        status="pending",
+        # 工资由计划按月生成，不经过人工归集提交；生成即视为已提交，
+        # 直接等待发薪核销。同一公司同一归属月由 existing_payroll_periods 去重。
+        status="submitted",
+        submitted_on=occurred_on,
         expected_on=occurred_on,
         source="payroll_plan",
         note=(plan.note or "由薪资计划自动生成")[:300] if not (plan.note or "").strip() else (plan.note or "")[:300],

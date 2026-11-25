@@ -60,7 +60,10 @@ from .schemas import (
     BatchSubmit,
     BatchUnsubmitRequest,
     BatchUpdate,
+    BatchDraftAction,
+    BatchReceivableDelete,
     CaptureConfirm,
+    CaptureConfirmAndSubmit,
     CapturePaymentApply,
     CategoryCreate,
     CategoryUpdate,
@@ -143,6 +146,11 @@ from .services.migrations import (
     ensure_v34_schema,
 )
 from .services.payroll_match import propose_allocation
+from .services.reimbursement_match import (
+    is_salary_inflow,
+    propose as propose_reimbursement,
+    validate_apply as validate_reimbursement_apply,
+)
 from .services.payroll_plans import (
     assert_no_overlap,
     clamp_payday,
@@ -198,7 +206,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.4.1",
+    version="3.5.0",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -386,7 +394,11 @@ def _serialize_receivable(receivable: Receivable, detail: bool = False) -> dict:
         "remaining_cents": remaining_cents(receivable),
         "remaining": cents_to_yuan(remaining_cents(receivable)),
         "status": receivable.status,
-        "status_label": STATUS_LABELS.get(receivable.status, receivable.status),
+        "status_label": (
+            "待发薪"
+            if receivable.kind == "payroll" and receivable.status in ("submitted", "partial")
+            else STATUS_LABELS.get(receivable.status, receivable.status)
+        ),
         "expected_on": receivable.expected_on or "",
         "submitted_on": receivable.submitted_on or "",
         "paid_on": receivable.paid_on or "",
@@ -1155,6 +1167,77 @@ def list_drafts(
     return [draft_payload(item, db) for item in drafts]
 
 
+@app.post("/api/capture/drafts/batch-retry")
+async def batch_retry_drafts(
+    req: BatchDraftAction,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """批量重新识别草稿；已入账的跳过。"""
+    if not req.draft_ids:
+        raise HTTPException(status_code=400, detail="请选择要重新识别的草稿")
+    drafts = (
+        db.query(CaptureDraft)
+        .filter(CaptureDraft.user_id == user.id, CaptureDraft.id.in_(req.draft_ids))
+        .all()
+    )
+    if not drafts:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    eligible = [item for item in drafts if item.status != "confirmed"]
+    skipped = [item.id for item in drafts if item.status == "confirmed"]
+    for draft in eligible:
+        rebuild_draft_from_file(db, draft)
+    sync_mode = os.environ.get("CAPTURE_SYNC", "").strip().lower() in ("1", "true", "yes")
+    if sync_mode:
+        for draft in eligible:
+            await _process_draft(db, draft.id, reuse=False)
+    elif eligible:
+        background_tasks.add_task(process_drafts_async, [item.id for item in eligible], False)
+    record_audit(db, user.id, "批量重新识别", "capture_draft", None, f"重新识别 {len(eligible)} 张草稿")
+    return {"success": True, "retried": len(eligible), "skipped_ids": skipped}
+
+
+@app.post("/api/capture/drafts/batch-delete")
+def batch_delete_drafts(
+    req: BatchDraftAction,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """批量丢弃草稿；已入账的跳过。"""
+    if not req.draft_ids:
+        raise HTTPException(status_code=400, detail="请选择要丢弃的草稿")
+    drafts = (
+        db.query(CaptureDraft)
+        .filter(CaptureDraft.user_id == user.id, CaptureDraft.id.in_(req.draft_ids))
+        .all()
+    )
+    if not drafts:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    deleted: list[int] = []
+    skipped: list[int] = []
+    for draft in drafts:
+        if draft.status == "confirmed":
+            skipped.append(draft.id)
+            continue
+        for path in (draft.stored_path, draft.thumb_path):
+            if path:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        for extra in get_extra_files(draft):
+            try:
+                os.remove(extra.get("stored_path"))
+            except (OSError, TypeError):
+                pass
+        db.delete(draft)
+        deleted.append(draft.id)
+    db.commit()
+    record_audit(db, user.id, "批量丢弃草稿", "capture_draft", None, f"丢弃 {len(deleted)} 张草稿")
+    return {"success": True, "deleted": deleted, "skipped_ids": skipped}
+
+
 @app.patch("/api/capture/drafts/{draft_id}")
 def update_draft(draft_id: int, req: DraftUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     draft = db.query(CaptureDraft).filter(CaptureDraft.id == draft_id, CaptureDraft.user_id == user.id).first()
@@ -1460,6 +1543,87 @@ def confirm_drafts(req: CaptureConfirm, user: User = Depends(get_current_user), 
     return {"success": True, "created": created, "warnings": warnings, "already_confirmed": [item.receivable_id for item in already]}
 
 
+@app.post("/api/capture/confirm-and-submit")
+def confirm_and_submit(
+    req: CaptureConfirmAndSubmit,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """一键：确认入账 → 按同一归属月建批次并提交（两步各自提交，失败时已入账草稿不回滚）。"""
+    if not req.draft_ids:
+        raise HTTPException(status_code=400, detail="请选择要处理的草稿")
+    drafts = (
+        db.query(CaptureDraft)
+        .filter(CaptureDraft.user_id == user.id, CaptureDraft.id.in_(req.draft_ids))
+        .all()
+    )
+    by_id = {item.id: item for item in drafts}
+    missing = [draft_id for draft_id in req.draft_ids if draft_id not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"草稿不存在: {missing}")
+
+    active = [item for item in drafts if item.status != "confirmed"]
+    if not active:
+        raise HTTPException(status_code=400, detail="所选草稿都已入账，无需重复提交")
+
+    # 归属月必须一致：确认入账时整组用同一个 period（create_batch 要求同月）
+    periods = {
+        resolve_item_period((req.period or "").strip() or item.period, item.occurred_on)
+        for item in active
+    }
+    if len(periods) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "所选草稿的归属月不一致，请分批一键提交",
+                "periods": sorted(periods),
+            },
+        )
+    period = (req.period or "").strip() or sorted(periods)[0]
+
+    # 复用现有确认逻辑（含重复/抬头校验、金额与公司校验、附件与审计）
+    confirm_result = confirm_drafts(
+        CaptureConfirm(
+            draft_ids=req.draft_ids,
+            company_id=req.company_id,
+            period=period,
+            force=req.force,
+        ),
+        user,
+        db,
+    )
+    created = confirm_result.get("created") or []
+    if not created:
+        raise HTTPException(status_code=400, detail="没有新入账的应收，无法创建批次")
+
+    created_ids = [item["id"] for item in created]
+    company_id = req.company_id or created[0].get("company_id")
+    if not company_id:
+        raise HTTPException(status_code=400, detail="无法确定公司，请先在草稿上选择公司")
+
+    # 复用现有建批次 + 提交逻辑
+    batch = create_batch(
+        BatchCreate(
+            company_id=company_id,
+            period=period,
+            title=(req.title or "").strip() or f"{created[0].get('company_name', '')} {period} 报销",
+            receivable_ids=created_ids,
+            submit=True,
+            submitted_on=req.submitted_on or "",
+            expected_on=req.expected_on or "",
+        ),
+        user,
+        db,
+    )
+    return {
+        "success": True,
+        "confirm": confirm_result,
+        "batch": batch,
+        "created_ids": created_ids,
+        "count": len(created_ids),
+    }
+
+
 @app.post("/api/capture/drafts/{draft_id}/apply-payment")
 def apply_draft_payment(
     draft_id: int,
@@ -1467,9 +1631,11 @@ def apply_draft_payment(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """把工资到账截图核销到已有工资应收。
+    """把到账截图核销到已有应收。
 
-    不传 allocations 时用推断结果（备注月份 → 最早欠发顺序）；分摊合计必须等于到账金额。
+    工资到账按备注月份 → 最早欠发顺序推断；其余到账按 AI 拆出的附言明细，
+    以「公司 + 归属月 + 费用项/类别」匹配已提交的报销应收。
+    不传 allocations 时用推断结果；分摊合计必须等于到账金额。
     """
     draft = db.query(CaptureDraft).filter(CaptureDraft.id == draft_id, CaptureDraft.user_id == user.id).first()
     if not draft:
@@ -1490,6 +1656,8 @@ def apply_draft_payment(
     except Exception:
         extracted = {}
     remark = str(extracted.get("remark") or "").strip()
+    entries = [item for item in (extracted.get("entries") or []) if isinstance(item, dict)]
+    salary_inflow = is_salary_inflow(extracted)
 
     if req.allocations:
         allocations = req.allocations
@@ -1497,37 +1665,71 @@ def apply_draft_payment(
             allocated = sum(yuan_to_cents(item.amount) for item in allocations)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="分摊金额格式不正确") from exc
+        if not salary_inflow:
+            issues = validate_reimbursement_apply(
+                db, user.id, draft.company_id, entries, allocations
+            )
+            if issues:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "按附言拆单核销未通过校验", "issues": issues},
+                )
     else:
-        proposal = propose_allocation(
-            db,
-            user.id,
-            draft.company_id,
-            draft.amount_cents,
-            draft.occurred_on or "",
-            remark,
-        )
-        if not proposal["allocations"]:
-            raise HTTPException(
-                status_code=400,
-                detail={"message": "没有可核销的工资应收，请先建好对应月份的应收", "proposal": proposal},
+        if salary_inflow:
+            proposal = propose_allocation(
+                db,
+                user.id,
+                draft.company_id,
+                draft.amount_cents,
+                draft.occurred_on or "",
+                remark,
             )
-        allocations = [
-            PaymentAllocation(
-                receivable_id=item["receivable_id"],
-                amount=item["amount"],
-                waive=bool(item.get("waive", False)),
-            )
-            for item in proposal["allocations"]
-        ]
-        allocated = sum(yuan_to_cents(item.amount) for item in allocations)
-        if allocated != draft.amount_cents:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "推断结果与到账金额不一致，请手动选择要核销的应收",
-                    "proposal": proposal,
-                },
-            )
+            if not proposal["allocations"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "没有可核销的工资应收，请先建好对应月份的应收", "proposal": proposal},
+                )
+            allocations = [
+                PaymentAllocation(
+                    receivable_id=item["receivable_id"],
+                    amount=item["amount"],
+                    waive=bool(item.get("waive", False)),
+                )
+                for item in proposal["allocations"]
+            ]
+            allocated = sum(yuan_to_cents(item.amount) for item in allocations)
+            if allocated != draft.amount_cents:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": "推断结果与到账金额不一致，请手动选择要核销的应收",
+                        "proposal": proposal,
+                    },
+                )
+        else:
+            proposal = propose_reimbursement(db, user.id, draft.company_id, entries)
+            if proposal["issues"] or not proposal["allocations"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "附言拆单没有可核销的匹配结果", "proposal": proposal},
+                )
+            allocations = [
+                PaymentAllocation(
+                    receivable_id=item["receivable_id"],
+                    amount=item["amount"],
+                    waive=False,
+                )
+                for item in proposal["allocations"]
+            ]
+            allocated = sum(yuan_to_cents(item.amount) for item in allocations)
+            if allocated != draft.amount_cents:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": "拆单合计与到账金额不一致，请手动修改分摊金额",
+                        "proposal": proposal,
+                    },
+                )
 
     payment = _record_payment(
         db,
@@ -1543,12 +1745,15 @@ def apply_draft_payment(
     )
 
     receivable_ids = sorted({item.receivable_id for item in allocations})
-    receivable = (
-        db.query(Receivable)
-        .filter(Receivable.user_id == user.id, Receivable.id == receivable_ids[0], Receivable.deleted_at.is_(None))
-        .first()
-    )
-    if receivable:
+    for receivable_id in receivable_ids:
+        receivable = (
+            db.query(Receivable)
+            .filter(Receivable.user_id == user.id, Receivable.id == receivable_id, Receivable.deleted_at.is_(None))
+            .first()
+        )
+        if not receivable:
+            continue
+        base_order = len(receivable.attachments)
         db.add(
             Attachment(
                 user_id=user.id,
@@ -1563,7 +1768,7 @@ def apply_draft_payment(
                 invoice_no=draft.invoice_no or "",
                 amount_cents=draft.amount_cents,
                 note=draft.note or "",
-                sort_order=len(receivable.attachments),
+                sort_order=base_order,
                 ocr_json=draft.extracted_json,
             )
         )
@@ -1579,7 +1784,7 @@ def apply_draft_payment(
                     file_size=extra.get("file_size") or 0,
                     sha256=extra.get("sha256") or "",
                     note=extra.get("note") or "",
-                    sort_order=len(receivable.attachments) + extra_index,
+                    sort_order=base_order + extra_index,
                 )
             )
     draft.status = "confirmed"
@@ -1592,7 +1797,7 @@ def apply_draft_payment(
         "到账截图核销",
         "payment",
         payment.id,
-        f"核销 {len(allocations)} 笔工资应收，共 ¥{cents_to_text(draft.amount_cents)}",
+        f"核销 {len(allocations)} 笔{'工资' if salary_inflow else '报销'}应收，共 ¥{cents_to_text(draft.amount_cents)}",
     )
     db.refresh(draft)
     return {
@@ -1787,6 +1992,44 @@ def delete_receivable(receivable_id: int, user: User = Depends(get_current_user)
     return {"success": True, "message": "应收已移入回收状态"}
 
 
+@app.post("/api/receivables/batch-delete")
+def batch_delete_receivables(
+    req: BatchReceivableDelete,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """批量软删待提交 / 被驳回的应收，已提交或已有到账的跳过。"""
+    if not req.receivable_ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的应收")
+    items = (
+        db.query(Receivable)
+        .filter(
+            Receivable.user_id == user.id,
+            Receivable.id.in_(req.receivable_ids),
+            Receivable.deleted_at.is_(None),
+        )
+        .all()
+    )
+    if not items:
+        raise HTTPException(status_code=404, detail="应收不存在")
+    deleted: list[int] = []
+    skipped: list[dict] = []
+    for item in items:
+        try:
+            assert_can_delete(item)
+        except HTTPException as exc:
+            skipped.append({"id": item.id, "title": item.title, "reason": exc.detail})
+            continue
+        item.deleted_at = datetime.now()
+        item.batch_id = None
+        for attachment in item.attachments:
+            attachment.deleted_at = datetime.now()
+        deleted.append(item.id)
+    db.commit()
+    record_audit(db, user.id, "批量删除应收", "receivable", None, f"删除 {len(deleted)} 笔应收")
+    return {"success": True, "deleted": deleted, "skipped": skipped}
+
+
 @app.post("/api/receivables/{receivable_id}/attachments")
 async def upload_attachments(
     receivable_id: int,
@@ -1915,13 +2158,29 @@ def fitz_available() -> bool:
 # 批次
 # ---------------------------------------------------------------------------
 @app.get("/api/batches")
-def list_batches(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    batches = (
-        db.query(Batch)
-        .filter(Batch.user_id == user.id)
-        .order_by(Batch.created_at.desc())
-        .all()
-    )
+def list_batches(
+    status_value: Optional[str] = None,
+    company_id: Optional[int] = None,
+    period_from: Optional[str] = None,
+    period_to: Optional[str] = None,
+    overdue: bool = False,
+    q: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Batch).filter(Batch.user_id == user.id)
+    if status_value:
+        query = query.filter(Batch.status == status_value)
+    if company_id:
+        query = query.filter(Batch.company_id == company_id)
+    if period_from:
+        query = query.filter(Batch.period >= period_from)
+    if period_to:
+        query = query.filter(Batch.period <= period_to)
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        query = query.filter(or_(Batch.title.ilike(like), Batch.note.ilike(like)))
+    batches = query.order_by(Batch.created_at.desc()).all()
     result = []
     for batch in batches:
         items = [item for item in batch.receivables if item.deleted_at is None]
@@ -1931,12 +2190,20 @@ def list_batches(user: User = Depends(get_current_user), db: Session = Depends(g
             for item in unpaid
             if item.status in ("submitted", "partial") and item.expected_on and item.expected_on < today_str()
         ]
+        if overdue and not overdue:
+            continue
+        kinds = {item.kind for item in items if item.kind}
+        kind_first = next((kind for kind in ("reimbursement", "payroll", "other") if kind in kinds), "")
+        kind_label = {"reimbursement": "报销", "payroll": "工资", "other": "其他"}.get(kind_first, "")
+        if len(kinds) > 1:
+            kind_label += "等"
         result.append(
             {
                 "id": batch.id,
                 "company_id": batch.company_id,
                 "company_name": batch.company.name if batch.company else "",
                 "title": batch.title,
+                "kind_label": kind_label,
                 "period": batch.period or "",
                 "status": batch.status,
                 "status_label": {"draft": "草稿", "submitted": "已提交", "paid": "已结清", "cancelled": "已取消"}.get(batch.status, batch.status),
@@ -2570,17 +2837,32 @@ def pay_batch(batch_id: int, req: BatchPaymentRequest, user: User = Depends(get_
                 detail="该批次只剩工资应收。工资按税前挂账、按实发结清，请到对应工资应收上「登记实发」单独处理",
             )
         raise HTTPException(status_code=400, detail="该批次没有待核销的应收")
-    payload = PaymentCreate(
-        company_id=batch.company_id,
-        amount=cents_to_yuan(sum(remaining_cents(item) for item in items)),
-        paid_on=req.paid_on,
-        allocations=[
-            {"receivable_id": item.id, "amount": cents_to_yuan(remaining_cents(item))}
-            for item in items
-        ],
-        note=req.note,
-        idempotency_key=req.idempotency_key,
-    )
+    if req.allocations:
+        # 指定部分应收与金额：只核销所选，金额与合计由 _record_payment 校验
+        amount = req.amount
+        if amount is None or (isinstance(amount, str) and not amount.strip()):
+            amount = cents_to_yuan(sum(yuan_to_cents(item.amount) for item in req.allocations))
+        payload = PaymentCreate(
+            company_id=batch.company_id,
+            amount=amount,
+            paid_on=req.paid_on,
+            allocations=req.allocations,
+            note=req.note,
+            idempotency_key=req.idempotency_key,
+        )
+    else:
+        # 默认整批按待收余额核销
+        payload = PaymentCreate(
+            company_id=batch.company_id,
+            amount=cents_to_yuan(sum(remaining_cents(item) for item in items)),
+            paid_on=req.paid_on,
+            allocations=[
+                {"receivable_id": item.id, "amount": cents_to_yuan(remaining_cents(item))}
+                for item in items
+            ],
+            note=req.note,
+            idempotency_key=req.idempotency_key,
+        )
     payment = _record_payment(db, user, payload)
     message = "批次已结清" if not skipped_payroll else f"批次内报销已结清；{len(skipped_payroll)} 笔工资请按实发单独登记"
     return {
@@ -2672,13 +2954,17 @@ def update_payroll_plan(plan_id: int, req: PayrollPlanUpdate, user: User = Depen
         assert_no_overlap(db, user.id, plan.company_id, plan.effective_from, plan.effective_to or "", exclude_id=plan.id)
 
     if amount_changed and req.apply_amount_to_pending:
+        # 计划生成的工资默认已提交且未归集；只同步尚未发薪的月份，
+        # 已有到账或已归集的记录保持锁定，避免破坏核销结果。
         pending = (
             db.query(Receivable)
             .filter(
                 Receivable.user_id == user.id,
                 Receivable.payroll_plan_id == plan.id,
-                Receivable.status == "pending",
+                Receivable.status == "submitted",
                 Receivable.batch_id.is_(None),
+                Receivable.received_cents == 0,
+                Receivable.waived_cents == 0,
                 Receivable.deleted_at.is_(None),
             )
             .all()
@@ -2695,7 +2981,7 @@ def update_payroll_plan(plan_id: int, req: PayrollPlanUpdate, user: User = Depen
         "修改薪资计划",
         "payroll_plan",
         plan.id,
-        f"修改薪资计划 #{plan.id}" + (f"，同步 {updated_receivables} 笔待提交工资应收为新金额" if updated_receivables else ""),
+        f"修改薪资计划 #{plan.id}" + (f"，同步 {updated_receivables} 笔未发薪工资应收为新金额" if updated_receivables else ""),
     )
     result = serialize_plan(plan)
     result["updated_receivables"] = updated_receivables

@@ -112,11 +112,11 @@
         <form @submit.prevent="submitAuth" class="space-y-4">
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1.5">{{ authMode === 'init' ? '管理员用户名' : '用户名' }}</label>
-            <input v-model="authForm.username" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="至少 3 位" :autocomplete="authMode === 'init' ? 'new-username' : 'username'">
+            <input v-model="authForm.username" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" :placeholder="authMode === 'init' ? '至少 3 位' : '请输入用户名'" :autocomplete="authMode === 'init' ? 'new-username' : 'username'">
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1.5">{{ authMode === 'init' ? '管理员密码' : '密码' }}</label>
-            <input v-model="authForm.password" type="password" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" placeholder="至少 6 位，建议 12 位以上" :autocomplete="authMode === 'init' ? 'new-password' : 'current-password'">
+            <input v-model="authForm.password" type="password" class="custom-input w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm" :placeholder="authMode === 'init' ? '至少 6 位，建议 12 位以上' : '请输入密码'" :autocomplete="authMode === 'init' ? 'new-password' : 'current-password'">
           </div>
           <div v-if="authMode === 'init'">
             <label class="block text-xs font-medium text-slate-500 mb-1.5">确认密码</label>
@@ -359,20 +359,31 @@
           </div>
 
           <div class="bg-white border border-slate-200 rounded-2xl">
-            <div class="inbox-sticky px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-              <div class="flex items-center gap-3">
-                <div class="text-sm font-bold text-slate-900">待确认</div>
-                <span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{{ drafts.length }} 张</span>
-                <span v-if="selectedDraftIds.length" class="text-[11px] text-blue-600">已选 {{ selectedDraftIds.length }}</span>
+            <div class="inbox-sticky px-5 py-4 border-b border-slate-100">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <div class="text-sm font-bold text-slate-900">待确认</div>
+                  <span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{{ drafts.length }} 张</span>
+                  <span v-if="selectedDraftIds.length" class="text-[11px] text-blue-600">已选 {{ selectedDraftIds.length }}</span>
+                  <div class="w-32"><select-field v-model="draftStatusFilter" :options="DRAFT_STATUS_OPTIONS" @change="loadDrafts"></select-field></div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <button type="button" @click="selectAllDrafts" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">全选</button>
+                  <button type="button" @click="invertDraftSelection" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">反选</button>
+                  <button @click="quickConfirmAndSubmit" :disabled="!selectedDraftIds.length || confirmSubmitting" class="px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 text-xs font-semibold hover:bg-emerald-50 disabled:opacity-40"><span v-if="confirmSubmitting" class="btn-spin"></span>一键入账并建批次</button>
+                  <button @click="openConfirmSummary()" :disabled="!selectedDraftIds.length || isPending('confirm')" class="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">
+                    <span v-if="isPending('confirm')" class="btn-spin"></span>确认入账（{{ selectedDraftIds.length }}）
+                  </button>
+                </div>
               </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <button type="button" @click="selectAllDrafts" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">全选</button>
-                <button type="button" @click="invertDraftSelection" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">反选</button>
-                <div class="w-40"><select-field v-model="batchDraftCompany" :options="companyOptions('批量选择公司')"></select-field></div>
-                <button @click="applyDraftCompany" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">应用到已选</button>
-                <button @click="openConfirmSummary()" :disabled="!selectedDraftIds.length || isPending('confirm')" class="px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40">
-                  <span v-if="isPending('confirm')" class="btn-spin"></span>确认入账（{{ selectedDraftIds.length }}）
-                </button>
+              <div v-if="selectedDraftIds.length" class="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                <span class="text-[11px] text-slate-500 font-medium">批量操作 · 已选 {{ selectedDraftIds.length }} 张</span>
+                <div class="w-36"><select-field v-model="batchDraftCompany" :options="companyOptions('选择公司')"></select-field></div>
+                <button @click="applyDraftCompany" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">应用公司</button>
+                <div class="w-32"><month-field v-model="batchDraftPeriod" placeholder="归属月"></month-field></div>
+                <button @click="applyDraftPeriod" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50">应用归属月</button>
+                <button @click="batchRetryDrafts" :disabled="isPending('draft-retry')" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"><span v-if="isPending('draft-retry')" class="btn-spin"></span>批量重新识别</button>
+                <button @click="batchDiscardDrafts" class="px-2.5 py-1.5 rounded-lg border border-rose-200 text-xs font-medium text-rose-600 hover:bg-rose-50">批量丢弃</button>
               </div>
             </div>
 
@@ -434,6 +445,21 @@
                     {{ d.payroll_match.allocations.map(a => a.period + ' 实发 ¥' + money(a.amount) + (a.waived > 0 ? '（代扣 ¥' + money(a.waived) + '）' : '')).join('，') }}
                   </div>
                 </div>
+                <div v-if="d.reimbursement_match" class="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 px-2 py-1.5">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-medium text-slate-600">附言拆单核销 · {{ d.reimbursement_match.allocations.length }} 笔</span>
+                    <button type="button" class="text-[10px] text-blue-600" @click="draftReimbursementEdit[d.id] = !draftReimbursementEdit[d.id]">{{ draftReimbursementEdit[d.id] ? '收起' : '编辑' }}</button>
+                  </div>
+                  <div v-for="(a, i) in d.reimbursement_match.allocations" :key="i" class="mt-1 flex items-center gap-1 text-[10px] text-slate-600">
+                    <span class="flex-none">{{ a.item || '费用' }} · {{ a.period }}</span>
+                    <select-field v-if="draftReimbursementEdit[d.id]" :model-value="a.receivable_id" :options="reimbursementReceivableOptions(d, a)" compact @update:model-value="a.receivable_id = $event"></select-field>
+                    <span v-else class="truncate text-slate-400">{{ a.title }}</span>
+                    <input v-if="draftReimbursementEdit[d.id]" v-model.number="a.amount" type="number" step="0.01" min="0" class="w-20 px-1 py-0.5 rounded border border-slate-200 num text-right">
+                    <span v-else class="flex-none num">¥{{ money(a.amount) }}</span>
+                    <span v-if="a.confidence && a.confidence < 0.6" class="flex-none text-amber-600" title="把握度较低，请对照原件核对">?</span>
+                  </div>
+                  <div v-for="(issue, i) in d.reimbursement_match.issues" :key="'issue-' + i" class="mt-1 text-[10px] text-rose-600">{{ issue }}</div>
+                </div>
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                   <div class="flex items-center gap-2 text-[10px]">
                     <button v-if="d.status==='failed' || d.status==='ready'" @click="retryDraft(d)" class="text-slate-500 hover:text-slate-900">重新识别</button>
@@ -461,8 +487,8 @@
               <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">类型</label>
                 <select-field v-model="filters.kind" :options="kindFilterOptions('全部')" @change="loadReceivables"></select-field>
               </div>
-              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">起始月</label><month-field v-model="filters.period_from" @change="loadReceivables" allow-clear></month-field></div>
-              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">结束月</label><month-field v-model="filters.period_to" @change="loadReceivables" allow-clear></month-field></div>
+              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">归属月</label><month-field v-model="filters.period_from" @change="loadReceivables" allow-clear placeholder="选月份查单月"></month-field></div>
+              <div class="w-36"><label class="block text-[10px] text-slate-400 mb-1">至月（查区间）</label><month-field v-model="filters.period_to" @change="loadReceivables" allow-clear placeholder="留空只查单月"></month-field></div>
               <div class="flex-1 min-w-[160px]"><label class="block text-[10px] text-slate-400 mb-1">搜索事项</label><input v-model="filters.q" @keyup.enter="loadReceivables" class="w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs" placeholder="事项名称或备注"></div>
               <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-2"><input type="checkbox" v-model="filters.overdue" @change="loadReceivables" class="rounded border-slate-300">只看逾期</label>
               <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-2"><input type="checkbox" v-model="filters.missing_materials" @change="loadReceivables" class="rounded border-slate-300">只看材料不全</label>
@@ -483,6 +509,7 @@
                 <button @click="exportSelectedPdf" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">合并 PDF</button>
                 <button @click="exportSelectedAttachments" :disabled="!selectedReceivableIds.length || isPending('export-att')" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">导出原件</button>
                 <button @click="openBatchModal()" :disabled="!selectedReceivableIds.length" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-40"><app-icon name="layers" class="mr-1"></app-icon>归集批次</button>
+                <button @click="batchDeleteReceivables" :disabled="!selectedReceivableIds.length || isPending('receivable-delete')" class="px-3 py-1.5 rounded-lg border border-rose-200 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-40"><span v-if="isPending('receivable-delete')" class="btn-spin"></span>批量删除</button>
               </div>
             </div>
             <div class="overflow-x-auto">
@@ -549,13 +576,25 @@
             <div class="text-sm font-bold text-slate-900">提交批次</div>
             <button @click="go('receivables')" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"><app-icon name="list-check" class="mr-1.5"></app-icon>去台账勾选</button>
           </div>
-          <div v-if="!batches.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">暂无批次</div>
+          <div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap items-end gap-2">
+            <div class="w-32"><label class="block text-[10px] text-slate-400 mb-1">状态</label><select-field v-model="batchFilters.status_value" :options="BATCH_STATUS_OPTIONS" @change="loadBatches"></select-field></div>
+            <div class="w-40"><label class="block text-[10px] text-slate-400 mb-1">公司</label><select-field v-model="batchFilters.company_id" :options="companyOptions('全部')" @change="loadBatches"></select-field></div>
+            <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">归属年</label><select-field v-model="batchFilters.year" :options="batchYearOptions" @change="loadBatches"></select-field></div>
+            <div class="w-28"><label class="block text-[10px] text-slate-400 mb-1">归属月</label><select-field v-model="batchFilters.month" :options="BATCH_MONTH_OPTIONS" @change="loadBatches"></select-field></div>
+            <div class="flex-1 min-w-[140px]"><label class="block text-[10px] text-slate-400 mb-1">搜索</label><input v-model="batchFilters.q" @keyup.enter="loadBatches" class="w-full px-2.5 py-2 rounded-lg border border-slate-200 text-xs" placeholder="标题或备注"></div>
+            <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-2"><input type="checkbox" v-model="batchFilters.overdue" @change="loadBatches" class="rounded border-slate-300">只看逾期</label>
+            <button @click="resetBatchFilters" class="px-3 py-2 rounded-lg border border-slate-200 text-xs text-slate-500 hover:bg-slate-50">重置</button>
+          </div>
+          <div v-if="!visibleBatches.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">暂无批次</div>
           <div v-else class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-            <div v-for="b in batches" :key="b.id" class="bg-white border border-slate-200 rounded-2xl p-4 hover:border-slate-300 transition">
+            <div v-for="b in visibleBatches" :key="b.id" class="bg-white border border-slate-200 rounded-2xl p-4 hover:border-slate-300 transition">
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0">
-                  <div class="text-sm font-bold text-slate-900 truncate">{{ b.title }}</div>
-                  <div class="text-[11px] text-slate-400 mt-0.5">{{ b.company_name }} · {{ b.period || '未设期间' }}</div>
+                  <div class="text-sm font-bold text-slate-900 truncate" :title="b.title">{{ b.company_name || b.title }}</div>
+                  <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span class="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">{{ b.period || '未设归属月' }}</span>
+                    <span v-if="b.kind_label" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{{ b.kind_label }}</span>
+                  </div>
                 </div>
                 <span :class="['text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap', batchStatusClass(b.status)]">{{ b.status_label }}</span>
               </div>
@@ -659,7 +698,7 @@
                 <div class="text-sm font-bold text-slate-900">薪资计划</div>
                 <button type="button" class="guide-q" @click="goGuide('5-薪资计划与到账核销')">?</button>
               </div>
-              <div class="text-[11px] text-slate-400 mt-1">按公司配置税前月薪与发薪日，自动补齐缺失月份。</div>
+              <div class="text-[11px] text-slate-400 mt-1">按公司配置税前月薪与次月发薪日，自动补齐缺失月份。生成的工资直接是「待发薪」，不进提交批次，发薪后在这里或台账里登记实发即可。</div>
             </div>
             <div class="flex items-center gap-2">
               <button @click="syncPayrollPlans" :disabled="isPending('payroll-sync')" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-50">
@@ -668,7 +707,7 @@
               <button @click="openPayrollModal()" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">新建计划</button>
             </div>
           </div>
-          <div v-if="!payrollPlans.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">还没有薪资计划。配置后，打开应用就会按月份生成待提交的工资应收。</div>
+          <div v-if="!payrollPlans.length" class="bg-white border border-slate-200 rounded-2xl py-16 text-center text-sm text-slate-400">还没有薪资计划。配置后，打开应用就会按月份生成已提交的工资应收。</div>
           <div v-else class="grid md:grid-cols-2 gap-3">
             <div v-for="p in payrollPlans" :key="p.id" class="bg-white border border-slate-200 rounded-2xl p-4">
               <div class="flex items-start justify-between gap-2">
@@ -677,7 +716,7 @@
                     <span class="w-2 h-2 rounded-full" :style="{background:p.company_color}"></span>
                     <div class="text-sm font-bold text-slate-900 truncate">{{ p.company_name }}</div>
                   </div>
-                  <div class="text-[11px] text-slate-400 mt-1">每月 {{ p.payday }} 日发薪 · {{ p.effective_from }} 起{{ p.effective_to ? ' 至 ' + p.effective_to : '（长期）' }}</div>
+                  <div class="text-[11px] text-slate-400 mt-1">次月 {{ p.payday }} 日发薪 · {{ p.effective_from }} 起{{ p.effective_to ? ' 至 ' + p.effective_to : '（长期）' }}</div>
                 </div>
                 <span :class="['text-[10px] px-2 py-0.5 rounded-full', p.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500']">{{ p.is_active ? '生效中' : '已停发' }}</span>
               </div>
@@ -759,16 +798,13 @@
                 <input v-model="aiForm.api_key" type="password" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" :placeholder="aiForm.has_key ? '已保存，留空保持不变' : '输入密钥'">
               </div>
               <div>
-                <label class="block text-[11px] text-slate-500 mb-1">模型名称</label>
+                <label class="block text-[11px] text-slate-500 mb-1">模型名称<span v-if="modelOptions.length">（共 {{ modelOptions.length }} 个，可搜索选择，也可直接输入）</span></label>
                 <div class="flex items-center gap-2">
-                  <input v-model="aiForm.model_name" class="custom-input flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="例如 qwen-vl-max">
+                  <searchable-select :model-value="aiForm.model_name" :options="modelOptions" placeholder="例如 qwen-vl-max" class="flex-1 min-w-0" @update:model-value="aiForm.model_name = $event"></searchable-select>
                   <button type="button" @click="fetchModels" :disabled="isPending('ai-models')" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"><span v-if="isPending('ai-models')" class="btn-spin"></span>获取模型</button>
                   <button type="button" @click="testAI" :disabled="isPending('ai-test')" class="shrink-0 h-8 px-2.5 rounded-md border border-slate-200 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"><span v-if="isPending('ai-test')" class="btn-spin"></span>测试连接</button>
                 </div>
               </div>
-            </div>
-            <div v-if="visibleModelOptions.length" class="mt-2 flex flex-wrap gap-1.5">
-              <button type="button" v-for="m in visibleModelOptions" :key="m" @click="aiForm.model_name=m" :class="['text-[10px] px-2 py-1 rounded border', aiForm.model_name===m ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 border-transparent text-slate-600 hover:bg-slate-200']">{{ m }}</button>
             </div>
             <div class="mt-3">
               <div class="flex items-center justify-between mb-1">
@@ -1150,7 +1186,7 @@
         <div class="grid grid-cols-3 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">公司</label><select-field v-model="paymentForm.company_id" :options="companyOptions('请选择')" @change="loadPaymentCandidates"></select-field></div>
           <div><label class="block text-[11px] text-slate-500 mb-1">到账日期</label><date-field v-model="paymentForm.paid_on" disable-future></date-field></div>
-          <div><label class="block text-[11px] text-slate-500 mb-1">到账金额</label><input v-model.number="paymentForm.amount" type="number" step="0.01" min="0" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs num" placeholder="0.00"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">到账金额（工资填实发）</label><input v-model.number="paymentForm.amount" @change="onPaymentAmountChange" type="number" step="0.01" min="0" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs num" placeholder="0.00"></div>
         </div>
         <div>
           <div class="flex items-center justify-between mb-1">
@@ -1333,15 +1369,34 @@
 
   <!-- 批次到账 -->
   <div v-if="modal.name==='payBatch'" class="fixed inset-0 z-[76] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl w-full max-w-sm border border-slate-200 shadow-xl p-5">
+    <div class="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-xl p-5 max-h-[88vh] overflow-y-auto">
       <div class="text-sm font-bold">批次到账</div>
       <div class="text-[11px] text-slate-400 mt-1">{{ payBatchForm.title }} · {{ payBatchForm.count }} 笔 · ¥{{ money(payBatchForm.amount) }}</div>
       <div class="mt-4 space-y-3">
+        <div class="flex rounded-lg bg-slate-100 p-0.5 gap-0.5">
+          <button type="button" @click="payBatchForm.mode='all'" :class="['flex-1 py-1.5 rounded-md text-xs font-medium', payBatchForm.mode==='all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500']">整批到账</button>
+          <button type="button" @click="payBatchForm.mode='partial'" :class="['flex-1 py-1.5 rounded-md text-xs font-medium', payBatchForm.mode==='partial' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500']">部分到账</button>
+        </div>
         <div>
           <label class="block text-[11px] text-slate-500 mb-1">到账日期</label>
           <date-field v-model="payBatchForm.paid_on" disable-future></date-field>
-          <div class="text-[10px] text-slate-400 mt-1">不选则按当天（本地日期）记录</div>
         </div>
+        <div v-if="payBatchForm.mode==='partial'">
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-[11px] text-slate-500">选择应收 / 本次核销</label>
+            <span class="text-[10px] text-slate-400">分摊合计 ¥{{ money(payBatchAllocated) }}</span>
+          </div>
+          <div class="border border-slate-200 rounded-lg max-h-44 overflow-y-auto divide-y divide-slate-100">
+            <div v-for="r in payBatchForm.items" :key="r.id" class="px-3 py-2 text-xs flex items-center gap-2">
+              <input type="checkbox" :value="r.id" v-model="payBatchForm.selected" @change="onPayBatchItemToggle(r)" class="rounded border-slate-300">
+              <span class="flex-1 min-w-0 truncate">{{ r.title }}</span>
+              <span class="text-slate-400 whitespace-nowrap">待收 {{ money(r.remaining) }}</span>
+              <input v-if="payBatchForm.selected.includes(r.id)" v-model.number="payBatchForm.allocations[r.id]" type="number" step="0.01" min="0" class="w-20 px-1.5 py-1 rounded border border-slate-200 text-xs num text-right">
+            </div>
+            <div v-if="!payBatchForm.items.length" class="px-3 py-6 text-center text-xs text-slate-400">该批次没有可核销的报销应收</div>
+          </div>
+        </div>
+        <div><label class="block text-[11px] text-slate-500 mb-1">到账金额</label><input v-model.number="payBatchForm.amount" type="number" step="0.01" min="0" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs num" placeholder="0.00"><div v-if="payBatchForm.mode==='partial'" class="text-[10px] mt-1" :class="Math.abs(payBatchAllocated-(Number(payBatchForm.amount)||0))<0.005 ? 'text-emerald-600' : 'text-rose-600'">{{ Math.abs(payBatchAllocated-(Number(payBatchForm.amount)||0))<0.005 ? '分摊合计与到账金额一致' : '分摊合计与到账金额不一致' }}</div></div>
         <div><label class="block text-[11px] text-slate-500 mb-1">备注</label><input v-model="payBatchForm.note" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="批次到账"></div>
       </div>
       <div class="flex justify-end gap-2 mt-5">
@@ -1375,9 +1430,9 @@
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">税前月薪（应发）*</label><input v-model="payrollForm.amount" type="number" step="0.01" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"></div>
           <div v-if="payrollForm.id" class="col-span-2">
-            <label class="flex items-center gap-1.5 text-[11px] text-slate-600"><input type="checkbox" v-model="payrollForm.applyAmountToPending" class="rounded border-slate-300">同步更新待提交的工资应收</label>
+            <label class="flex items-center gap-1.5 text-[11px] text-slate-600"><input type="checkbox" v-model="payrollForm.applyAmountToPending" class="rounded border-slate-300">同步更新未发薪的工资应收</label>
           </div>
-          <div><label class="block text-[11px] text-slate-500 mb-1">发薪日</label><input v-model.number="payrollForm.payday" type="number" min="1" max="28" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="1-28"></div>
+          <div><label class="block text-[11px] text-slate-500 mb-1">发薪日（次月）</label><input v-model.number="payrollForm.payday" type="number" min="1" max="28" class="custom-input w-full px-3 py-2 rounded-lg border border-slate-200 text-xs" placeholder="次月几号，1-28"><div class="text-[10px] text-slate-400 mt-0.5">如填 15，表示 1 月工资在 2 月 15 日发</div></div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block text-[11px] text-slate-500 mb-1">生效日期 *</label><date-field v-model="payrollForm.effective_from"></date-field></div>
@@ -1635,7 +1690,7 @@ const DateField = {
       this.popLeft = left;
     },
     toggle() { if (this.disabled) return; clearTimeout(this._blurTimer); this.open = !this.open; if (this.open) { this.syncView(); this.$nextTick(() => this.measure()); } },
-    close() { this.open = false; this.typed = this.modelValue || ''; },
+    close() { this.open = false; },
     syncView() {
       const parsed = parseISODate(this.modelValue) || parseISODate(localToday());
       this.viewYear = parsed.getFullYear();
@@ -1682,10 +1737,10 @@ const DateField = {
     onFocus() { if (!this.open && !this.disabled) { this.open = true; this.syncView(); this.$nextTick(() => this.measure()); } },
     onBlurDelay() {
       clearTimeout(this._blurTimer);
-      this._blurTimer = setTimeout(() => { if (!this.open) this.commitTyped(); }, 180);
+      this._blurTimer = setTimeout(() => { this.commitTyped(); }, 180);
     },
     onKey(e) {
-      if (e.key === 'Escape') { this.close(); }
+      if (e.key === 'Escape') { this.typed = this.modelValue || ''; this.close(); }
       else if (e.key === 'Enter') { this.commitTyped(); }
       else if (e.key === 'ArrowDown' && !this.open) { this.open = true; this.syncView(); e.preventDefault(); }
     },
@@ -1824,7 +1879,7 @@ const MonthField = {
       this.popLeft = left;
     },
     toggle() { if (this.disabled) return; clearTimeout(this._blurTimer); this.open = !this.open; if (this.open) { this.mode = 'month'; this.$nextTick(() => this.measure()); } },
-    close() { this.open = false; this.typed = this.modelValue || ''; },
+    close() { this.open = false; },
     apply(iso) {
       this.typed = iso;
       this.$emit('update:modelValue', iso);
@@ -1848,10 +1903,10 @@ const MonthField = {
     onFocus() { if (!this.open && !this.disabled) { this.open = true; this.$nextTick(() => this.measure()); } },
     onBlurDelay() {
       clearTimeout(this._blurTimer);
-      this._blurTimer = setTimeout(() => { if (!this.open) this.commitTyped(); }, 180);
+      this._blurTimer = setTimeout(() => { this.commitTyped(); }, 180);
     },
     onKey(e) {
-      if (e.key === 'Escape') this.close();
+      if (e.key === 'Escape') { this.typed = this.modelValue || ''; this.close(); }
       else if (e.key === 'Enter') this.commitTyped();
       else if (e.key === 'ArrowDown' && !this.open) { this.open = true; e.preventDefault(); }
     },
@@ -2021,6 +2076,133 @@ const SelectField = {
   `,
 };
 
+const SearchableSelect = {
+  props: {
+    modelValue: { default: '' },
+    options: { type: Array, default: () => [] },
+    placeholder: { type: String, default: '' },
+    disabled: { type: Boolean, default: false },
+  },
+  emits: ['update:modelValue', 'change'],
+  data() {
+    return { open: false, query: '', active: 0, popTop: 0, popLeft: 0, popWidth: 160 };
+  },
+  computed: {
+    isMobile() { return typeof window !== 'undefined' && window.innerWidth < 640; },
+    all() { return (this.options || []).filter(Boolean).map(String); },
+    filtered() {
+      const q = (this.query || '').trim().toLowerCase();
+      return q ? this.all.filter(name => name.toLowerCase().includes(q)) : this.all;
+    },
+  },
+  mounted() {
+    this._onDoc = (e) => {
+      if (!this.open) return;
+      if (this.$el && this.$el.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('.select-pop-panel')) return;
+      this.close();
+    };
+    this._onResize = () => this.close();
+    document.addEventListener('mousedown', this._onDoc);
+    window.addEventListener('resize', this._onResize);
+  },
+  beforeUnmount() {
+    document.removeEventListener('mousedown', this._onDoc);
+    window.removeEventListener('resize', this._onResize);
+  },
+  methods: {
+    popupStyle() {
+      if (this.isMobile) return {};
+      return { position: 'fixed', top: this.popTop + 'px', left: this.popLeft + 'px', width: this.popWidth + 'px', zIndex: 85 };
+    },
+    measure() {
+      if (!this.$el || this.isMobile) return;
+      const r = this.$el.getBoundingClientRect();
+      const width = Math.max(200, Math.round(r.width));
+      const height = Math.min(280, this.filtered.length * 34 + 56);
+      let top = r.bottom + 4;
+      if (top + height > window.innerHeight - 8 && r.top - height - 4 > 8) top = r.top - height - 4;
+      let left = r.left;
+      if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+      this.popTop = top;
+      this.popLeft = left;
+      this.popWidth = width;
+    },
+    openList(focusQuery) {
+      if (this.disabled || this.open) return;
+      this.open = true;
+      this.query = '';
+      this.active = 0;
+      this.$nextTick(() => {
+        this.measure();
+        if (focusQuery && this.$refs.queryInput) this.$refs.queryInput.focus();
+      });
+    },
+    toggle() {
+      if (this.open) { this.close(); return; }
+      this.openList(true);
+    },
+    close() { this.open = false; this.query = ''; },
+    onInput(e) {
+      this.$emit('update:modelValue', e.target.value);
+      this.query = e.target.value;
+      this.active = 0;
+    },
+    pick(name) {
+      this.$emit('update:modelValue', name);
+      this.$emit('change', name);
+      this.close();
+    },
+    moveActive(delta) {
+      const list = this.filtered;
+      if (!list.length) return;
+      this.active = (this.active + delta + list.length) % list.length;
+    },
+    onKey(e) {
+      if (this.disabled) return;
+      if (e.key === 'Escape') { this.close(); return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!this.open) { this.toggle(); return; }
+        this.moveActive(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      if (e.key === 'Enter') {
+        if (!this.open) { e.preventDefault(); this.toggle(); return; }
+        if (this.filtered[this.active]) { e.preventDefault(); this.pick(this.filtered[this.active]); }
+        return;
+      }
+      if (e.key === 'Tab') this.close();
+    },
+  },
+  template: `
+    <div class="searchable-select relative w-full">
+      <div :class="['flex items-center gap-1 border border-slate-200 bg-white rounded-lg px-2.5', disabled ? 'opacity-50 bg-slate-50' : '']">
+        <input :value="modelValue" @input="onInput" @focus="openList(false)" @keydown="onKey" :placeholder="placeholder" :disabled="disabled" class="custom-input flex-1 min-w-0 py-1.5 text-xs bg-transparent border-0 focus:outline-none">
+        <button type="button" :disabled="disabled" @click="toggle" class="flex-none text-slate-400 hover:text-slate-700" aria-label="展开模型列表">
+          <svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+        </button>
+      </div>
+      <teleport to="body">
+        <div v-if="open" class="select-pop-root">
+          <div v-if="isMobile" class="fixed inset-0 z-[84] bg-slate-900/30" @click="close"></div>
+          <div class="select-pop-panel bg-white border border-slate-200 shadow-xl p-1 overflow-hidden"
+            :class="isMobile ? 'fixed inset-x-0 bottom-0 z-[85] rounded-t-2xl pb-4 max-h-[60vh]' : 'rounded-xl max-h-[280px]'"
+            :style="popupStyle()" @keydown="onKey">
+            <input ref="queryInput" v-model="query" class="w-full px-2.5 py-1.5 mb-1 text-xs border border-slate-200 rounded-md focus:outline-none" placeholder="搜索模型">
+            <div class="overflow-y-auto max-h-[220px]">
+              <button v-for="(name, i) in filtered" :key="i" type="button"
+                :class="['w-full text-left text-xs px-2.5 py-2 rounded-lg', name === modelValue ? 'bg-slate-900 text-white' : (i === active ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-50')]"
+                @click="pick(name)">{{ name }}</button>
+              <div v-if="!filtered.length" class="px-2.5 py-2 text-[11px] text-slate-400">没有匹配的模型，可直接输入模型名称</div>
+            </div>
+          </div>
+        </div>
+      </teleport>
+    </div>
+  `,
+};
+
 function renderMarkdown(src) {
   const escape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const slug = (s) => String(s).trim().toLowerCase().replace(/[^\u4e00-\u9fff\w]+/g, '-').replace(/^-|-$/g, '');
@@ -2107,8 +2289,18 @@ const app = createApp({
     const receivableTotal = ref(0);
     const receivableSummary = reactive({ amount: 0 });
     const batches = ref([]);
+    const batchFilters = reactive({ status_value: '', company_id: null, year: '', month: '', overdue: false, q: '' });
+    const batchYearOptions = computed(() => {
+      const now = new Date().getFullYear();
+      return [{ value: '', label: '全部年份' }, ...Array.from({ length: 7 }, (_, i) => ({ value: String(now + 1 - i), label: String(now + 1 - i) }))];
+    });
+    const visibleBatches = computed(() => batchFilters.month
+      ? batches.value.filter(b => (b.period || '').slice(5, 7) === batchFilters.month)
+      : batches.value);
     const payments = ref([]);
     const drafts = ref([]);
+    const draftStatusFilter = ref('');
+    const confirmSubmitting = ref(false);
     const exportRecords = ref([]);
     const auditLogs = ref([]);
     const users = ref([]);
@@ -2123,9 +2315,11 @@ const app = createApp({
     const agentTokenForm = reactive({ name: '', expires_at: '', scopes: ['capture', 'ledger', 'export'] });
     const selectedReceivableIds = ref([]);
     const selectedDraftIds = ref([]);
+    const draftReimbursementEdit = reactive({});
     const uploadCompanyId = ref(null);
     const lastCompanyId = ref(Number(localStorage.getItem('reimburse_last_company') || 0) || null);
     const batchDraftCompany = ref(null);
+    const batchDraftPeriod = ref('');
     const dragging = ref(false);
     const fileInput = ref(null);
     const cameraInput = ref(null);
@@ -2308,6 +2502,18 @@ const app = createApp({
     const KIND_OPTIONS = [
       { value: 'reimbursement', label: '报销' }, { value: 'payroll', label: '薪资' }, { value: 'other', label: '其他' },
     ];
+    const BATCH_STATUS_OPTIONS = [
+      { value: '', label: '全部状态' }, { value: 'draft', label: '草稿' }, { value: 'submitted', label: '已提交' },
+      { value: 'paid', label: '已结清' }, { value: 'cancelled', label: '已取消' },
+    ];
+    const BATCH_MONTH_OPTIONS = [
+      { value: '', label: '全部月份' },
+      ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1).padStart(2, '0'), label: `${i + 1} 月` })),
+    ];
+    const DRAFT_STATUS_OPTIONS = [
+      { value: '', label: '全部状态' }, { value: 'ready', label: '待确认' }, { value: 'failed', label: '识别失败' },
+      { value: 'pending', label: '排队中' }, { value: 'processing', label: '识别中' },
+    ];
     function kindFilterOptions(emptyLabel) {
       return [{ value: '', label: emptyLabel }, ...KIND_OPTIONS];
     }
@@ -2372,7 +2578,12 @@ const app = createApp({
     async function loadCategories() { categories.value = await api('/api/categories'); }
     async function loadDashboard() { dashboard.value = await api('/api/dashboard'); }
     async function loadDrafts() {
-      drafts.value = await api('/api/capture/drafts');
+      const params = new URLSearchParams();
+      if (draftStatusFilter.value) params.set('status_value', draftStatusFilter.value);
+      const qs = params.toString();
+      drafts.value = await api('/api/capture/drafts' + (qs ? '?' + qs : ''));
+      const ids = new Set(drafts.value.map(d => d.id));
+      selectedDraftIds.value = selectedDraftIds.value.filter(id => ids.has(id));
       drafts.value.forEach(loadDraftThumb);
     }
     async function loadReceivables() {
@@ -2393,7 +2604,20 @@ const app = createApp({
       receivableSummary.amount = data.total_amount;
       selectedReceivableIds.value = selectedReceivableIds.value.filter(id => data.items.some(item => item.id === id));
     }
-    async function loadBatches() { batches.value = await api('/api/batches'); }
+    async function loadBatches() {
+      const params = new URLSearchParams();
+      if (batchFilters.status_value) params.set('status_value', batchFilters.status_value);
+      if (batchFilters.company_id) params.set('company_id', batchFilters.company_id);
+      if (batchFilters.year) params.set('period_from', batchFilters.year + '-01');
+      if (batchFilters.q.trim()) params.set('q', batchFilters.q.trim());
+      if (batchFilters.overdue) params.set('overdue', 'true');
+      const qs = params.toString();
+      batches.value = await api('/api/batches' + (qs ? '?' + qs : ''));
+    }
+    function resetBatchFilters() {
+      Object.assign(batchFilters, { status_value: '', company_id: null, year: '', month: '', overdue: false, q: '' });
+      return loadBatches();
+    }
     async function loadPayments() { payments.value = await api('/api/payments'); }
     async function loadExportRecords() { exportRecords.value = await api('/api/export/records'); }
     async function loadAudit() { auditLogs.value = await api('/api/audit-logs'); }
@@ -2596,9 +2820,29 @@ const app = createApp({
       catch (error) { notify(errMsg(error), 'error'); }
     }
     async function discardDraft(draft) {
-      if (!(await askConfirm('丢弃草稿', '这张凭证和已识别的信息都会被删除，确定吗？'))) return;
+      if (!(await askConfirm('丢弃草稿', '只删除这份草稿和识别信息；台账里已经确认入账的应收不会被删除。确定丢弃吗？'))) return;
       try { await api(`/api/capture/drafts/${draft.id}`, { method: 'DELETE' }); notify('草稿已丢弃'); await loadDrafts(); }
       catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function batchRetryDrafts() {
+      if (!selectedDraftIds.value.length) return notify('先勾选草稿', 'error');
+      if (!(await askConfirm('批量重新识别', `将对已选的 ${selectedDraftIds.value.length} 张草稿重新识别，已入账的会自动跳过。确定吗？`))) return;
+      try {
+        const result = await withPending('draft-retry', () => api('/api/capture/drafts/batch-retry', { method: 'POST', body: { draft_ids: selectedDraftIds.value.slice() } }));
+        notify(`已重新识别 ${result.retried} 张${result.skipped_ids.length ? `，跳过已入账 ${result.skipped_ids.length} 张` : ''}`);
+        selectedDraftIds.value = [];
+        await loadDrafts(); startPolling();
+      } catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function batchDiscardDrafts() {
+      if (!selectedDraftIds.value.length) return notify('先勾选草稿', 'error');
+      if (!(await askConfirm('批量丢弃草稿', `将丢弃已选的 ${selectedDraftIds.value.length} 张草稿；台账里已经确认入账的应收不会被删除。确定吗？`))) return;
+      try {
+        const result = await api('/api/capture/drafts/batch-delete', { method: 'POST', body: { draft_ids: selectedDraftIds.value.slice() } });
+        notify(`已丢弃 ${result.deleted.length} 张${result.skipped_ids.length ? `，跳过已入账 ${result.skipped_ids.length} 张` : ''}`);
+        selectedDraftIds.value = [];
+        await loadDrafts();
+      } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function applyDraftCompany() {
       if (!batchDraftCompany.value) return notify('先选择要应用的公司', 'error');
@@ -2610,18 +2854,62 @@ const app = createApp({
       }
       notify(`已应用到 ${targets.length} 张草稿`);
     }
+    async function applyDraftPeriod() {
+      const period = String(batchDraftPeriod.value || '').trim();
+      if (!period) return notify('先选择要应用的归属月', 'error');
+      const targets = drafts.value.filter(d => selectedDraftIds.value.includes(d.id));
+      if (!targets.length) return notify('先勾选草稿', 'error');
+      for (const draft of targets) {
+        draft.period = period;
+        await saveDraft(draft, { period });
+      }
+      notify(`已把 ${targets.length} 张草稿的归属月改为 ${period}`);
+    }
     function openDraftFile(draft) { openBlob(`/api/capture/drafts/${draft.id}/file`); }
     function canApplyPayment(draft) {
-      const match = draft.payroll_match;
-      return !!(draft.is_inflow && match && match.allocations.length && !match.remaining_cents && draft.company_id);
+      const payroll = draft.payroll_match;
+      const reimbursement = draft.reimbursement_match;
+      const okPayroll = !!(payroll && payroll.allocations.length && !payroll.remaining_cents);
+      const okReimbursement = !!(reimbursement && reimbursement.allocations.length);
+      return !!(draft.is_inflow && draft.company_id && (okPayroll || okReimbursement));
+    }
+    function reimbursementReceivableOptions(draft, allocation) {
+      const options = [];
+      const seen = new Set();
+      receivables.value.forEach(r => {
+        if (r.company_id !== draft.company_id) return;
+        if (!['submitted', 'partial'].includes(r.status)) return;
+        if (!(Number(r.remaining) > 0)) return;
+        if (allocation.period && r.period && r.period !== allocation.period) return;
+        if (seen.has(r.id)) return;
+        seen.add(r.id);
+        options.push({ value: r.id, label: `${r.period || ''} ${r.title} · 待收 ¥${money(r.remaining)}` });
+      });
+      if (allocation.receivable_id && !seen.has(allocation.receivable_id)) {
+        options.unshift({ value: allocation.receivable_id, label: `当前 #${allocation.receivable_id}` });
+      }
+      return options;
     }
     async function applyDraftPayment(draft) {
+      const body = {};
+      if (draft.reimbursement_match && draft.reimbursement_match.allocations.length) {
+        body.allocations = draft.reimbursement_match.allocations.map(a => ({
+          receivable_id: a.receivable_id,
+          amount: Number(a.amount) || 0,
+        }));
+        body.note = '按附言明细核销';
+      }
       try {
-        await api(`/api/capture/drafts/${draft.id}/apply-payment`, { method: 'POST', body: {} });
-        notify('已按推断月份核销到账');
+        await api(`/api/capture/drafts/${draft.id}/apply-payment`, { method: 'POST', body });
+        notify('已按附言明细核销到账');
         await Promise.all([loadDrafts(), loadPayments(), loadReceivables(), loadDashboard()]);
       } catch (error) {
-        notify(errMsg(error), 'error');
+        const detail = error?.detail?.detail;
+        if (detail && Array.isArray(detail.issues)) {
+          notify(`${detail.message || '核销未通过'}：${detail.issues.join('；')}`, 'error');
+        } else {
+          notify(errMsg(error), 'error');
+        }
       }
     }
 
@@ -2730,6 +3018,45 @@ const app = createApp({
         closeModal();
         return true;
       });
+    }
+    async function quickConfirmAndSubmit() {
+      const ids = selectedDraftIds.value.slice();
+      if (!ids.length) return notify('先勾选草稿', 'error');
+      const chosen = drafts.value.filter(d => ids.includes(d.id));
+      if (chosen.some(d => !d.company_id)) return notify('还有草稿没选公司，请先补全', 'error');
+      if (chosen.some(d => !d.amount_cents)) return notify('还有草稿金额为空，请先补全', 'error');
+      const months = [...new Set(chosen.map(d => d.period || (d.occurred_on || '').slice(0, 7)).filter(Boolean))];
+      if (months.length > 1) return notify(`所选草稿归属月不一致（${months.join('、')}），请分批一键提交`, 'error');
+      if (!(await askConfirm('一键确认并提交', `将把选中的 ${ids.length} 张草稿确认入账，按归属月 ${months[0] || '未设'} 建一个批次并提交给公司。确定吗？`))) return;
+      confirmSubmitting.value = true;
+      try {
+        const result = await api('/api/capture/confirm-and-submit', {
+          method: 'POST',
+          body: { draft_ids: ids },
+        });
+        notify(`已入账 ${result.count} 笔并提交批次`, 'success');
+        selectedDraftIds.value = [];
+        await Promise.all([loadDrafts(), loadReceivables(), loadBatches(), loadDashboard()]);
+        go('batches');
+      } catch (error) {
+        const detail = error?.detail?.detail;
+        if (error.status === 409 && detail?.warnings) {
+          const msg = detail.warnings.map(w => w.message).join('\n');
+          if (await askConfirm('检测到重复或抬头不一致', msg + '\n\n仍然入账并提交吗？')) {
+            try {
+              const forced = await api('/api/capture/confirm-and-submit', { method: 'POST', body: { draft_ids: ids, force: true } });
+              notify(`已入账 ${forced.count} 笔并提交批次`, 'success');
+              selectedDraftIds.value = [];
+              await Promise.all([loadDrafts(), loadReceivables(), loadBatches(), loadDashboard()]);
+              go('batches');
+            } catch (inner) { notify(errMsg(inner), 'error'); }
+          }
+        } else {
+          notify(errMsg(error), 'error');
+        }
+      } finally {
+        confirmSubmitting.value = false;
+      }
     }
 
 
@@ -2856,6 +3183,17 @@ const app = createApp({
       if (!(await askConfirm('删除应收', `确定删除「${item.title}」吗？已到账的不能删除。`))) return;
       try { await api(`/api/receivables/${item.id}`, { method: 'DELETE' }); notify('已删除'); await loadReceivables(); await loadDashboard(); }
       catch (error) { notify(errMsg(error), 'error'); }
+    }
+    async function batchDeleteReceivables() {
+      if (!selectedReceivableIds.value.length) return notify('先勾选应收', 'error');
+      if (!(await askConfirm('批量删除应收', `将删除已选的 ${selectedReceivableIds.value.length} 笔应收；已提交或已有到账的会自动跳过。确定吗？`))) return;
+      try {
+        const result = await withPending('receivable-delete', () => api('/api/receivables/batch-delete', { method: 'POST', body: { receivable_ids: selectedReceivableIds.value.slice() } }));
+        const skipped = result.skipped || [];
+        notify(`已删除 ${result.deleted.length} 笔${skipped.length ? `，跳过 ${skipped.length} 笔（已提交或已到账）` : ''}`, skipped.length ? 'error' : 'success');
+        selectedReceivableIds.value = [];
+        await loadReceivables(); await loadDashboard();
+      } catch (error) { notify(errMsg(error), 'error'); }
     }
     async function abandonReceivable(item) {
       const reason = prompt('放弃原因（必填，将记入审计）');
@@ -3062,22 +3400,50 @@ const app = createApp({
         if (batchDetail.value?.id === batchSubmitTarget.value.id) openBatchDetail(batchSubmitTarget.value.id);
       } catch (error) { notify(errMsg(error), 'error'); }
     }
-    const payBatchForm = reactive({ id: null, title: '', count: 0, amount: 0, paid_on: '', note: '批次到账' });
+    const payBatchForm = reactive({ id: null, title: '', count: 0, amount: 0, paid_on: '', note: '批次到账', mode: 'all', items: [], selected: [], allocations: {} });
     const unsubmitForm = reactive({ id: null, title: '', count: 0, amount: 0, reason: '' });
-    function openPayBatch(batch) {
+    const payBatchAllocated = computed(() => payBatchForm.selected.reduce((sum, id) => sum + (Number(payBatchForm.allocations[id]) || 0), 0));
+    async function openPayBatch(batch) {
       payBatchForm.id = batch.id;
       payBatchForm.title = batch.title;
       payBatchForm.count = batch.count || (batch.items || []).length;
       payBatchForm.amount = batch.amount;
       payBatchForm.paid_on = localToday();
       payBatchForm.note = '批次到账';
+      payBatchForm.mode = 'all';
+      payBatchForm.items = [];
+      payBatchForm.selected = [];
+      payBatchForm.allocations = {};
       openModal('payBatch');
+      try {
+        const detail = await api(`/api/batches/${batch.id}`, { silent: true });
+        payBatchForm.items = (detail.items || []).filter(r =>
+          r.kind !== 'payroll' && ['submitted', 'partial'].includes(r.status) && Number(r.remaining) > 0
+        );
+      } catch (error) { notify(errMsg(error), 'error'); }
+    }
+    function onPayBatchItemToggle(item) {
+      if (payBatchForm.selected.includes(item.id)) {
+        payBatchForm.allocations[item.id] = Number(item.remaining);
+      } else {
+        delete payBatchForm.allocations[item.id];
+      }
+      if (!payBatchForm.amount) payBatchForm.amount = payBatchAllocated.value;
     }
     async function doPayBatch() {
       if (!payBatchForm.id) return;
+      let body = { paid_on: payBatchForm.paid_on || localToday(), note: payBatchForm.note || '批次到账' };
+      if (payBatchForm.mode === 'partial') {
+        if (!payBatchForm.selected.length) return notify('先勾选要核销的应收', 'error');
+        const allocations = payBatchForm.selected.map(id => ({ receivable_id: id, amount: Number(payBatchForm.allocations[id]) || 0 }));
+        const total = allocations.reduce((s, a) => s + a.amount, 0);
+        if (Math.abs(total - (Number(payBatchForm.amount) || 0)) > 0.005) return notify('分摊合计与到账金额不一致', 'error');
+        body.amount = Number(payBatchForm.amount);
+        body.allocations = allocations;
+      }
       return withPending('pay-batch', async () => {
         try {
-          const result = await api(`/api/batches/${payBatchForm.id}/payment`, { method: 'POST', body: { paid_on: payBatchForm.paid_on || localToday(), note: payBatchForm.note || '批次到账' } });
+          const result = await api(`/api/batches/${payBatchForm.id}/payment`, { method: 'POST', body });
           notify(result.message || '已记录到账', result.skipped_payroll && result.skipped_payroll.length ? 'warning' : 'success');
           closeModal();
           await loadBatches(); await loadReceivables(); await loadDashboard(); await loadPayments(); await loadCompanies();
@@ -3142,13 +3508,37 @@ const app = createApp({
     }, 0));
     function onPaymentCandidateToggle(receivable) {
       if (paymentForm.receivable_ids.includes(receivable.id)) {
-        paymentForm.allocations[receivable.id] = Number(receivable.remaining);
+        // 已填到账金额时优先按到账金额分摊（工资实发通常小于税前，差额记代扣）；
+        // 未填时才用待收全额，并据此回填到账金额。
+        const amount = Number(paymentForm.amount) || 0;
+        const remaining = Number(receivable.remaining) || 0;
+        if (amount > 0) {
+          const otherAllocated = paymentForm.receivable_ids.reduce(
+            (sum, id) => (id === receivable.id ? sum : sum + (Number(paymentForm.allocations[id]) || 0)), 0
+          );
+          paymentForm.allocations[receivable.id] = Math.round(Math.max(0, Math.min(amount - otherAllocated, remaining)) * 100) / 100;
+        } else {
+          paymentForm.allocations[receivable.id] = remaining;
+        }
         if (receivable.kind === 'payroll') paymentForm.waive[receivable.id] = true;
       } else {
         delete paymentForm.allocations[receivable.id];
         delete paymentForm.waive[receivable.id];
       }
       if (!paymentForm.amount) paymentForm.amount = paymentAllocatedTotal.value;
+    }
+    function onPaymentAmountChange() {
+      // 全部选中项都是工资时，按到账金额（实发）重新分摊，差额自动记代扣；
+      // 报销类保持手工分摊不动，避免覆盖用户填的数字。
+      const selected = paymentCandidates.value.filter(r => paymentForm.receivable_ids.includes(r.id));
+      if (!selected.length || !selected.every(r => r.kind === 'payroll')) return;
+      let left = Number(paymentForm.amount) || 0;
+      for (const r of selected) {
+        const value = Math.round(Math.max(0, Math.min(left, Number(r.remaining) || 0)) * 100) / 100;
+        paymentForm.allocations[r.id] = value;
+        paymentForm.waive[r.id] = true;
+        left -= value;
+      }
     }
     function autoAllocate() {
       let left = Number(paymentForm.amount) || 0;
@@ -3348,14 +3738,6 @@ const app = createApp({
     const aiForm = reactive({ enabled: true, base_url: '', model_name: '', api_key: '', has_key: false, system_prompt: '' });
     const modelOptions = ref([]);
     const defaultAIPrompt = ref('');
-    const visibleModelOptions = computed(() => {
-      const selected = (aiForm.model_name || '').trim();
-      const all = Array.isArray(modelOptions.value) ? modelOptions.value.filter(Boolean) : [];
-      if (!all.length) return [];
-      const rest = all.filter(name => name !== selected);
-      const ordered = selected ? [selected, ...rest] : rest;
-      return ordered.slice(0, 20);
-    });
     async function loadAgentTokens() {
       try { agentTokens.value = await api('/api/settings/agent-tokens'); }
       catch (e) { notify(errMsg(e), 'error'); }
@@ -3757,26 +4139,27 @@ const app = createApp({
       companies, activeCompanies, categories, companyOptions, categoryOptions, kindFilterOptions,
       STATUS_FILTER_OPTIONS, STATUS_EDIT_OPTIONS, STATUS_LOCKED_OPTIONS, KIND_OPTIONS, ROLE_OPTIONS,
       dashboard, receivables, receivableTotal, receivableSummary,
-      batches, payments, drafts, exportRecords, auditLogs, users, agentTokens, showAgentCreate, createdAgentToken, agentScopeOptions, agentTokenForm,
-      selectedReceivableIds, selectedDraftIds, uploadCompanyId, batchDraftCompany, dragging, fileInput, cameraInput, uploadResult,
-      filters, exportFilters, toast, notify, closeToast, showProgress, isPending, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount, canApplyPayment, applyDraftPayment,
+      batches, batchFilters, batchYearOptions, visibleBatches, BATCH_STATUS_OPTIONS, BATCH_MONTH_OPTIONS, resetBatchFilters,
+      payments, drafts, draftStatusFilter, DRAFT_STATUS_OPTIONS, exportRecords, auditLogs, users, agentTokens, showAgentCreate, createdAgentToken, agentScopeOptions, agentTokenForm,
+      selectedReceivableIds, selectedDraftIds, draftReimbursementEdit, uploadCompanyId, batchDraftCompany, batchDraftPeriod, dragging, fileInput, cameraInput, uploadResult,
+      filters, exportFilters, toast, notify, closeToast, showProgress, isPending, money, fileSize, statusClass, batchStatusClass, draftStatusClass, draftStatusLabel, docTypeLabel, pickDraftAmount, canApplyPayment, applyDraftPayment, reimbursementReceivableOptions,
       readyDraftCount, allSelected, selectedAmount, selectedCompanyName, toggleSelectAll,
       draftTitleMismatch, appendForm, appendTargets, appendDrafts, appendTargetTitle, appendableDrafts, openAppendModal, doAppendDrafts, goMissingMaterials,
       modal, openModal, closeModal, confirmDialog, askConfirm, resolveConfirm,
       loadReceivables, loadBatches, loadPayments, loadExportRecords, loadAudit, loadUsers, loadAI, loadAgentTokens,
       scopeText, agentStatusClass, createAgentToken, copyAgentToken, toggleAgentToken, revokeAgentToken, reissueAgentToken,
       submitAuth, logout, go, goPendingThisMonth, goOverdue, goGuide, resetFilters, openQuickUpload, openCameraUpload, onFilePicked, uploadFiles, onDragOver, onDragLeave, onDrop,
-      saveDraft, retryDraft, discardDraft, applyDraftCompany, openDraftFile, openDraftPreview, onDraftOccurred, confirmDrafts, openConfirmSummary, doConfirmFromSummary, confirmSummary, selectAllDrafts, invertDraftSelection,
-      receivableForm, openReceivableModal, onReceivableOccurred, saveReceivable, deleteReceivable, abandonReceivable, duplicateReceivable, detail, openReceivableDetail,
+      saveDraft, retryDraft, discardDraft, batchRetryDrafts, batchDiscardDrafts, applyDraftCompany, applyDraftPeriod, openDraftFile, openDraftPreview, onDraftOccurred, confirmDrafts, openConfirmSummary, doConfirmFromSummary, quickConfirmAndSubmit, confirmSubmitting, confirmSummary, selectAllDrafts, invertDraftSelection,
+      receivableForm, openReceivableModal, onReceivableOccurred, saveReceivable, deleteReceivable, batchDeleteReceivables, abandonReceivable, duplicateReceivable, detail, openReceivableDetail,
       uploadAttachments, deleteAttachment, openAttachment, openAttachmentPreview,
       batchForm, BATCH_STEPS, batchStepDone, openBatchModal, batchWizardItems, batchWizardIncomplete, removeBatchWizardItem, batchWizardNext, batchWizardBack, submitBatchWizard, finishBatchWizard, batchDetail, batchAddCandidates, openBatchDetail, addBatchItem, removeBatchItem, submitBatch, doSubmitBatch,
-      batchSubmitTarget, batchSubmitForm, openPayBatch, doPayBatch, payBatchForm, openUnsubmitBatch, doUnsubmitBatch, unsubmitForm, cancelBatch, exportBatchPack, exportBatchAttachments,
-      paymentForm, paymentCandidates, paymentAllocatedTotal, allocationMatches, canSavePayment, paymentWaiveCents, paymentWaiveTotal, onPaymentCandidateToggle, autoAllocate, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
+      batchSubmitTarget, batchSubmitForm, openPayBatch, doPayBatch, payBatchForm, payBatchAllocated, onPayBatchItemToggle, openUnsubmitBatch, doUnsubmitBatch, unsubmitForm, cancelBatch, exportBatchPack, exportBatchAttachments,
+      paymentForm, paymentCandidates, paymentAllocatedTotal, allocationMatches, canSavePayment, paymentWaiveCents, paymentWaiveTotal, onPaymentCandidateToggle, onPaymentAmountChange, autoAllocate, openPaymentModal, loadPaymentCandidates, toggleAllPaymentCandidates, savePayment, deletePayment,
       exportExcel, exportSelectedPdf, exportSelectedPack, exportSelectedAttachments, exportAttachmentsByFilter, downloadExportRecord,
       companyBarWidth, agingBarWidth, categoryBarWidth, trendHeight,
       companyForm, openCompanyModal, saveCompany, deleteCompany,
       categoryForm, openCategoryModal, saveCategory,
-      aiForm, aiPanelResult, modelOptions, visibleModelOptions, saveAI, fetchModels, testAI, restoreDefaultPrompt,
+      aiForm, aiPanelResult, modelOptions, saveAI, fetchModels, testAI, restoreDefaultPrompt,
       userForm, openUserModal, saveUser, resetTarget, resetPasswordValue, openResetPassword, doResetPassword, deleteUser, disableUser, enableUser,
       payrollPlans, payrollForm, openPayrollModal, savePayrollPlan, stopPayrollPlan, syncPayrollPlans, loadPayrollPlans,
       guideHtml, guideError, loadGuide,
@@ -3789,6 +4172,7 @@ app.component('AppIcon', AppIcon);
 app.component('DateField', DateField);
 app.component('MonthField', MonthField);
 app.component('SelectField', SelectField);
+app.component('SearchableSelect', SearchableSelect);
 app.mount('#app');
 </script>
 </body>

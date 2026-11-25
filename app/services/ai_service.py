@@ -70,14 +70,14 @@ DEFAULT_SYSTEM_PROMPT = """你是个人应收台账的凭证识别引擎。输�
   "net_amount": null,
   "confidence": {"amount": 0.0, "date": 0.0},
   "evidence": "金额对应的原文片段",
-  "entries": []
+  "entries": [{"date":"YYYY-MM-DD","period":"YYYY-MM","item":"费用项","amount":128.00,"direction":"in","remark":"附言原文","confidence":0.9}]
 }
 
 规则：
 1. direction 判断资金方向：钱进到我的账户（工资到账、报销到账、退款）填 in；我付出去（消费、缴费、转账给他人）填 out；看不出来填 out。
 2. 银行回单、交易明细、到账截图：remark 原样抄写备注栏、摘要、用途或附言，例如「6,7月工资」「XX公司报销款」。
 3. 日期取交易、开票或乘车日期，不取截图时间或打印时间；统一为 YYYY-MM-DD。
-4. 一份材料里有多笔独立交易（如账单列表、多张小票拼图）时，entries 逐笔输出 {"date","merchant","item","amount","direction","remark"}，amount 填合计。
+4. entries 逐条输出明细：（a）一份材料里有多笔独立交易（如账单列表、多张小票拼图）；（b）银行/支付宝汇入汇款的附言里列了多条费用明细，例如「通行费：2月512.30、3月876.5、4月801.20」。每条格式为 {"date","period","item","amount","direction","remark","confidence"}：period 是归属月 YYYY-MM，按附言上下文推断（同一句里前面写了年份和月份，后面没写月份的明细继承该年月；完全推断不出才用交易日期所属月）；item 是费用项原文（如 通行费、汽油费）；amount 是该条明细金额；confidence 是对 period 和 amount 的把握（0 到 1）。多条明细金额合计应等于本次到账金额。工资到账不走 entries，按工资月份写入 remark。
 5. amount_candidates 列出画面中其它可能是费用金额的数字，便于人工核对，不要放余额、单价、税额。
 6. 看不清或不确定的字段填 null 或空字符串，禁止编造；confidence 如实给出 0 到 1 的把握。
 7. 金额单位人民币元，保留两位小数，一律输出正数。"""
@@ -200,6 +200,17 @@ def _coerce_confidence(value) -> dict:
     return result
 
 
+def _normalize_period(value) -> str:
+    """把明细归属月规范成 YYYY-MM；非法值返回空串，交给人工填写。"""
+    text = str(value or "").strip()
+    match = re.match(r"^(20\d{2})[-/年.\s]*(\d{1,2})", text)
+    if match:
+        month = int(match.group(2))
+        if 1 <= month <= 12:
+            return f"{match.group(1)}-{month:02d}"
+    return ""
+
+
 TEXT_FIELDS = (
     "date",
     "merchant",
@@ -244,6 +255,18 @@ def normalize_extraction(data: dict) -> dict:
             continue
         normalized = dict(entry)
         normalized["amount"] = _coerce_amount(entry.get("amount"))
+        normalized["period"] = _normalize_period(entry.get("period"))
+        normalized["date"] = str(entry.get("date") or "").strip()
+        normalized["item"] = str(entry.get("item") or "").strip()
+        normalized["remark"] = str(entry.get("remark") or "").strip()
+        entry_direction = str(entry.get("direction") or "").strip().lower()
+        normalized["direction"] = (
+            "in" if entry_direction in ("in", "income", "收入", "进账", "到账") else "out"
+        )
+        try:
+            normalized["confidence"] = max(0.0, min(1.0, float(entry.get("confidence") or 0)))
+        except (TypeError, ValueError):
+            normalized["confidence"] = 0.0
         if normalized["amount"] and normalized["amount"] > 0:
             entries.append(normalized)
     result["entries"] = entries

@@ -163,6 +163,9 @@ class BatchPaymentRequest(BaseModel):
     paid_on: Optional[str] = ""
     note: Optional[str] = ""
     idempotency_key: Optional[str] = None
+    # 不传则整批按待收余额核销；传了则只核销指定应收与金额（合计须等于到账金额）
+    amount: Optional[Union[float, str]] = None
+    allocations: List[PaymentAllocation] = Field(default_factory=list)
 
 
 class DraftUpdate(BaseModel):
@@ -193,6 +196,30 @@ class CapturePaymentApply(BaseModel):
 
     allocations: List[PaymentAllocation] = Field(default_factory=list)
     note: Optional[str] = ""
+
+
+class CaptureConfirmAndSubmit(BaseModel):
+    """收件箱一键：确认入账 + 按同一归属月建批次并提交。"""
+
+    draft_ids: List[int] = Field(default_factory=list)
+    company_id: Optional[int] = None
+    period: Optional[str] = None
+    title: Optional[str] = None
+    submitted_on: Optional[str] = ""
+    expected_on: Optional[str] = ""
+    force: bool = False
+
+
+class BatchDraftAction(BaseModel):
+    """批量操作收件箱草稿。"""
+
+    draft_ids: List[int] = Field(default_factory=list)
+
+
+class BatchReceivableDelete(BaseModel):
+    """批量软删待提交 / 被驳回的应收。"""
+
+    receivable_ids: List[int] = Field(default_factory=list)
 
 
 class FinancePackRequest(BaseModel):
