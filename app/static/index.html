@@ -929,7 +929,8 @@
   <div v-if="confirmDialog.open" class="fixed inset-0 z-[85] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl w-full max-w-sm border border-slate-200 shadow-xl p-5">
       <div class="text-sm font-bold text-slate-900">{{ confirmDialog.title }}</div>
-      <div class="text-xs text-slate-500 mt-2 whitespace-pre-line leading-relaxed">{{ confirmDialog.message }}</div>
+      <div v-if="confirmDialog.html" class="text-xs text-slate-500 mt-2 leading-relaxed" v-html="confirmDialog.html"></div>
+      <div v-else class="text-xs text-slate-500 mt-2 whitespace-pre-line leading-relaxed">{{ confirmDialog.message }}</div>
       <div class="flex justify-end gap-2 mt-5">
         <button @click="resolveConfirm(false)" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-medium">取消</button>
         <button @click="resolveConfirm(true)" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">确定</button>
@@ -1660,13 +1661,16 @@ const DateField = {
   mounted() {
     this._onDoc = (e) => {
       if (!this.open) return;
+      const inPanel = e.target.closest && e.target.closest('.date-pop-panel');
+      if (inPanel) { this._clickInPanel = true; return; }
       if (this.$el && this.$el.contains(e.target)) return;
-      if (e.target.closest && e.target.closest('.date-pop-panel')) return;
       this.close();
     };
+    this._onDocCapture = () => { this._clickInPanel = false; };
     document.addEventListener('mousedown', this._onDoc);
+    document.addEventListener('mousedown', this._onDocCapture, true);
   },
-  beforeUnmount() { document.removeEventListener('mousedown', this._onDoc); },
+  beforeUnmount() { document.removeEventListener('mousedown', this._onDoc); document.removeEventListener('mousedown', this._onDocCapture, true); },
   methods: {
     isDisabled(iso) {
       const d = parseISODate(iso);
@@ -1737,6 +1741,7 @@ const DateField = {
     onFocus() { if (!this.open && !this.disabled) { this.open = true; this.syncView(); this.$nextTick(() => this.measure()); } },
     onBlurDelay() {
       clearTimeout(this._blurTimer);
+      if (this._clickInPanel) return; // 焦点正移向弹层按钮，交给 pick 处理，避免用旧值抢先提交把弹层关掉
       this._blurTimer = setTimeout(() => { this.commitTyped(); }, 180);
     },
     onKey(e) {
@@ -1857,13 +1862,15 @@ const MonthField = {
   mounted() {
     this._onDoc = (e) => {
       if (!this.open) return;
+      if (e.target.closest && e.target.closest('.month-pop-panel')) { this._clickInPanel = true; return; }
       if (this.$el && this.$el.contains(e.target)) return;
-      if (e.target.closest && e.target.closest('.month-pop-panel')) return;
       this.close();
     };
+    this._onDocCapture = () => { this._clickInPanel = false; };
     document.addEventListener('mousedown', this._onDoc);
+    document.addEventListener('mousedown', this._onDocCapture, true);
   },
-  beforeUnmount() { document.removeEventListener('mousedown', this._onDoc); },
+  beforeUnmount() { document.removeEventListener('mousedown', this._onDoc); document.removeEventListener('mousedown', this._onDocCapture, true); },
   methods: {
     popupStyle() {
       if (this.isMobile) return {};
@@ -1903,6 +1910,7 @@ const MonthField = {
     onFocus() { if (!this.open && !this.disabled) { this.open = true; this.$nextTick(() => this.measure()); } },
     onBlurDelay() {
       clearTimeout(this._blurTimer);
+      if (this._clickInPanel) return; // 焦点正移向弹层按钮，交给 pick 处理，避免用旧值抢先提交把弹层关掉
       this._blurTimer = setTimeout(() => { this.commitTyped(); }, 180);
     },
     onKey(e) {
@@ -2540,13 +2548,14 @@ const app = createApp({
     function openModal(name, data = null) { modal.name = name; modal.data = data; }
     function closeModal() { modal.name = ''; modal.data = null; }
 
-    const confirmDialog = reactive({ open: false, title: '', message: '', resolver: null });
-    function askConfirm(title, message) {
-      confirmDialog.title = title; confirmDialog.message = message; confirmDialog.open = true;
+    const confirmDialog = reactive({ open: false, title: '', message: '', html: '', resolver: null });
+    function askConfirm(title, message, html = '') {
+      confirmDialog.title = title; confirmDialog.message = message; confirmDialog.html = html; confirmDialog.open = true;
       return new Promise(resolve => { confirmDialog.resolver = resolve; });
     }
     function resolveConfirm(value) {
       confirmDialog.open = false;
+      confirmDialog.html = '';
       if (confirmDialog.resolver) confirmDialog.resolver(value);
       confirmDialog.resolver = null;
     }
@@ -3027,7 +3036,9 @@ const app = createApp({
       if (chosen.some(d => !d.amount_cents)) return notify('还有草稿金额为空，请先补全', 'error');
       const months = [...new Set(chosen.map(d => d.period || (d.occurred_on || '').slice(0, 7)).filter(Boolean))];
       if (months.length > 1) return notify(`所选草稿归属月不一致（${months.join('、')}），请分批一键提交`, 'error');
-      if (!(await askConfirm('一键确认并提交', `将把选中的 ${ids.length} 张草稿确认入账，按归属月 ${months[0] || '未设'} 建一个批次并提交给公司。确定吗？`))) return;
+      const periodText = String(months[0] || '未设').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const html = `将把选中的 <b class="text-blue-600">${ids.length} 张</b> 草稿确认入账，按归属月 <b class="text-amber-600">${periodText}</b> 建一个批次并提交给公司。确定吗？`;
+      if (!(await askConfirm('一键确认并提交', `将把选中的 ${ids.length} 张草稿确认入账，按归属月 ${months[0] || '未设'} 建一个批次并提交给公司。确定吗？`, html))) return;
       confirmSubmitting.value = true;
       try {
         const result = await api('/api/capture/confirm-and-submit', {
