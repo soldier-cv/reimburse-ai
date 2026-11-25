@@ -206,7 +206,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.5.0",
+    version="3.5.1",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -1262,6 +1262,14 @@ def update_draft(draft_id: int, req: DraftUpdate, user: User = Depends(get_curre
             draft.period = period_from_date(draft.occurred_on)
     if req.period is not None:
         draft.period = normalize_period(req.period, fallback="")
+        # 用户显式改过归属月，标记来源，避免重新识别时被自动推断覆盖
+        try:
+            _ex = json.loads(draft.extracted_json or "{}")
+        except Exception:
+            _ex = {}
+        if isinstance(_ex, dict):
+            _ex["period_source"] = "manual"
+            draft.extracted_json = json.dumps(_ex, ensure_ascii=False)
     if req.title is not None:
         draft.title = req.title.strip()[:200]
     if req.merchant is not None:

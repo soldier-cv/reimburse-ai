@@ -450,13 +450,26 @@
                     <span class="text-[10px] font-medium text-slate-600">附言拆单核销 · {{ d.reimbursement_match.allocations.length }} 笔</span>
                     <button type="button" class="text-[10px] text-blue-600" @click="draftReimbursementEdit[d.id] = !draftReimbursementEdit[d.id]">{{ draftReimbursementEdit[d.id] ? '收起' : '编辑' }}</button>
                   </div>
-                  <div v-for="(a, i) in d.reimbursement_match.allocations" :key="i" class="mt-1 flex items-center gap-1 text-[10px] text-slate-600">
-                    <span class="flex-none">{{ a.item || '费用' }} · {{ a.period }}</span>
-                    <select-field v-if="draftReimbursementEdit[d.id]" :model-value="a.receivable_id" :options="reimbursementReceivableOptions(d, a)" compact @update:model-value="a.receivable_id = $event"></select-field>
-                    <span v-else class="truncate text-slate-400">{{ a.title }}</span>
-                    <input v-if="draftReimbursementEdit[d.id]" v-model.number="a.amount" type="number" step="0.01" min="0" class="w-20 px-1 py-0.5 rounded border border-slate-200 num text-right">
-                    <span v-else class="flex-none num">¥{{ money(a.amount) }}</span>
-                    <span v-if="a.confidence && a.confidence < 0.6" class="flex-none text-amber-600" title="把握度较低，请对照原件核对">?</span>
+                  <div v-for="(a, i) in d.reimbursement_match.allocations" :key="i" class="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] text-slate-600">
+                    <template v-if="draftReimbursementEdit[d.id]">
+                      <input v-model="a.item" class="w-14 px-1 py-0.5 rounded border border-slate-200" placeholder="费用项">
+                      <div class="w-20"><month-field v-model="a.period" compact placeholder="归属月"></month-field></div>
+                      <div class="flex-1 min-w-[120px]"><select-field :model-value="a.receivable_id" :options="reimbursementReceivableOptions(d, a)" compact @update:model-value="a.receivable_id = $event"></select-field></div>
+                      <input v-model.number="a.amount" type="number" step="0.01" min="0" class="w-16 px-1 py-0.5 rounded border border-slate-200 num text-right">
+                      <button type="button" class="text-rose-500 px-0.5" title="移除该明细" @click="removeReimbursementAllocation(d, i)">×</button>
+                    </template>
+                    <template v-else>
+                      <span class="flex-none">{{ a.item || '费用' }} · {{ a.period }}</span>
+                      <span class="truncate text-slate-400 flex-1">{{ a.title }}</span>
+                      <span class="flex-none num">¥{{ money(a.amount) }}</span>
+                      <span v-if="a.confidence && a.confidence < 0.6" class="flex-none text-amber-600" title="把握度较低，请对照原件核对">?</span>
+                    </template>
+                  </div>
+                  <div v-if="draftReimbursementEdit[d.id]" class="mt-1.5 flex items-center justify-between">
+                    <button type="button" class="text-[10px] text-blue-600" @click="addReimbursementAllocation(d)">+ 添加明细</button>
+                    <span class="text-[10px] num" :class="reimbursementMatches(d) ? 'text-emerald-600' : 'text-rose-600'">
+                      分摊合计 ¥{{ money(reimbursementAllocatedTotal(d)) }} / 到账 ¥{{ money(d.amount) }}{{ reimbursementDuplicated(d) ? ' · 有重复应收' : '' }}
+                    </span>
                   </div>
                   <div v-for="(issue, i) in d.reimbursement_match.issues" :key="'issue-' + i" class="mt-1 text-[10px] text-rose-600">{{ issue }}</div>
                 </div>
@@ -1810,6 +1823,7 @@ const MonthField = {
     disabled: { type: Boolean, default: false },
     disableFuture: { type: Boolean, default: false },
     allowClear: { type: Boolean, default: true },
+    compact: { type: Boolean, default: false },
     placeholder: { type: String, default: '选择月份' },
   },
   emits: ['update:modelValue', 'change'],
@@ -1923,7 +1937,7 @@ const MonthField = {
     <div class="date-field relative w-full">
       <div class="flex items-center gap-1">
         <input type="text" :value="typed" :disabled="disabled" :placeholder="placeholder"
-          class="custom-input w-full min-w-0 px-2.5 py-2 rounded-lg border border-slate-200 text-xs bg-white"
+          :class="['custom-input w-full min-w-0 border border-slate-200 bg-white', compact ? 'px-1.5 py-1 text-[11px] rounded' : 'px-2.5 py-2 text-xs rounded-lg']"
           @focus="onFocus" @input="onType" @keydown="onKey" @blur="onBlurDelay" autocomplete="off">
         <button type="button" class="flex-none w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" :disabled="disabled" @click="toggle" tabindex="-1" aria-label="打开月份">
           <svg class="app-icon mx-auto" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
@@ -2879,10 +2893,15 @@ const app = createApp({
       const payroll = draft.payroll_match;
       const reimbursement = draft.reimbursement_match;
       const okPayroll = !!(payroll && payroll.allocations.length && !payroll.remaining_cents);
-      const okReimbursement = !!(reimbursement && reimbursement.allocations.length);
+      const okReimbursement = !!(reimbursement && reimbursement.allocations.length && reimbursementMatches(draft));
       return !!(draft.is_inflow && draft.company_id && (okPayroll || okReimbursement));
     }
     function reimbursementReceivableOptions(draft, allocation) {
+      const match = draft.reimbursement_match;
+      // 排除其它明细已占用的应收，避免重复分摊
+      const taken = new Set((match?.allocations || [])
+        .filter(a => a !== allocation && a.receivable_id)
+        .map(a => a.receivable_id));
       const options = [];
       const seen = new Set();
       receivables.value.forEach(r => {
@@ -2892,12 +2911,47 @@ const app = createApp({
         if (allocation.period && r.period && r.period !== allocation.period) return;
         if (seen.has(r.id)) return;
         seen.add(r.id);
-        options.push({ value: r.id, label: `${r.period || ''} ${r.title} · 待收 ¥${money(r.remaining)}` });
+        const disabled = taken.has(r.id);
+        options.push({ value: r.id, label: `${r.period || ''} ${r.title} · 待收 ¥${money(r.remaining)}${disabled ? '（已被其它明细占用）' : ''}`, disabled });
       });
       if (allocation.receivable_id && !seen.has(allocation.receivable_id)) {
         options.unshift({ value: allocation.receivable_id, label: `当前 #${allocation.receivable_id}` });
       }
       return options;
+    }
+    function removeReimbursementAllocation(draft, index) {
+      draft.reimbursement_match.allocations.splice(index, 1);
+    }
+    function addReimbursementAllocation(draft) {
+      const list = draft.reimbursement_match.allocations;
+      const used = new Set(list.map(a => a.receivable_id).filter(Boolean));
+      const candidate = receivables.value.find(r =>
+        r.company_id === draft.company_id &&
+        ['submitted', 'partial'].includes(r.status) &&
+        Number(r.remaining) > 0 && !used.has(r.id)
+      );
+      if (!candidate) return notify('没有可添加的已提交应收', 'error');
+      list.push({
+        receivable_id: candidate.id,
+        period: candidate.period || draft.period || '',
+        title: candidate.title,
+        item: '费用',
+        confidence: 1,
+        amount_cents: 0,
+        amount: 0,
+        remaining_cents: Math.round(Number(candidate.remaining) * 100),
+      });
+    }
+    function reimbursementAllocatedTotal(draft) {
+      return (draft.reimbursement_match?.allocations || []).reduce((s, a) => s + (Number(a.amount) || 0), 0);
+    }
+    function reimbursementDuplicated(draft) {
+      const ids = (draft.reimbursement_match?.allocations || []).map(a => a.receivable_id).filter(Boolean);
+      return new Set(ids).size !== ids.length;
+    }
+    function reimbursementMatches(draft) {
+      const total = reimbursementAllocatedTotal(draft);
+      return total > 0 && !reimbursementDuplicated(draft) && Math.abs(total - (Number(draft.amount) || 0)) < 0.005;
     }
     async function applyDraftPayment(draft) {
       const body = {};

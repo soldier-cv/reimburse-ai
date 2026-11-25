@@ -63,6 +63,17 @@ def _category_for_item(categories: list[Category], item: str) -> Category | None
     return None
 
 
+def _item_specific_keywords(item: str) -> list[str]:
+    """返回明细文字命中的具体费用关键词（如 通行费 / 汽油），用于区分同类别下的不同事项。"""
+    text = (item or "").strip()
+    hits = []
+    for keywords in ITEM_KEYWORDS.values():
+        for keyword in keywords:
+            if keyword in text and keyword not in hits:
+                hits.append(keyword)
+    return hits
+
+
 def _receivable_matches_entry(receivable: Receivable, entry: dict, categories: list[Category]) -> bool:
     period = str(entry.get("period") or "").strip()
     if period and receivable_period(receivable) != period:
@@ -70,11 +81,17 @@ def _receivable_matches_entry(receivable: Receivable, entry: dict, categories: l
     item = str(entry.get("item") or "").strip()
     if not item:
         return True
-    category = _category_for_item(categories, item)
-    if category and receivable.category_id == category.id:
-        return True
     title = (receivable.title or "").strip()
-    return bool(title and (item in title or (category and category.name in title)))
+    # 最精确：明细原文出现在应收事项里
+    if title and item in title:
+        return True
+    specific = _item_specific_keywords(item)
+    # 明细含具体关键词（如通行费/汽油）：应收事项也须含其一，避免同类别下互串
+    if specific:
+        return bool(title and any(k in title for k in specific))
+    # 无具体关键词：退到类别匹配
+    category = _category_for_item(categories, item)
+    return bool(category and receivable.category_id == category.id)
 
 
 def _candidates(db: Session, user_id: int, company_id: int) -> list[Receivable]:

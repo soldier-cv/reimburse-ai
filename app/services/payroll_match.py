@@ -312,3 +312,42 @@ def propose_allocation(
     if remaining > 0:
         result["reason"] += f"；还有 ¥{cents_to_text(remaining)} 没有可分到"
     return result
+
+
+def suggest_period(
+    db: Session,
+    user_id: int,
+    company_id: int | None,
+    remark: str,
+    paid_on: str = "",
+    amount_cents: int = 0,
+) -> dict:
+    """为到账草稿推断单一归属月，返回 {period, source, confidence, reason}。
+
+    优先级：备注明确月份 → 金额正好等于最早 N 笔待收合计 → 最早欠发月。
+    只产出建议，不写库。供草稿归属月自动填充与前端提示使用。
+    """
+    result = {"period": "", "source": "none", "confidence": 0.0, "reason": ""}
+    months = parse_month_mentions(remark, paid_on)
+    if months:
+        result.update(period=months[0], source="remark", confidence=0.9,
+                      reason=f"备注写明 {'、'.join(m[5:7] + '月' for m in months)}")
+        return result
+    if not company_id:
+        result["reason"] = "未选公司，无法推断归属月"
+        return result
+    unpaid = unpaid_payroll(db, user_id, company_id)
+    if not unpaid:
+        result["reason"] = "没有待结清的工资应收，无法推断归属月"
+        return result
+    running = 0
+    for index, item in enumerate(unpaid, start=1):
+        running += remaining_cents(item)
+        if amount_cents > 0 and running == amount_cents:
+            result.update(period=unpaid[0].period or "", source="order", confidence=0.85,
+                          reason=f"金额正好等于最早 {index} 笔未结清工资合计，归属最早欠发月")
+            return result
+    first = unpaid[0]
+    result.update(period=first.period or "", source="order", confidence=0.6,
+                  reason="按最早欠发月推断，请核对")
+    return result

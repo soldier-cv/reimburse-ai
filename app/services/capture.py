@@ -17,7 +17,7 @@ from .ai_config import get_ai_config
 from .ai_service import DOC_TYPES, extract_document_with_ai, normalize_extraction
 from .extractor import extract_pdf_text, filename_hints, has_usable_text, parse_pdf_text
 from .money import normalize_date, parse_date, period_from_date, today_str, yuan_to_cents
-from .payroll_match import propose_allocation
+from .payroll_match import propose_allocation, suggest_period
 from .reimbursement_match import is_salary_inflow, propose as propose_reimbursement
 
 try:
@@ -415,13 +415,25 @@ def _apply_extraction(db: Session, draft: CaptureDraft, data: dict) -> None:
         except Exception:
             draft.amount_cents = None
 
+    # 重新识别时 AI 新结果不含 period_source，从旧草稿继承手填标记，避免覆盖用户设置
+    try:
+        _old = json.loads(draft.extracted_json or "{}")
+    except Exception:
+        _old = {}
+    if isinstance(_old, dict) and _old.get("period_source") == "manual" and not data.get("period_source"):
+        data["period_source"] = "manual"
+
     occurred = parse_date(data.get("date") or "")
+    period_source = str(data.get("period_source") or "").strip()
+    date_period = occurred.strftime("%Y-%m") if occurred else ""
     if occurred:
         draft.occurred_on = occurred.isoformat()
         if not (draft.period or "").strip():
-            draft.period = occurred.strftime("%Y-%m")
+            draft.period = date_period
+            period_source = "date"
     else:
         data["date_missing"] = True
+    data["period_from_date"] = date_period
 
     doc_type = data.get("doc_type") or "other"
     draft.doc_type = doc_type if doc_type in DOC_TYPES else "other"
@@ -447,6 +459,36 @@ def _apply_extraction(db: Session, draft: CaptureDraft, data: dict) -> None:
         draft.category_id = _guess_category_id(db, draft.user_id, data)
     if not draft.company_id:
         draft.company_id = _guess_company_id(db, draft.user_id, data)
+
+    # 归属月推断放在公司识别之后（工资推断依赖公司）。用户手填的保持不动。
+    # 仅当归属月为空或仍等于发生日派生月时才推断；用户改过或已推断过的保留
+    can_infer = not (draft.period or "").strip() or draft.period == date_period
+    if is_salary_inflow(data) and can_infer and draft.company_id:
+        suggestion = suggest_period(
+            db,
+            draft.user_id,
+            draft.company_id,
+            str(data.get("remark") or ""),
+            draft.occurred_on or "",
+            draft.amount_cents or 0,
+        )
+        if suggestion["period"]:
+            draft.period = suggestion["period"]
+            period_source = suggestion["source"]
+            data["period_suggestion"] = suggestion
+    if period_source:
+        data["period_source"] = period_source
+    # data 在上方已写入 extracted_json，推断字段需补写一次
+    try:
+        _ex = json.loads(draft.extracted_json or "{}")
+    except Exception:
+        _ex = {}
+    if isinstance(_ex, dict):
+        if period_source:
+            _ex["period_source"] = period_source
+        if data.get("period_suggestion"):
+            _ex["period_suggestion"] = data["period_suggestion"]
+        draft.extracted_json = json.dumps(_ex, ensure_ascii=False)
 
 
 def _read_extracted(draft: CaptureDraft) -> dict:
@@ -887,6 +929,8 @@ def draft_payload(draft: CaptureDraft, db: Session | None = None) -> dict:
         "amount_cents": draft.amount_cents,
         "occurred_on": draft.occurred_on or "",
         "period": period,
+        "period_source": str(extracted.get("period_source") or ""),
+        "period_suggestion": extracted.get("period_suggestion"),
         "duplicates": duplicates,
         "title": draft.title or "",
         "merchant": draft.merchant or "",
