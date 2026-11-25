@@ -74,6 +74,8 @@ def test_parse_months_from_remark():
     assert parse_month_mentions("6-8月工资", "2025-11-05") == ["2025-06", "2025-07", "2025-08"]
     assert parse_month_mentions("六、七月工资", "2025-11-05") == ["2025-06", "2025-07"]
     assert parse_month_mentions("2025年6月工资", "2026-11-05") == ["2025-06"]
+    assert parse_month_mentions("26年5月通行费", "2026-06-23") == ["2026-05"]
+    assert parse_month_mentions("25年12月工资", "2026-01-05") == ["2025-12"]
     assert parse_month_mentions("9月工资", "2025-11-05") == ["2025-09"]
 
 

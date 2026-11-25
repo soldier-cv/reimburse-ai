@@ -356,6 +356,20 @@ def test_create_and_submit_in_one_call(client, auth):
         assert detail["expected_on"] == "2026-12-05"
 
 
+def test_edit_pending_receivable_keeps_explicit_expected_on(client, auth):
+    """编辑待提交应收时同时传 status=pending 与 expected_on，预计到账日应保留。"""
+    company = create_company(client, auth)
+    item = create_receivable(client, auth, company["id"])
+    resp = client.put(
+        f"/api/receivables/{item['id']}",
+        json={"status": "pending", "expected_on": "2027-12-31"},
+        headers=auth,
+    )
+    assert resp.status_code == 200, resp.text
+    detail = client.get(f"/api/receivables/{item['id']}", headers=auth).json()
+    assert detail["expected_on"] == "2027-12-31"
+
+
 def test_create_and_submit_fills_expected_on_from_company(client, auth):
     company = create_company(client, auth, name="账期公司", payday=15)
     item = create_receivable(client, auth, company["id"], title="默认账期")

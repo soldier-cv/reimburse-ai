@@ -176,7 +176,7 @@
         </div>
       </header>
 
-      <main class="p-4 lg:p-8 max-w-[1440px] mx-auto" @dragover.prevent="onDragOver" @dragleave="onDragLeave" @drop.prevent="onDrop">
+      <main class="p-4 lg:p-8 max-w-[1440px] mx-auto">
 
         <!-- 总览 -->
         <section v-if="view==='dashboard'" class="space-y-6">
@@ -429,7 +429,7 @@
                       <div class="flex items-center gap-1 text-[10px] text-slate-400 mb-0.5">归属月 <button type="button" class="guide-q" @click.stop="goGuide('3-归属月与发生日期')">?</button></div>
                       <month-field v-model="d.period" @change="saveDraft(d,{period:d.period})" placeholder="归属月"></month-field>
                       <div v-if="d.reimbursement_match && d.reimbursement_match.allocations.some(a => a.period && a.period !== d.period)" class="mt-1 text-[10px] text-blue-600">
-                        拆单方案含多个归属月（下方明细），核销按明细归属月；此处的「{{ d.period }}」仅在「仍记为应收」时使用。
+                        核销按下方明细的归属月（{{ [...new Set(d.reimbursement_match.allocations.map(a => a.period).filter(Boolean))].join('、') }}）；此处的「{{ d.period }}」仅在「仍记为应收」时使用。
                       </div>
                     </div>
                     <div class="mt-1.5"><select-field v-model="d.company_id" compact :options="companyOptions('选择公司（必填）')" @change="saveDraft(d,{company_id:d.company_id})"></select-field></div>
@@ -2819,13 +2819,37 @@ const app = createApp({
         }
       });
     }
-    function onDragOver(event) { event.preventDefault(); dragging.value = true; }
-    function onDragLeave(event) { if (!event.relatedTarget) dragging.value = false; }
+    function _hasFiles(event) {
+      const types = event.dataTransfer?.types;
+      return !!types && Array.from(types).includes('Files');
+    }
+    function onDragOver(event) {
+      if (!user.value || !_hasFiles(event)) return;
+      // window 级拦截：覆盖整个视口，阻止浏览器接管并显示它自己的「打开文件」提示
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      dragging.value = true;
+    }
+    function onDragLeave(event) {
+      // 拖出浏览器窗口（relatedTarget 为空）才收起遮罩
+      if (!event.relatedTarget || event.relatedTarget === document.documentElement) dragging.value = false;
+    }
+    function onDragEnd() { dragging.value = false; }
     async function onDrop(event) {
       event.preventDefault(); dragging.value = false;
+      if (!user.value) return;
       const files = Array.from(event.dataTransfer.files || []);
       if (files.length) await uploadFiles(files);
     }
+    // 整个窗口范围拦截拖拽与放置；仅在已登录且拖的是文件时接管
+    window.addEventListener('dragenter', onDragOver);
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    window.addEventListener('dragend', onDragEnd);
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && dragging.value) { dragging.value = false; }
+    });
     window.addEventListener('paste', (event) => {
       if (!user.value) return;
       const items = Array.from(event.clipboardData?.items || []);

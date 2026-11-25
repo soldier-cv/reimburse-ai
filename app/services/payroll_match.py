@@ -44,7 +44,12 @@ def parse_month_mentions(remark: str, paid_on: str = "") -> list[str]:
     if not text:
         return []
     paid = parse_date(paid_on) or date.today()
-    years = [(match.start(), int(match.group(1))) for match in re.finditer(r"(20\d{2})\s*年", text)]
+    # 同时支持四位（2026年）与两位（26年）年份；两位按 2000+ 处理
+    years: list[tuple[int, int]] = []
+    for match in re.finditer(r"(20\d{2}|\d{2})\s*年", text):
+        raw = match.group(1)
+        year = int(raw) if len(raw) == 4 else 2000 + int(raw)
+        years.append((match.start(), year))
 
     tokens: list[tuple[int, int]] = []  # (位置, 月份)
     consumed: list[tuple[int, int]] = []

@@ -207,7 +207,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.5.2",
+    version="3.5.3",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -1971,7 +1971,9 @@ def update_receivable(receivable_id: int, req: ReceivableUpdate, user: User = De
         receivable.status = req.status
         if req.status == "pending":
             receivable.submitted_on = ""
-            receivable.expected_on = ""
+            # 显式传了预计到账日时保留用户设置；否则随撤回提交清空
+            if req.expected_on is None:
+                receivable.expected_on = ""
         if req.status in ("abandoned", "rejected") and receivable.batch_id:
             receivable.batch_id = None
         action = "放弃应收" if req.status == "abandoned" else ("驳回应收" if req.status == "rejected" else "修改应收")
