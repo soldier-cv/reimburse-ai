@@ -4,6 +4,20 @@
 
 这不是个人记账工具——不记录个人消费、预算与账户余额。
 
+## 快速开始
+
+最快用本地 Docker Compose 启动，无需预先准备数据库或密钥：
+
+```bash
+git clone https://github.com/soldier-cv/reimburse-ai.git
+cd reimburse-ai
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+打开 `http://localhost:8092`，按向导创建管理员即可。首次启动会自动建库、建表，并生成 64 位 JWT 密钥到 `data/jwt_secret.key`（权限 0600），无需手动创建；显式设置 `JWT_SECRET_KEY` 环境变量时以环境变量为准，密钥变更会使已登录会话失效。生产环境的镜像与持久化挂载见下方「生产部署」。
+
+不用 Docker 时可执行 `pip install -r requirements.txt && python run.py`，访问 `http://localhost:8090`。
+
 ## 界面预览
 
 以下截图来自虚构演示账本：公司名、税号、发票号与金额均为示例数据，不含真实票据。
