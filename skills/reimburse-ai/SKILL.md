@@ -1,7 +1,7 @@
 ---
 name: reimburse-ai
 description: Use when 采集报销票据、维护个人对公应收台账、提交批次、核销到账或导出财务包。
-version: 1.10.0
+version: 1.11.0
 author: soldier-cv
 license: MIT
 metadata:
@@ -32,7 +32,7 @@ metadata:
 | 项 | 值 |
 |---|---|
 | 当前版本 | 见 frontmatter 的 `version` |
-| 对齐应用 | `3.5.1` 及以上 |
+| 对齐应用 | `3.5.2` 及以上 |
 | 更新源 | `http://100.64.0.88:8088/.well-known/skills/index.json` |
 | 安装根 | `http://100.64.0.88:8088/.well-known/skills/reimburse-ai/` |
 
@@ -48,6 +48,8 @@ print(s['version'], s['updated_at'])"
 # 升级（单文件）
 curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <你的技能目录>/reimburse-ai/SKILL.md
 ```
+
+**1.11.0 对齐应用 3.5.2**：导出整改：Excel 与合并 PDF 落盘并写导出记录、按类型返回 MIME；合并 PDF 支持 `company_id` / `period_from` / `period_to` 筛选；导出统一排除打款记录（`payment_proof`）；删除 `FinancePackRequest.include_originals`。附言拆单支持费用项同义词（油费↔汽油等），一条月度汇总明细可分摊到同月多笔发票应收。
 
 **1.10.0 对齐应用 3.5.1**：到账草稿归属月自动推断：工资到账备注写明月份时草稿 `period` 默认该月，未写时按待结清工资最早欠发月推断，用户手填的不被重新识别覆盖；草稿详情新增 `period_source` / `period_suggestion`。附言拆单明细可完整编辑（费用项、归属月、应收、金额，可增删行），并区分同类别下的通行费/汽油费。
 
@@ -257,10 +259,11 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| GET | `/api/export/excel` | 按筛选导出明细 Excel。查询参数：`company_id`、`period_from`、`period_to`、`kind` |
-| GET | `/api/export/pdf` | 合并票据 PDF。查询参数：`ids`（逗号分隔的应收 id）、`batch_id` |
-| POST | `/api/export/finance-pack` | 财务包 ZIP，并写入导出记录 |
+| GET | `/api/export/excel` | 按筛选导出明细 Excel，落盘并写导出记录。查询参数：`company_id`、`period_from`、`period_to`、`kind` |
+| GET | `/api/export/pdf` | 合并票据 PDF，落盘并写导出记录。查询参数：`ids`（逗号分隔的应收 id）、`batch_id`、`company_id`、`period_from`、`period_to` |
+| POST | `/api/export/finance-pack` | 财务包 ZIP（封面+明细+合并 PDF+原件+截图），并写入导出记录 |
 | POST | `/api/export/attachments` | 仅打包原始附件 ZIP，并写入导出记录 |
+| 说明 | 所有导出均排除打款记录（`payment_proof` 银行回单/到账截图），只导出报销凭证 |
 | GET | `/api/export/records` | 最近 100 条导出记录（含文件哈希） |
 | GET | `/api/export/records/{record_id}/download` | 重新下载历史导出 |
 | GET | `/api/files/sign?kind=export` | 为导出记录签发限时下载链接 |
