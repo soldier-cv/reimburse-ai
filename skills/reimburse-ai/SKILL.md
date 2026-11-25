@@ -1,7 +1,7 @@
 ---
 name: reimburse-ai
 description: Use when 采集报销票据、维护个人对公应收台账、提交批次、核销到账或导出财务包。
-version: 1.9.0
+version: 1.10.0
 author: soldier-cv
 license: MIT
 metadata:
@@ -32,7 +32,7 @@ metadata:
 | 项 | 值 |
 |---|---|
 | 当前版本 | 见 frontmatter 的 `version` |
-| 对齐应用 | `3.5.0` 及以上 |
+| 对齐应用 | `3.5.1` 及以上 |
 | 更新源 | `http://100.64.0.88:8088/.well-known/skills/index.json` |
 | 安装根 | `http://100.64.0.88:8088/.well-known/skills/reimburse-ai/` |
 
@@ -48,6 +48,8 @@ print(s['version'], s['updated_at'])"
 # 升级（单文件）
 curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <你的技能目录>/reimburse-ai/SKILL.md
 ```
+
+**1.10.0 对齐应用 3.5.1**：到账草稿归属月自动推断：工资到账备注写明月份时草稿 `period` 默认该月，未写时按待结清工资最早欠发月推断，用户手填的不被重新识别覆盖；草稿详情新增 `period_source` / `period_suggestion`。附言拆单明细可完整编辑（费用项、归属月、应收、金额，可增删行），并区分同类别下的通行费/汽油费。
 
 **1.9.0 对齐应用 3.4.0**：新增 `POST /api/capture/confirm-and-submit`，把所选草稿确认入账后按同一归属月建批次并提交（要求归属月一致，两步各自提交）；`POST /api/batches/{batch_id}/payment` 新增可选 `amount` / `allocations`，支持只核销批次内部分应收，不传则整批按待收核销。
 
