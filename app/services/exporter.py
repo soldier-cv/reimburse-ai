@@ -96,9 +96,19 @@ def _receivable_sort_key(receivable: Receivable):
     return (receivable.occurred_on or "", receivable.id)
 
 
-def _attachments(receivable: Receivable) -> list[Attachment]:
+def _attachments(receivable: Receivable, include_payment_proof: bool = False) -> list[Attachment]:
+    """报销凭证附件；默认排除打款记录（payment_proof 银行回单/到账截图）。
+
+    打款记录是「公司已付款」的证明，不是「我垫钱消费」的票据，
+    导出给财务或归档都应排除，留在台账里供核对即可。
+    """
     return sorted(
-        [item for item in receivable.attachments if item.deleted_at is None],
+        [
+            item
+            for item in receivable.attachments
+            if item.deleted_at is None
+            and (include_payment_proof or item.kind != "payment_proof")
+        ],
         key=lambda item: (item.sort_order or 0, item.id),
     )
 

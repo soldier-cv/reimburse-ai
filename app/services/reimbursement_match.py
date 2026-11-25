@@ -19,6 +19,15 @@ ITEM_KEYWORDS = {
     "办公采购": ("办公", "文具", "打印", "耗材", "电脑", "数码", "京东", "淘宝"),
     "通讯补贴": ("话费", "通讯", "流量", "宽带"),
 }
+# 同义词组：附言里的费用项用词与发票事项用词常不同（如「油费」对应发票「汽油」），
+# 命中同义词即视为同一费用，避免单笔汇总明细匹配不到多笔发票应收。
+ITEM_SYNONYMS = (
+    ("油费", "汽油", "加油", "柴油", "燃油", "成品油"),
+    ("通行费", "过路费", "高速费", "高速通行费"),
+    ("住宿费", "住宿", "酒店", "宾馆"),
+    ("交通费", "打车", "滴滴", "出租", "网约车"),
+    ("餐饮费", "餐费", "餐饮", "招待"),
+)
 
 TARGET_STATUSES = ("submitted", "partial")
 
@@ -64,9 +73,16 @@ def _category_for_item(categories: list[Category], item: str) -> Category | None
 
 
 def _item_specific_keywords(item: str) -> list[str]:
-    """返回明细文字命中的具体费用关键词（如 通行费 / 汽油），用于区分同类别下的不同事项。"""
+    """返回明细文字对应的全部匹配关键词（含同义词），如「油费」→ 汽油/加油/柴油/燃油。"""
     text = (item or "").strip()
-    hits = []
+    hits: list[str] = []
+    # 先按同义词组扩展：附言用词与发票事项用词不同也能匹配
+    for group in ITEM_SYNONYMS:
+        if any(word in text for word in group):
+            for word in group:
+                if word not in hits:
+                    hits.append(word)
+    # 再叠加原有的具体关键词
     for keywords in ITEM_KEYWORDS.values():
         for keyword in keywords:
             if keyword in text and keyword not in hits:

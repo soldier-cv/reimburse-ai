@@ -225,7 +225,6 @@ class BatchReceivableDelete(BaseModel):
 class FinancePackRequest(BaseModel):
     receivable_ids: List[int] = Field(default_factory=list)
     batch_id: Optional[int] = None
-    include_originals: bool = True
     period: Optional[str] = None
     period_from: Optional[str] = None
     period_to: Optional[str] = None

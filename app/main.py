@@ -1,5 +1,6 @@
 import asyncio
 import calendar
+import hashlib
 import io
 import json
 import os
@@ -206,7 +207,7 @@ _ENABLE_DOCS = os.environ.get("ENABLE_API_DOCS", "").strip().lower() in ("1", "t
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="个人应收与报销管理台",
-    version="3.5.1",
+    version="3.5.2",
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -3205,6 +3206,52 @@ def _export_receivables_or_400(
     return receivables
 
 
+def _export_media_type(filename: str) -> str:
+    ext = os.path.splitext(filename or "")[1].lower()
+    return {
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".pdf": "application/pdf",
+    }.get(ext, "application/zip")
+
+
+def _record_single_export(
+    db: Session,
+    user: User,
+    kind: str,
+    receivables: list[Receivable],
+    content: bytes,
+    extension: str,
+    base_name: str,
+    batch_id: int | None = None,
+) -> dict:
+    """把单文件导出（xlsx/pdf）落盘并写 ExportRecord，供追溯与重新下载。"""
+    output_dir = user_dir(user.id, "exports")
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{base_name}_{timestamp}.{extension}"
+    path = os.path.join(output_dir, filename)
+    with open(path, "wb") as handle:
+        handle.write(content)
+    file_hash = hashlib.sha256(content).hexdigest()
+    record = ExportRecord(
+        user_id=user.id,
+        kind=kind,
+        company_id=receivables[0].company_id if receivables else None,
+        batch_id=batch_id,
+        receivable_ids=json.dumps([item.id for item in receivables]),
+        amount_cents=sum(item.amount_cents or 0 for item in receivables),
+        filename=filename,
+        stored_path=path,
+        file_size=len(content),
+        file_hash=file_hash,
+    )
+    db.add(record)
+    db.commit()
+    record_audit(db, user.id, "导出" + ("明细" if kind == "excel" else "合并票据"), "export", record.id,
+                 f"导出 {len(receivables)} 笔，合计 ¥{cents_to_text(record.amount_cents)}")
+    return {"id": record.id, "filename": filename, "path": path, "size": len(content)}
+
+
 @app.get("/api/export/excel")
 def export_excel(
     company_id: Optional[int] = None,
@@ -3226,13 +3273,11 @@ def export_excel(
     if not receivables:
         raise HTTPException(status_code=400, detail="没有可导出的数据")
     stream = build_excel(receivables, "应收明细表")
-    from urllib.parse import quote
-
-    filename = f"应收明细_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    return StreamingResponse(
-        stream,
+    info = _record_single_export(db, user, "excel", receivables, stream.getvalue(), "xlsx", "应收明细")
+    return FileResponse(
+        info["path"],
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=utf-8''{quote(filename)}"},
+        filename=info["filename"],
     )
 
 
@@ -3240,19 +3285,22 @@ def export_excel(
 def export_pdf(
     ids: str = "",
     batch_id: Optional[int] = None,
+    company_id: Optional[int] = None,
+    period_from: Optional[str] = None,
+    period_to: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     parsed_ids = [int(item) for item in ids.split(",") if item.strip().isdigit()]
-    receivables = _export_receivables_or_400(db, user, parsed_ids, batch_id)
+    receivables = _export_receivables_or_400(
+        db, user, parsed_ids, batch_id,
+        period_from=period_from, period_to=period_to, company_id=company_id,
+    )
     content = build_merged_pdf(receivables, db, include_cover=True)
     if not content:
         raise HTTPException(status_code=400, detail="没有可合并的附件")
-    return StreamingResponse(
-        io.BytesIO(content),
-        media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=merged_receipts.pdf"},
-    )
+    info = _record_single_export(db, user, "pdf", receivables, content, "pdf", "合并票据", batch_id=batch_id)
+    return FileResponse(info["path"], media_type="application/pdf", filename=info["filename"])
 
 
 @app.post("/api/export/finance-pack")
@@ -3342,7 +3390,7 @@ def download_export_record(record_id: int, user: User = Depends(get_current_user
     )
     if not record or not os.path.exists(record.stored_path):
         raise HTTPException(status_code=404, detail="导出文件不存在")
-    return FileResponse(record.stored_path, media_type="application/zip", filename=record.filename)
+    return FileResponse(record.stored_path, media_type=_export_media_type(record.filename), filename=record.filename)
 
 
 # ---------------------------------------------------------------------------
@@ -3582,7 +3630,7 @@ def download_signed_file(token: str, db: Session = Depends(get_db)):
     if kind == "export":
         row = db.query(ExportRecord).filter(ExportRecord.id == obj_id, ExportRecord.user_id == user_id).first()
         if row and os.path.exists(row.stored_path):
-            return FileResponse(row.stored_path, media_type="application/zip", filename=row.filename)
+            return FileResponse(row.stored_path, media_type=_export_media_type(row.filename), filename=row.filename)
     raise HTTPException(status_code=404, detail="文件不存在")
 
 
