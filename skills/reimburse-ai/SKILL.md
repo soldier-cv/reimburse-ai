@@ -1,7 +1,7 @@
 ---
 name: reimburse-ai
 description: Use when 采集报销票据、维护个人对公应收台账、提交批次、核销到账或导出财务包。
-version: 1.3.0
+version: 1.9.0
 author: soldier-cv
 license: MIT
 metadata:
@@ -22,7 +22,7 @@ metadata:
 
 - 采集发票、客票、小票、支付截图、工资条等凭证，核对后入账
 - 维护公司、类别、应收事项，把待提交的应收归集为批次并提交
-- 按分摊记录到账（含部分到账），或把工资到账截图核销到已有工资应收
+- 按分摊记录到账（含部分到账），把工资到账截图核销到已有工资应收，或把银行转账附言里的多条报销明细拆单核销
 - 导出 Excel、合并票据 PDF、财务包 ZIP，并重新下载历史导出
 
 **不要用**：个人消费、预算、账户余额；改密码、管账号、签发或吊销令牌、读写 AI 密钥；发票税务验真、退款红冲、多币种汇率。这些要么被接口拒绝，要么本服务根本不做。
@@ -32,7 +32,7 @@ metadata:
 | 项 | 值 |
 |---|---|
 | 当前版本 | 见 frontmatter 的 `version` |
-| 对齐应用 | `3.3.0` 及以上 |
+| 对齐应用 | `3.5.0` 及以上 |
 | 更新源 | `http://100.64.0.88:8088/.well-known/skills/index.json` |
 | 安装根 | `http://100.64.0.88:8088/.well-known/skills/reimburse-ai/` |
 
@@ -48,6 +48,18 @@ print(s['version'], s['updated_at'])"
 # 升级（单文件）
 curl -fsSL http://100.64.0.88:8088/.well-known/skills/reimburse-ai/SKILL.md -o <你的技能目录>/reimburse-ai/SKILL.md
 ```
+
+**1.9.0 对齐应用 3.4.0**：新增 `POST /api/capture/confirm-and-submit`，把所选草稿确认入账后按同一归属月建批次并提交（要求归属月一致，两步各自提交）；`POST /api/batches/{batch_id}/payment` 新增可选 `amount` / `allocations`，支持只核销批次内部分应收，不传则整批按待收核销。
+
+**1.8.0 对齐应用 3.4.0**：工资应收在 `status=submitted` / `partial` 时 `status_label` 显示为「待发薪」（`status` 字段不变），明确其不进提交批次、等待发薪登记；Web「记录到账」在填到账金额后勾选工资会按实发自动分摊并勾选按实发结清，差额记代扣。
+
+**1.7.0 对齐应用 3.4.0**：薪资计划的 `payday` 改为「次月 x 号」口径：归属月 2026-01、发薪日 15 生成的工资应收，其 `occurred_on` 与 `expected_on` 均为 2026-02-15（月末天数不足取当月最后一天）；归属月不变。
+
+**1.6.0 对齐应用 3.4.0**：`GET /api/batches` 新增 `status_value` / `company_id` / `period_from` / `period_to` / `overdue` / `q` 筛选，批次返回 `kind_label`；新增 `POST /api/capture/drafts/batch-retry`、`POST /api/capture/drafts/batch-delete`（批量重识别/丢弃草稿，已入账跳过）、`POST /api/receivables/batch-delete`（批量软删待提交/被驳回应收，已提交或已到账跳过）。Web 端收件箱与台账提供对应批量按钮，批次卡片独立展示归属月与类型。
+
+**1.5.0 对齐应用 3.4.0**：薪资计划生成的工资应收默认状态改为 `submitted`（已提交），不需要归集批次，直接等待发薪核销；同一公司同一归属月仍不重复生成。`apply_amount_to_pending` 改为同步未发薪、未归集且金额未被核销的工资应收。工资截图核销与拆单核销不受影响。
+
+**1.4.0 对齐应用 3.4.0**：到账截图新增「按附言拆单核销」：AI 从银行/支付宝汇入汇款附言拆出多条费用明细，草稿带 `reimbursement_match`，按「公司 + 归属月 + 费用项/类别」匹配已提交或部分到账的报销应收，一笔到账分摊到多笔应收；任一条匹配不到或超待收则整笔阻止。工资语义优先，仍走 `payroll_match`，不受影响。截图原件挂到每笔被核销的应收。
 
 **1.3.0 对齐应用 3.4.0**：工资改为税前挂账、实发结清、差额记核销（代扣）。`PaymentAllocation` 新增 `waive`；应收返回体新增 `waived_cents` / `waived`；批次到账跳过工资项并在 `skipped_payroll` 里返回；工资截图推断优先用历史实发金额。
 
@@ -136,7 +148,7 @@ Agent 的 POST / PUT / PATCH / DELETE 按令牌 ID 限流：每分钟 60 次，�
 
 | 范围 | 覆盖路径 | 能做什么 |
 |---|---|---|
-| `capture` | `/api/capture` 及其子路径 | 上传采集、列/改/删草稿、重试识别、看原件/缩略图/预览、确认入账、工资到账截图核销 |
+| `capture` | `/api/capture` 及其子路径 | 上传采集、列/改/删草稿、重试识别、看原件/缩略图/预览、确认入账、工资到账截图核销、银行转账附言拆单核销 |
 | `ledger` | `/api/companies`、`/api/categories`、`/api/receivables`、`/api/batches`、`/api/payments`、`/api/dashboard`、`/api/attachments`、`/api/payroll-plans`、`/api/audit-logs`；以及 `GET /api/files/sign?kind=attachment`（或未传 / 非 `export` 的 `kind`） | 公司与类别、应收台账、附件与预览、批次（含撤回与草稿增删）、到账、看板、薪资计划、本用户审计日志、为附件签发下载链接 |
 | `export` | `/api/export` 及其子路径；以及 `GET /api/files/sign?kind=export` | Excel、合并 PDF、财务包、按应收/批次/月份打包原件、导出记录与下载、为导出文件签发下载链接 |
 
@@ -180,12 +192,15 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 | GET | `/api/capture/drafts` | 列草稿。查询参数：`status_value`、`limit`（默认 60，最大 200）。不传 `status_value` 时返回 `pending` / `processing` / `ready` / `failed`，不含已入账 |
 | PATCH | `/api/capture/drafts/{draft_id}` | 核对并改草稿字段（含独立 `period`） |
 | POST | `/api/capture/drafts/{draft_id}/retry` | 重新识别（不复用同文件历史结果） |
+| POST | `/api/capture/drafts/batch-retry` | 批量重识别 `{draft_ids}`，已入账的跳过 |
 | DELETE | `/api/capture/drafts/{draft_id}` | 丢弃未入账草稿 |
+| POST | `/api/capture/drafts/batch-delete` | 批量丢弃 `{draft_ids}`，已入账的跳过；只删草稿，不删台账已入账的应收 |
 | GET | `/api/capture/drafts/{draft_id}/thumb` | 缩略图 |
 | GET | `/api/capture/drafts/{draft_id}/file` | 原件（inline） |
 | GET | `/api/capture/drafts/{draft_id}/preview` | 在线预览 JPEG。查询参数 `page`（从 1 起）。响应头 `X-Preview-Page`、`X-Preview-Pages`、`X-Preview-Kind`。OFD 返回 400 |
 | POST | `/api/capture/confirm` | 确认入账，生成应收与附件；可追加到已有应收；可传 `period` 指定整组归属月 |
-| POST | `/api/capture/drafts/{draft_id}/apply-payment` | 把到账截图核销到已有应收（主要为工资到账） |
+| POST | `/api/capture/confirm-and-submit` | 一键：确认入账后按同一归属月建批次并提交（归属月须一致；重复警告可选 `force`） |
+| POST | `/api/capture/drafts/{draft_id}/apply-payment` | 把到账截图核销到已有应收：工资走备注月份推断，其余按 AI 拆出的附言明细核销到已提交报销应收 |
 
 ### 5.2 台账（`ledger`）
 
@@ -204,12 +219,13 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 | POST | `/api/receivables` | 手工新建应收 |
 | PUT | `/api/receivables/{receivable_id}` | 修改应收 |
 | DELETE | `/api/receivables/{receivable_id}` | 软删（已提交或已有到账则拒绝；已提交只能放弃并传 `reason`） |
+| POST | `/api/receivables/batch-delete` | 批量软删 `{receivable_ids}`，已提交或已有到账的跳过并在 `skipped` 里返回原因 |
 | POST | `/api/receivables/{receivable_id}/attachments` | 给已有应收补传附件 |
 | DELETE | `/api/attachments/{attachment_id}` | 软删附件 |
 | GET | `/api/attachments/{attachment_id}/file` | 附件原件 |
 | GET | `/api/attachments/{attachment_id}/thumb` | 附件缩略图（小图，不会返回原图） |
 | GET | `/api/attachments/{attachment_id}/preview` | 附件在线预览，参数与草稿预览相同 |
-| GET | `/api/batches` | 列批次 |
+| GET | `/api/batches` | 列批次；可加 `status_value` / `company_id` / `period_from` / `period_to` / `overdue=true` / `q` 筛选，返回体含 `kind_label` |
 | POST | `/api/batches` | 按公司归集应收；传 `submit: true` 时同一次请求内完成提交。所选应收归属月必须一致 |
 | GET | `/api/batches/{batch_id}` | 批次详情（含 `can_unsubmit`、`can_cancel`、`can_edit_items`、`has_payments`） |
 | PUT | `/api/batches/{batch_id}` | 改标题、期间、预计到账日、备注（归属月仅草稿可改） |
@@ -217,17 +233,17 @@ JSON 接口使用 `Content-Type: application/json`。上传接口使用 `multipa
 | POST | `/api/batches/{batch_id}/unsubmit` | 撤回提交（仅未到账；body 必须有 `reason`），批次回到草稿，应收回到待提交 |
 | POST | `/api/batches/{batch_id}/items` | 草稿批次增删应收：`{add_ids, remove_ids}` |
 | POST | `/api/batches/{batch_id}/cancel` | 取消批次（未到账），应收退回待提交并解绑 |
-| POST | `/api/batches/{batch_id}/payment` | 按待收余额一次性结清该批的报销项；工资项跳过并在 `skipped_payroll` 返回。`paid_on` 可选，空则默认当天（上海时区） |
+| POST | `/api/batches/{batch_id}/payment` | 默认按待收余额整批结清报销项；传 `amount` + `allocations` 可只核销部分应收（合计须等于到账金额）。工资项跳过并在 `skipped_payroll` 返回。`paid_on` 可选，空则默认当天（上海时区） |
 | GET | `/api/payments` | 列到账 |
 | POST | `/api/payments` | 记录到账并分摊；分摊项可传 `waive: true`，把本次未收到的差额记为核销差额（工资代扣） |
 | GET | `/api/payments/{payment_id}` | 到账详情（含分摊到的应收） |
 | DELETE | `/api/payments/{payment_id}` | 删除到账并回退应收状态 |
 | GET | `/api/dashboard` | 看板 KPI、公司待收、账龄、近 6 个月趋势、类别占比、逾期清单、`todos` 待办（不自动补齐工资，补齐请 `POST /api/payroll-plans/sync`） |
 | GET | `/api/payroll-plans` | 列薪资计划 |
-| POST | `/api/payroll-plans` | 新建计划：`company_id`、`amount`（元，**税前应发**）、`payday`、`effective_from`、可选 `effective_to` / `category_id` / `note`。同一公司有效区间不能重叠 |
+| POST | `/api/payroll-plans` | 新建计划：`company_id`、`amount`（元，**税前应发**）、`payday`（次月 x 号发薪）、`effective_from`、可选 `effective_to` / `category_id` / `note`。同一公司有效区间不能重叠 |
 | PUT | `/api/payroll-plans/{plan_id}` | 修改计划；改 `amount` 时可传 `apply_amount_to_pending: true`，只更新本计划生成、`status=pending` 且未进批次的工资应收，响应 `updated_receivables` 给出笔数 |
 | DELETE | `/api/payroll-plans/{plan_id}` | 停发（不再生成，已生成的工资应收保留） |
-| POST | `/api/payroll-plans/sync` | 补齐该用户所有有效计划的缺失月份，同一公司同一归属月不重复 |
+| POST | `/api/payroll-plans/sync` | 补齐该用户所有有效计划的缺失月份，生成的工资默认已提交；同一公司同一归属月不重复 |
 | GET | `/api/audit-logs` | 本用户审计。`limit` 默认 100，最大 500 |
 | GET | `/api/files/sign` | 签发限时下载链接。查询参数：`kind`、`obj_id` |
 
@@ -478,25 +494,27 @@ curl -sS -X POST "$BASE/api/batches/7/payment" -H "$H" -H 'Content-Type: applica
 
 删除到账会按分摊回退已收金额，并把应收退回 `partial` / `submitted`（仍在批次中）或 `pending`。
 
-### 6.8 工资到账截图核销
+### 6.8 到账截图核销（工资与附言拆单）
 
-采集到账类截图且识别 `direction=in` 时，草稿会带 `is_inflow` 与 `payroll_match`。确认前若这是工资入账而不是一笔新的应收，应走核销接口，而不是 `POST /api/capture/confirm`。
+采集到账类截图且识别 `direction=in` 时，草稿会带 `is_inflow`。确认前若这是已到账的钱而不是一笔新的应收，应走核销接口，而不是 `POST /api/capture/confirm`。**分流由 AI 判定**：`doc_type=salary` 或备注含工资/薪资/奖金等语义走 `payroll_match`（工资核销）；其余到账按 AI 拆出的 `entries` 走 `reimbursement_match`（附言拆单）。
 
 ```bash
-# 不传 allocations 时使用推断（备注月份 → 最早欠发顺序 → 金额约等于历史实发倍数）
-# 推断出的分摊自带 waive，按实发结清并把差额记为代扣
+# 不传 allocations 时使用推断，合计必须等于草稿到账金额
 curl -sS -X POST "$BASE/api/capture/drafts/20/apply-payment" -H "$H" \
   -H 'Content-Type: application/json' -d '{"note":""}'
 
-# 或手工指定分摊（元），合计必须等于草稿到账金额
+# 或手工指定分摊（元）
+# 工资可传 waive:true 按实发结清并把差额记为代扣；报销拆单不要传 waive
 curl -sS -X POST "$BASE/api/capture/drafts/20/apply-payment" -H "$H" \
   -H 'Content-Type: application/json' \
   -d '{"allocations":[{"receivable_id":55,"amount":"8000.00","waive":true}],"note":"11月工资"}'
 ```
 
-工资应收的 `amount` 是税前，`received` 是实发。传 `waive: true` 表示按实发结清：本次没收到的差额写进 `waived_cents` 并标记为代扣，应收转为 `paid`、待收归零；不传则按普通部分到账处理，剩下的继续挂着。报销类不要传 `waive`，除非公司确实少付且你确认不再追收。
+**工资核销**：按备注月份 → 最早欠发顺序 → 金额约等于历史实发倍数推断；应收的 `amount` 是税前、`received` 是实发，`waive: true` 把差额写进 `waived_cents` 并标记代扣，待收归零；不传则按普通部分到账处理。
 
-前置条件：草稿未入账、不在识别中、已选公司、已有到账金额。识别中返回 409。推断失败或推断合计与到账金额不一致时 400，`detail` 可能含 `proposal`。成功后写入到账记录，把截图挂到被核销的第一笔应收，草稿标为 `confirmed`。幂等键固定为 `capture-draft-{草稿id}`，重复调用不会再记一笔到账。该接口本身不强制 `doc_type=salary` 或 `direction=in`，但业务上只应用于到账截图。
+**附言拆单核销**：适用于「通行费：2月512.30、3月876.5、4月801.20」这类一笔转账覆盖多条费用明细的截图。AI 在 `entries` 里逐条给出 `period` / `item` / `amount` / `confidence`（归属月按上下文推断，把握度低会提示核对）。草稿详情的 `reimbursement_match` 给出 `{allocations, issues, total_cents}`：每条按**同公司 + 同归属月 + 费用项/类别**匹配 `submitted` / `partial` 的报销应收，分摊金额不得超过待收。任一条匹配不到、归属月无法识别或超待收时，`issues` 会列明原因并**整笔阻止**核销（400，`detail.proposal`）；请先补建并提交对应月份的应收。传显式 `allocations` 时会复核状态、归属月/费用项与待收，失败返回 400 `detail.issues`。
+
+前置条件：草稿未入账、不在识别中、已选公司、已有到账金额。识别中返回 409。成功后写入一笔到账记录，截图原件挂到**每笔**被核销的应收（`payment_proof`），草稿标为 `confirmed`。幂等键固定为 `capture-draft-{草稿id}`，重复调用不会再记一笔。该接口本身不强制 `doc_type` 或 `direction`，但业务上只应用于到账截图。
 
 ### 6.9 看板
 
@@ -562,8 +580,9 @@ Agent 必须遵守，不要靠猜测绕过：
 - **逾期不单独存状态**：已提交或部分到账，且今天晚于预计到账日，即为逾期；`days_overdue` 按此实时计算。
 - 待收 = 应收金额 - 已收金额；草稿、被驳回、已放弃不计入。
 - 一笔应收只属于一个批次；只有待提交或被驳回的可以归集，且同一批次归属月必须一致。
-- 薪资计划按月生成待提交工资应收，须先 `POST /api/payroll-plans/sync` 再依赖当月工资记录；不要为同一公司同一归属月重复创建工资应收。
+- 薪资计划按月生成**已提交**工资应收（不需要归集批次），须先 `POST /api/payroll-plans/sync` 再依赖当月工资记录；不要为同一公司同一归属月重复创建工资应收。改月薪时 `apply_amount_to_pending` 只同步未发薪、未归集且无核销差额的记录。
 - **分摊合计必须等于到账金额**；单笔分摊不得超过该应收待收余额；不能重复分摊同一笔；只能核销同一家公司的未关闭应收。
+- 附言拆单只能核销 `submitted` / `partial` 的报销应收，按归属月 + 费用项/类别匹配；匹配不到或超待收时整笔阻止，待提交应收不能作拆单目标。
 - 删除到账会回退已收与状态；删除已有到账的应收会被拒绝，须先删到账。
 - 所有业务查询都隔离在令牌所属用户；访问他人资源返回 404 或空列表，不会串账。
 
@@ -594,7 +613,8 @@ Agent 必须遵守，不要靠猜测绕过：
 | 采集图片 / PDF / ZIP，后台识别后确认入账 | 支持 |
 | 追加附件到已有应收、部分到账、批次提交与核销 | 支持 |
 | 工资到账截图推断并核销 | 支持（建议，不自动入账） |
-| 薪资计划按月补齐待提交工资应收 | 支持（调用 sync，不靠后台定时任务） |
+| 银行转账附言拆单核销到已提交报销应收 | 支持（建议，不自动入账；缺匹配则整笔阻止） |
+| 薪资计划按月补齐已提交工资应收，同月不重复 | 支持（调用 sync，不靠后台定时任务） |
 | 在线预览图片与 PDF | 支持；OFD 不支持在线预览 |
 | 导出 Excel、合并 PDF、财务包，按月份打包原件 | 支持，导出记录可追溯 |
 | 读取 AI 是否启用与模型名称 | 支持（`/api/settings/ai/summary`，不含密钥） |
