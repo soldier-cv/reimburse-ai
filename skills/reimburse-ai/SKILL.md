@@ -32,7 +32,7 @@ metadata:
 | 项 | 值 |
 |---|---|
 | 当前版本 | 见 frontmatter 的 `version` |
-| 对齐应用 | `3.5.2` 及以上 |
+| 对齐应用 | `3.5.3` 及以上 |
 | 更新源 | `http://100.64.0.88:8088/.well-known/skills/index.json` |
 | 安装根 | `http://100.64.0.88:8088/.well-known/skills/reimburse-ai/` |
 
